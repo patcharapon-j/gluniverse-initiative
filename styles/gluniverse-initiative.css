@@ -25,6 +25,7 @@
   font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
   letter-spacing: 0;
   pointer-events: none;
+  contain: layout style;
   transform: translateZ(0);
 }
 
@@ -48,6 +49,7 @@
   padding: 0;
   background: transparent;
   border: 0;
+  contain: layout style;
   box-shadow: none;
 }
 
@@ -56,10 +58,10 @@
   z-index: 24;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   min-height: 24px;
   gap: 6px;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .gluni-drag-handle {
@@ -75,6 +77,7 @@
   box-shadow: inset 0 0 0 1px var(--gluni-line);
   color: var(--gluni-white);
   cursor: grab;
+  pointer-events: auto;
   clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px);
   transition: box-shadow var(--gluni-d-quick) var(--gluni-ease);
 }
@@ -160,42 +163,61 @@
 }
 
 .gluni-round-chip {
+  position: absolute;
+  top: 32px;
+  z-index: 16;
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  min-width: 80px;
-  height: 22px;
-  padding: 0 9px 0 8px;
-  background: var(--gluni-ink);
+  justify-content: center;
+  gap: 5px;
+  box-sizing: border-box;
+  width: 18px;
+  min-width: 0;
+  height: 132px;
+  padding: 8px 0;
+  pointer-events: none;
+  background: rgba(2, 7, 11, 0.86);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--gluni-cyan) 38%, var(--gluni-line) 62%),
-    inset 0 1px 0 color-mix(in srgb, var(--gluni-cyan) 56%, transparent);
-  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
+    inset 0 0 12px rgba(94, 234, 255, 0.1);
+  clip-path: none;
+}
+
+.gluni-initiative--left .gluni-round-chip {
+  right: calc(100% + 6px);
+}
+
+.gluni-initiative--right .gluni-round-chip {
+  left: calc(100% + 6px);
 }
 
 .gluni-round-chip-label {
   color: var(--gluni-text-dim);
-  font-size: 8px;
+  font-size: 7px;
   font-weight: 950;
   line-height: 1;
-  letter-spacing: 0.32em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
+  text-orientation: mixed;
+  writing-mode: vertical-rl;
 }
 
 .gluni-round-chip-divider {
   width: 1px;
-  height: 12px;
+  height: 28px;
   background: var(--gluni-line-strong);
 }
 
 .gluni-round-chip-num {
   color: var(--gluni-cyan);
-  font-size: 16px;
+  font-size: 12px;
   font-weight: 950;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
+  text-orientation: upright;
+  writing-mode: vertical-rl;
 }
 
 .gluni-rail,
@@ -205,6 +227,10 @@
   z-index: 1;
   display: grid;
   gap: 5px;
+}
+
+.gluni-rail {
+  padding-top: 42px;
 }
 
 .gluni-card {
@@ -228,6 +254,7 @@
   justify-self: stretch;
   width: 100%;
   min-height: 58px;
+  contain: layout style;
   background: var(--gluni-ink);
   box-shadow: inset 0 0 0 1px var(--gluni-line);
   clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
@@ -318,6 +345,7 @@
   inset: 0;
   z-index: 1;
   overflow: hidden;
+  contain: layout paint style;
   transition:
     top var(--gluni-d-card) var(--gluni-snap),
     height var(--gluni-d-card) var(--gluni-snap),
@@ -364,6 +392,75 @@
     text-shadow var(--gluni-d-quick) var(--gluni-ease);
 }
 
+.gluni-card-adhoc-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--gluni-accent, var(--gluni-cyan));
+  background:
+    radial-gradient(circle at 50% 48%, color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 16%, transparent), transparent 48%),
+    linear-gradient(135deg, rgba(2, 7, 11, 0.96), rgba(5, 12, 18, 0.9));
+  pointer-events: none;
+}
+
+.gluni-card-adhoc-repeat {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  align-content: space-around;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--gluni-accent, var(--gluni-cyan));
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.18em;
+  line-height: 1.1;
+  opacity: 0.13;
+  padding: 8px 0;
+  pointer-events: none;
+  text-transform: uppercase;
+  transform: translateX(0);
+  animation: gluni-adhoc-repeat-drift 12s linear infinite;
+}
+
+.gluni-card-adhoc-repeat-line {
+  display: flex;
+  gap: 18px;
+  min-width: max-content;
+  white-space: nowrap;
+}
+
+.gluni-card-adhoc-repeat-line--alt {
+  transform: translateX(-38px);
+}
+
+.gluni-card-adhoc-repeat-line span {
+  flex: 0 0 auto;
+}
+
+.gluni-card-adhoc-bg i {
+  opacity: 0.24;
+  font-size: 54px;
+  line-height: 1;
+  text-shadow:
+    0 0 22px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 62%, transparent),
+    0 10px 28px rgba(0, 0, 0, 0.9);
+  transform: translateY(-1px);
+}
+
+.gluni-card--active .gluni-card-adhoc-bg {
+  inset: -42px 0 0 0;
+}
+
+.gluni-card--active .gluni-card-adhoc-bg i {
+  opacity: 0.28;
+  font-size: 104px;
+  transform: translateY(-8px);
+}
 
 .gluni-card-content {
   position: relative;
@@ -385,6 +482,7 @@
 }
 
 .gluni-active-tag,
+.gluni-adhoc-tag,
 .gluni-delayed-tag {
   display: inline-flex;
   align-items: center;
@@ -397,6 +495,12 @@
   letter-spacing: 0.22em;
   line-height: 1;
   clip-path: polygon(2px 0, 100% 0, 100% 100%, 0 100%, 0 2px);
+}
+
+.gluni-adhoc-tag {
+  color: var(--gluni-accent, var(--gluni-cyan));
+  background: rgba(2, 7, 11, 0.55);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 66%, transparent);
 }
 
 .gluni-delayed-tag {
@@ -451,9 +555,9 @@
   background: var(--gluni-ink);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 60%, var(--gluni-line) 40%);
   clip-path: polygon(
-    0 -28px,
-    calc(100% - 14px) -28px,
-    100% calc(-28px + 14px),
+    0 -42px,
+    calc(100% - 14px) -42px,
+    100% calc(-42px + 14px),
     100% 100%,
     0 100%
   );
@@ -465,7 +569,7 @@
 }
 
 .gluni-card--active .gluni-card-bracket {
-  top: -22px;
+  top: -34px;
   border-top-color: var(--gluni-accent, var(--gluni-cyan));
   border-left-color: var(--gluni-accent, var(--gluni-cyan));
 }
@@ -491,8 +595,8 @@
 }
 
 .gluni-card--active .gluni-card-portrait-wrap {
-  top: -28px;
-  height: calc(100% + 28px);
+  top: -42px;
+  height: calc(100% + 42px);
   clip-path: polygon(
     0 0,
     calc(100% - 14px) 0,
@@ -522,6 +626,42 @@
   mask-image: linear-gradient(to top, #000 0%, rgba(0, 0, 0, 0.82) 48%, transparent 100%);
 }
 
+.gluni-card--active::after {
+  content: "";
+  position: absolute;
+  inset: -42px 0 0 0;
+  z-index: 3;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      95deg,
+      color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 16%, transparent) 0 1px,
+      transparent 1px 100%
+    ) 0 0 / 30px 30px,
+    linear-gradient(
+      35deg,
+      transparent 0 46%,
+      color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 18%, transparent) 46% 48%,
+      transparent 48% 100%
+    ) 0 0 / 34px 26px,
+    linear-gradient(
+      145deg,
+      transparent 0 51%,
+      color-mix(in srgb, var(--gluni-white) 10%, transparent) 51% 53%,
+      transparent 53% 100%
+    ) 10px 6px / 34px 26px,
+    radial-gradient(
+      circle at 68% 26%,
+      color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 14%, transparent),
+      transparent 42%
+    );
+  opacity: 0.34;
+  transform: translate3d(0, 0, 0);
+  animation: gluni-active-triangle-field 8s linear infinite;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.86), rgba(0, 0, 0, 0.42) 66%, transparent 100%);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.86), rgba(0, 0, 0, 0.42) 66%, transparent 100%);
+}
+
 .gluni-initiative--left .gluni-card--active::before {
   background: linear-gradient(
     -95deg,
@@ -529,6 +669,29 @@
     rgba(2, 5, 8, 0.42) 68%,
     rgba(2, 5, 8, 0)
   );
+}
+
+.gluni-initiative--left .gluni-card--active::after {
+  animation-name: gluni-active-triangle-field-left;
+}
+
+.gluni-card--active.gluni-card--adhoc {
+  overflow: hidden;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+}
+
+.gluni-card--active.gluni-card--adhoc .gluni-card-bracket {
+  top: 6px;
+}
+
+.gluni-card--active.gluni-card--adhoc .gluni-card-adhoc-bg,
+.gluni-card--active.gluni-card--adhoc::after {
+  inset: 0;
+}
+
+.gluni-card--active.gluni-card--adhoc .gluni-card-adhoc-repeat {
+  font-size: 12px;
+  opacity: 0.16;
 }
 
 
@@ -542,9 +705,38 @@
     0 14px 36px rgba(0, 0, 0, 0.9);
 }
 
+.gluni-card--adhoc .gluni-card-content {
+  min-height: 66px;
+  padding-top: 13px;
+  padding-bottom: 13px;
+}
+
+.gluni-card--adhoc h3 {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.08;
+  text-overflow: clip;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.gluni-card--active.gluni-card--adhoc .gluni-card-content {
+  min-height: 124px;
+  align-content: end;
+  padding-bottom: 14px;
+}
+
 .gluni-card--active h3 {
   font-size: 16px;
   letter-spacing: 0.08em;
+}
+
+.gluni-card--active.gluni-card--adhoc h3 {
+  font-size: 20px;
+  line-height: 1.02;
+  -webkit-line-clamp: 3;
 }
 
 .gluni-card--active .gluni-initiative-badge {
@@ -679,32 +871,49 @@
 
 .gluni-card-controls {
   position: absolute;
-  inset: auto 6px 6px auto;
+  inset: 3px 4px 3px auto;
   z-index: 10;
-  display: flex;
-  gap: 3px;
+  display: grid;
+  grid-template-columns: repeat(2, 16px);
+  grid-auto-rows: 16px;
+  justify-content: flex-end;
+  align-content: end;
+  gap: 2px;
+  box-sizing: border-box;
+  max-height: calc(100% - 6px);
+  overflow: hidden;
   opacity: 0;
-  transform: translateY(3px);
+  transform: translateX(3px);
   transition:
     opacity 140ms var(--gluni-ease),
     transform 140ms var(--gluni-ease);
 }
 
 .gluni-initiative--left .gluni-card-controls {
-  inset: auto auto 6px 6px;
+  inset: 3px auto 3px 4px;
+  transform: translateX(-3px);
 }
 
 .gluni-card:hover .gluni-card-controls,
 .gluni-card:focus-within .gluni-card-controls {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateX(0);
+}
+
+.gluni-initiative--gm .gluni-card-content {
+  padding-right: 46px;
+}
+
+.gluni-initiative--left.gluni-initiative--gm .gluni-card-content {
+  padding-right: 9px;
+  padding-left: 46px;
 }
 
 .gluni-card-controls button {
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: 0;
   background: rgba(3, 8, 12, 0.82);
@@ -712,6 +921,7 @@
   color: rgba(243, 251, 255, 0.86);
   cursor: pointer;
   clip-path: polygon(3px 0, 100% 0, 100% 100%, 0 100%, 0 3px);
+  font-size: 9px;
   transition:
     background var(--gluni-d-quick) var(--gluni-ease),
     color var(--gluni-d-quick) var(--gluni-ease);
@@ -821,6 +1031,16 @@
 
 .gluni-item--flipping {
   will-change: transform;
+}
+
+.gluni-card--active-entering,
+.gluni-card--active-entering .gluni-card-portrait,
+.gluni-card-ghost {
+  will-change: transform, opacity;
+}
+
+.gluni-card--active::after {
+  will-change: transform, opacity;
 }
 
 .gluni-card-sheen {
@@ -1324,12 +1544,78 @@
   animation-delay: 0ms;
 }
 
-.gluni-portrait-dialog .window-content {
+.gluni-portrait-dialog .window-content,
+.gluni-adhoc-dialog .window-content {
   color: var(--gluni-white);
   background:
     linear-gradient(135deg, rgba(5, 9, 13, 0.96), rgba(12, 22, 30, 0.94)),
     radial-gradient(circle at 78% 12%, rgba(94, 234, 255, 0.12), transparent 34%);
   font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+}
+
+.gluni-adhoc-form {
+  display: grid;
+  gap: 11px;
+}
+
+.gluni-adhoc-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.gluni-adhoc-field {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.gluni-adhoc-field span {
+  color: rgba(243, 251, 255, 0.72);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.gluni-adhoc-field input,
+.gluni-adhoc-field select {
+  width: 100%;
+  height: 30px;
+  border: 1px solid rgba(224, 246, 255, 0.2);
+  border-radius: 4px;
+  color: var(--gluni-white);
+  background: rgba(0, 0, 0, 0.42);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.gluni-adhoc-field input {
+  padding: 0 8px;
+}
+
+.gluni-adhoc-field select {
+  padding: 0 6px;
+}
+
+.gluni-adhoc-icon-input {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+}
+
+.gluni-adhoc-icon-input i {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 30px;
+  color: var(--gluni-cyan);
+  background: rgba(2, 7, 11, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(94, 234, 255, 0.26);
+  font-size: 15px;
 }
 
 .gluni-portrait-config-form {
@@ -1405,7 +1691,7 @@
 .gluni-card--frame-preview-expanded {
   width: 200px;
   min-height: 108px;
-  margin-top: 24px;
+  margin-top: 42px;
 }
 
 .gluni-card--frame-preview .gluni-card-portrait,
@@ -1518,6 +1804,48 @@
     opacity: 1;
     transform: translateY(0) translateX(var(--gluni-active-shift)) scale(var(--gluni-card-scale));
     filter: blur(0);
+  }
+}
+
+@keyframes gluni-active-triangle-field {
+  0% {
+    opacity: 0.26;
+    transform: translate3d(-8px, -4px, 0);
+  }
+
+  42% {
+    opacity: 0.42;
+  }
+
+  100% {
+    opacity: 0.26;
+    transform: translate3d(20px, 14px, 0);
+  }
+}
+
+@keyframes gluni-active-triangle-field-left {
+  0% {
+    opacity: 0.26;
+    transform: translate3d(8px, -4px, 0);
+  }
+
+  42% {
+    opacity: 0.42;
+  }
+
+  100% {
+    opacity: 0.26;
+    transform: translate3d(-20px, 14px, 0);
+  }
+}
+
+@keyframes gluni-adhoc-repeat-drift {
+  0% {
+    transform: translateX(-18px);
+  }
+
+  100% {
+    transform: translateX(18px);
   }
 }
 
@@ -1910,10 +2238,22 @@
 
   .gluni-card-sheen,
   .gluni-card-sheen::after,
+  .gluni-card-adhoc-repeat,
+  .gluni-card--active::after,
   .gluni-card:not(.gluni-card--active)::after {
     animation: none !important;
-    opacity: 0 !important;
     transition: none !important;
+  }
+
+  .gluni-card-sheen,
+  .gluni-card-sheen::after,
+  .gluni-card:not(.gluni-card--active)::after {
+    opacity: 0 !important;
+  }
+
+  .gluni-card--active::after {
+    opacity: 0.18 !important;
+    transform: none !important;
   }
 
   .gluni-card-ghost--leave.gluni-card-ghost--left,

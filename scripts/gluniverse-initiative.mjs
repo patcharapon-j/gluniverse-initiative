@@ -13,7 +13,9 @@ const SETTINGS = {
 const FLAGS = {
   visibility: "visibility",
   manualDelayed: "manualDelayed",
-  portraitFrame: "portraitFrame"
+  portraitFrame: "portraitFrame",
+  adhoc: "adhoc",
+  adhocActor: "adhocActor"
 };
 
 const VISIBILITY = {
@@ -23,10 +25,148 @@ const VISIBILITY = {
   mystery: "mystery"
 };
 
+const LOCALIZATION_FALLBACKS = Object.freeze({
+  "GLUNI.Controls.Auto": "Auto",
+  "GLUNI.Controls.Delay": "Delay",
+  "GLUNI.Controls.EndTurn": "End turn",
+  "GLUNI.Controls.Hidden": "Hide",
+  "GLUNI.Controls.Mystery": "Mystery",
+  "GLUNI.Controls.NextTurn": "Next turn",
+  "GLUNI.Controls.PreviousTurn": "Previous turn",
+  "GLUNI.Controls.Return": "Return",
+  "GLUNI.Controls.TurnControls": "Turn controls",
+  "GLUNI.Controls.Visible": "Show",
+  "GLUNI.AdHoc.Add": "Add ad hoc initiative",
+  "GLUNI.AdHoc.Create": "Create",
+  "GLUNI.AdHoc.Delete": "Delete ad hoc initiative",
+  "GLUNI.AdHoc.DeleteConfirm": "Delete ad hoc initiative entry \"{name}\"?",
+  "GLUNI.AdHoc.DefaultName": "Ad Hoc Trigger",
+  "GLUNI.AdHoc.DialogTitle": "Ad Hoc Initiative",
+  "GLUNI.AdHoc.Icon": "Icon",
+  "GLUNI.AdHoc.Initiative": "Initiative",
+  "GLUNI.AdHoc.Lifecycle": "Duration",
+  "GLUNI.AdHoc.Name": "Name",
+  "GLUNI.AdHoc.NameRequired": "Ad hoc initiative needs a name.",
+  "GLUNI.AdHoc.OneShot": "One shot",
+  "GLUNI.AdHoc.Persistent": "Persistent",
+  "GLUNI.AdHoc.Round": "Round",
+  "GLUNI.AdHoc.Type": "Type",
+  "GLUNI.AdHoc.Type.Effect": "Effect",
+  "GLUNI.AdHoc.Type.Environment": "Environment",
+  "GLUNI.AdHoc.Type.Hazard": "Hazard",
+  "GLUNI.AdHoc.Type.NPC": "NPC",
+  "GLUNI.AdHoc.Visibility": "Visibility",
+  "GLUNI.Delayed": "Delayed",
+  "GLUNI.PortraitConfig.ActiveCard": "Active card",
+  "GLUNI.PortraitConfig.Button": "Frame",
+  "GLUNI.PortraitConfig.Expanded": "Expanded",
+  "GLUNI.PortraitConfig.Hint": "Tune how this actor's image is cropped in normal and active initiative cards. Right-drag a preview to reposition; use the mouse wheel over a preview to adjust zoom.",
+  "GLUNI.PortraitConfig.Normal": "Normal",
+  "GLUNI.PortraitConfig.NormalCard": "Idle card",
+  "GLUNI.PortraitConfig.Open": "Configure initiative portrait",
+  "GLUNI.PortraitConfig.PositionX": "X",
+  "GLUNI.PortraitConfig.PositionY": "Y",
+  "GLUNI.PortraitConfig.PreviewHint": "Right-drag to reposition. Mouse wheel adjusts zoom.",
+  "GLUNI.PortraitConfig.Reset": "Reset",
+  "GLUNI.PortraitConfig.Save": "Save",
+  "GLUNI.PortraitConfig.Scale": "Zoom",
+  "GLUNI.PortraitConfig.Title": "{name} Initiative Portrait",
+  "GLUNI.Round": "Round",
+  "GLUNI.Splash.Cycle": "INITIATIVE - CYCLE {round}",
+  "GLUNI.Unknown": "Unknown"
+});
+
+const ADHOC_DEFAULT_TYPE = "effect";
+const ADHOC_TYPES = Object.freeze({
+  effect: Object.freeze({
+    label: "GLUNI.AdHoc.Type.Effect",
+    icon: "fa-solid fa-bolt",
+    disposition: "neutral"
+  }),
+  hazard: Object.freeze({
+    label: "GLUNI.AdHoc.Type.Hazard",
+    icon: "fa-solid fa-triangle-exclamation",
+    disposition: "hostile"
+  }),
+  npc: Object.freeze({
+    label: "GLUNI.AdHoc.Type.NPC",
+    icon: "fa-solid fa-user-clock",
+    disposition: "secret"
+  }),
+  environment: Object.freeze({
+    label: "GLUNI.AdHoc.Type.Environment",
+    icon: "fa-solid fa-cloud-bolt",
+    disposition: "friendly"
+  })
+});
+const ADHOC_VISIBILITY_MODES = new Set([VISIBILITY.visible, VISIBILITY.mystery, VISIBILITY.hidden]);
+const ADHOC_LIFECYCLE = Object.freeze({
+  persistent: "persistent",
+  oneShot: "oneShot"
+});
+const ADHOC_LIFECYCLE_MODES = new Set(Object.values(ADHOC_LIFECYCLE));
+const ADHOC_ICON_CHOICES = Object.freeze([
+  "fa-solid fa-bolt",
+  "fa-solid fa-burst",
+  "fa-solid fa-fire",
+  "fa-solid fa-skull",
+  "fa-solid fa-triangle-exclamation",
+  "fa-solid fa-cloud-bolt",
+  "fa-solid fa-droplet",
+  "fa-solid fa-wind",
+  "fa-solid fa-snowflake",
+  "fa-solid fa-radiation",
+  "fa-solid fa-biohazard",
+  "fa-solid fa-eye",
+  "fa-solid fa-eye-slash",
+  "fa-solid fa-hourglass-half",
+  "fa-solid fa-clock",
+  "fa-solid fa-stopwatch",
+  "fa-solid fa-gears",
+  "fa-solid fa-shield-halved",
+  "fa-solid fa-crosshairs",
+  "fa-solid fa-person-rays",
+  "fa-solid fa-spider",
+  "fa-solid fa-dragon",
+  "fa-solid fa-ghost",
+  "fa-solid fa-user-clock",
+  "fa-solid fa-masks-theater",
+  "fa-solid fa-circle-nodes",
+  "fa-solid fa-circle-radiation",
+  "fa-solid fa-location-crosshairs",
+  "fa-solid fa-dungeon",
+  "fa-solid fa-land-mine-on",
+  "fa-solid fa-volcano",
+  "fa-solid fa-mountain-sun",
+  "fa-solid fa-water",
+  "fa-solid fa-cloud-showers-heavy",
+  "fa-solid fa-wand-sparkles",
+  "fa-solid fa-hand-sparkles",
+  "fa-solid fa-book-skull",
+  "fa-solid fa-flask-vial",
+  "fa-solid fa-circle-question",
+  "fa-solid fa-star-of-life"
+]);
+
+const COMBATANT_RENDER_UPDATE_KEYS = new Set([
+  "actorId",
+  "defeated",
+  "flags",
+  "hidden",
+  "img",
+  "initiative",
+  "name",
+  "sceneId",
+  "sort",
+  "token",
+  "tokenId"
+]);
+const ACTOR_RENDER_UPDATE_KEYS = new Set(["flags", "img", "name", "prototypeToken"]);
+
 const FALLBACK_PORTRAIT = "icons/svg/mystery-man.svg";
 const PORTRAIT_MIN_PIXELS = Object.freeze({
   normalHeight: 58,
-  activeHeight: 152
+  activeHeight: 166
 });
 const CONFIGURABLE_ACTOR_TYPES = new Set(["character", "npc", "pc"]);
 const PORTRAIT_FRAME_DEFAULTS = Object.freeze({
@@ -57,9 +197,11 @@ Hooks.on("deleteCombat", () => overlay?.renderSoon());
 Hooks.on("updateCombat", (combat, changed) => overlay?.onCombatUpdate(combat, changed));
 Hooks.on("createCombatant", () => overlay?.renderSoon());
 Hooks.on("deleteCombatant", () => overlay?.renderSoon());
-Hooks.on("updateCombatant", () => overlay?.renderSoon());
-Hooks.on("updateActor", (_actor, changed) => {
-  if (changed.flags?.[MODULE_ID] || foundry.utils.hasProperty(changed, `flags.${MODULE_ID}.${FLAGS.portraitFrame}`)) {
+Hooks.on("updateCombatant", (_combatant, changed) => {
+  if (isRelevantCombatantUpdate(changed)) overlay?.renderSoon();
+});
+Hooks.on("updateActor", (actor, changed) => {
+  if (isRelevantActorUpdate(changed) && overlay?.hasCombatActor(actor)) {
     overlay?.renderSoon();
   }
 });
@@ -152,6 +294,22 @@ function registerSettings() {
   });
 }
 
+function isRelevantCombatantUpdate(changed) {
+  if (!changed || typeof changed !== "object") return true;
+  const keys = Object.keys(changed);
+  if (!keys.length) return true;
+  return keys.some(key => COMBATANT_RENDER_UPDATE_KEYS.has(key));
+}
+
+function isRelevantActorUpdate(changed) {
+  if (!changed || typeof changed !== "object") return true;
+  const keys = Object.keys(changed);
+  if (!keys.length) return true;
+  if (!keys.some(key => ACTOR_RENDER_UPDATE_KEYS.has(key))) return false;
+  if (changed.name !== undefined || changed.img !== undefined || changed.prototypeToken !== undefined) return true;
+  return Boolean(changed.flags?.[MODULE_ID] || foundry.utils.hasProperty(changed, `flags.${MODULE_ID}.${FLAGS.portraitFrame}`));
+}
+
 class GLUniverseInitiativeOverlay {
   constructor() {
     this.root = null;
@@ -163,6 +321,10 @@ class GLUniverseInitiativeOverlay {
     this.lastActiveId = null;
     this.lastActiveKey = null;
     this.pendingDelayReturnId = null;
+    this.lastMarkup = "";
+    this.lastRootClassName = "";
+    this.lastPositionStyle = null;
+    this.adhocSkipTimer = null;
   }
 
   mount() {
@@ -195,6 +357,15 @@ class GLUniverseInitiativeOverlay {
     return Boolean(game.settings.get(MODULE_ID, SETTINGS.enabled));
   }
 
+  hasCombatActor(actor) {
+    if (!actor) return false;
+    const combatants = this.combat?.combatants?.contents ?? Array.from(this.combat?.combatants ?? []);
+    return combatants.some(entry => {
+      const combatant = Array.isArray(entry) ? entry[1] : entry;
+      return combatant?.actor?.id === actor.id || combatant?.actorId === actor.id;
+    });
+  }
+
   renderSoon() {
     window.clearTimeout(this.renderTimer);
     this.renderTimer = window.setTimeout(() => this.render(), 30);
@@ -210,49 +381,90 @@ class GLUniverseInitiativeOverlay {
       this.lastRound = changed.round;
     }
 
+    if (game.user.isGM && (typeof changed?.turn === "number" || typeof changed?.round === "number")) {
+      this.skipInactiveAdhocTurnSoon();
+    }
+
     this.renderSoon();
   }
 
   render() {
     if (!this.root) return;
+    this.renderTimer = null;
 
     const combat = this.combat;
     const hasActiveCombat = Boolean(combat?.started && combat.combatants?.size);
 
     if (!this.enabled || !hasActiveCombat) {
       this.root.className = "gluni-initiative gluni-initiative--hidden";
-      this.root.innerHTML = "";
+      if (this.lastMarkup) {
+        this.root.innerHTML = "";
+        this.lastMarkup = "";
+      }
+      this.lastRootClassName = this.root.className;
       return;
     }
 
-    const edge = game.settings.get(MODULE_ID, SETTINGS.edge) || "right";
-    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default";
-    const oldRects = this.captureItemRects();
-    const view = this.buildViewModel(combat);
+    const settings = this.getRenderSettings();
+    const view = this.buildViewModel(combat, settings);
     const turnKey = view.normal.map(item => item.key ?? `${item.type}:${item.round}`).join("|");
     const isTurnChange = this.lastTurnKey && turnKey !== this.lastTurnKey;
     const previousRenderedRound = this.lastRenderedRound;
     const roundDelta = Number.isFinite(previousRenderedRound) ? Math.max(0, (combat.round ?? 1) - previousRenderedRound) : 0;
     const previousActiveKey = this.lastActiveKey;
     const isDelayReturn = Boolean(this.pendingDelayReturnId && view.activeId === this.pendingDelayReturnId);
-    const outgoingGhost = isTurnChange && !isDelayReturn ? this.createOutgoingGhost(edge) : null;
-    this.lastTurnKey = turnKey;
-
-    this.root.className = [
+    const rootClassName = [
       "gluni-initiative",
-      `gluni-initiative--${edge}`,
-      `gluni-initiative--${intensity}`,
-      game.user.isGM ? "gluni-initiative--gm" : "gluni-initiative--player",
+      `gluni-initiative--${settings.edge}`,
+      `gluni-initiative--${settings.intensity}`,
+      settings.isGM ? "gluni-initiative--gm" : "gluni-initiative--player",
       isTurnChange ? "gluni-initiative--turn-change" : "",
       isDelayReturn ? "gluni-initiative--delay-return" : ""
     ].filter(Boolean).join(" ");
+    const markup = this.renderMarkup(combat, view, settings);
+    const markupChanged = markup !== this.lastMarkup;
+    const oldRects = isTurnChange && markupChanged ? this.captureItemRects() : new Map();
+    const outgoingGhost = isTurnChange && !isDelayReturn && markupChanged ? this.createOutgoingGhost(settings.edge) : null;
+    this.lastTurnKey = turnKey;
 
-    this.applyPosition(edge);
+    if (rootClassName !== this.lastRootClassName) {
+      this.root.className = rootClassName;
+      this.lastRootClassName = rootClassName;
+    }
 
-    this.root.innerHTML = `
+    this.applyPosition(settings.edge);
+
+    if (markupChanged) {
+      this.root.innerHTML = markup;
+      this.lastMarkup = markup;
+      this.positionFloatingControls();
+    }
+
+    if (isTurnChange && markupChanged) this.animateTurnChange(oldRects, { previousActiveKey, isDelayReturn, roundDelta });
+    if (outgoingGhost) this.playOutgoingGhost(outgoingGhost);
+    this.lastActiveId = view.activeId;
+    this.lastActiveKey = view.activeKey;
+    this.lastRenderedRound = combat.round ?? null;
+    if (isDelayReturn) this.pendingDelayReturnId = null;
+  }
+
+  getRenderSettings() {
+    const visibleCount = clamp(Number(game.settings.get(MODULE_ID, SETTINGS.visibleCount)) || 5, 1, 12);
+
+    return {
+      edge: game.settings.get(MODULE_ID, SETTINGS.edge) || "right",
+      intensity: game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default",
+      visibleCount,
+      showDefeated: Boolean(game.settings.get(MODULE_ID, SETTINGS.showDefeated)),
+      isGM: Boolean(game.user.isGM)
+    };
+  }
+
+  renderMarkup(combat, view, settings) {
+    return `
       <div class="gluni-shell">
         <header class="gluni-header">
-          <button class="gluni-drag-handle" type="button" title="Move tracker" aria-label="Move tracker" ${game.user.isGM ? "" : "disabled"}>
+          <button class="gluni-drag-handle" type="button" title="Move tracker" aria-label="Move tracker" ${settings.isGM ? "" : "disabled"}>
             <span class="gluni-drag-handle-grip" aria-hidden="true"></span>
           </button>
           <div class="gluni-round-chip">
@@ -268,24 +480,23 @@ class GLUniverseInitiativeOverlay {
         ${this.renderFloatingTurnControls(view)}
       </div>
     `;
-
-    this.positionFloatingControls();
-    if (isTurnChange) this.animateTurnChange(oldRects, { previousActiveKey, isDelayReturn, roundDelta });
-    if (outgoingGhost) this.playOutgoingGhost(outgoingGhost);
-    this.lastActiveId = view.activeId;
-    this.lastActiveKey = view.activeKey;
-    this.lastRenderedRound = combat.round ?? null;
-    if (isDelayReturn) this.pendingDelayReturnId = null;
   }
 
-  buildViewModel(combat) {
+  buildViewModel(combat, settings = this.getRenderSettings()) {
     const sourceTurns = Array.isArray(combat.turns) && combat.turns.length
       ? combat.turns
       : combat.combatants?.contents ?? Array.from(combat.combatants ?? []);
     const turns = Array.from(sourceTurns)
       .map(entry => Array.isArray(entry) ? entry[1] : entry)
       .filter(Boolean);
-    const visibleCount = clamp(Number(game.settings.get(MODULE_ID, SETTINGS.visibleCount)) || 5, 1, 12);
+    const states = turns.map(combatant => {
+      const skipped = Boolean(combatant.defeated && !settings.showDefeated);
+      return {
+        combatant,
+        skipped,
+        delayed: skipped ? false : this.isDelayed(combatant)
+      };
+    });
     const normal = [];
     const delayed = [];
 
@@ -293,16 +504,18 @@ class GLUniverseInitiativeOverlay {
 
     const currentTurn = Number.isInteger(combat.turn) ? combat.turn : 0;
     const activeId = combat.combatant?.id ?? turns[currentTurn]?.id ?? null;
+    const currentRound = combat.round ?? 1;
 
-    for (const combatant of turns) {
-      if (this.shouldSkipDefeated(combatant)) continue;
-      if (!this.isDelayed(combatant)) continue;
+    for (const state of states) {
+      if (state.skipped || !state.delayed) continue;
+      if (!shouldShowAdhocOnRound(state.combatant, currentRound)) continue;
 
-      const card = this.buildCombatantCard(combatant, {
+      const card = this.buildCombatantCard(state.combatant, {
         active: false,
         delayed: true,
         roundOffset: 0,
-        key: `delayed:${combatant.id}`
+        displayRound: currentRound,
+        key: `delayed:${state.combatant.id}`
       });
       if (card) delayed.push(card);
     }
@@ -310,27 +523,31 @@ class GLUniverseInitiativeOverlay {
     let added = 0;
     const insertedRoundOffsets = new Set();
     let guard = 0;
-    const maxScannedTurns = turns.length * Math.max(visibleCount * 2, 4);
+    const maxScannedTurns = turns.length * Math.max(settings.visibleCount * 2, 4);
 
-    while (added < visibleCount && guard < maxScannedTurns) {
+    while (added < settings.visibleCount && guard < maxScannedTurns) {
       const absoluteIndex = currentTurn + guard;
       const turnIndex = modulo(absoluteIndex, turns.length);
-      const combatant = turns[turnIndex];
+      const state = states[turnIndex];
+      const combatant = state?.combatant;
       const roundOffset = Math.floor(absoluteIndex / turns.length);
+      const displayRound = currentRound + roundOffset;
       guard += 1;
 
-      if (!combatant || this.shouldSkipDefeated(combatant) || this.isDelayed(combatant)) continue;
+      if (!combatant || state.skipped || state.delayed) continue;
+      if (!shouldShowAdhocOnRound(combatant, displayRound)) continue;
 
       const card = this.buildCombatantCard(combatant, {
         active: combatant.id === activeId && roundOffset === 0,
         delayed: false,
         roundOffset,
+        displayRound,
         key: `combatant:${combatant.id}:round:${roundOffset}`
       });
       if (!card) continue;
 
       if (roundOffset > 0 && !insertedRoundOffsets.has(roundOffset)) {
-        const round = (combat.round ?? 1) + roundOffset;
+        const round = currentRound + roundOffset;
         normal.push({
           type: "separator",
           key: `separator:${round}:offset:${roundOffset}`,
@@ -351,10 +568,11 @@ class GLUniverseInitiativeOverlay {
     const visibility = this.resolveVisibility(combatant);
     if (visibility.playerMode === VISIBILITY.hidden && !game.user.isGM) return null;
 
+    const adhoc = getAdhocData(combatant, options.displayRound);
     const mystery = visibility.playerMode === VISIBILITY.mystery && !game.user.isGM;
-    const disposition = getDisposition(combatant, mystery);
+    const disposition = adhoc ? adhoc.disposition : getDisposition(combatant, mystery);
 
-    const portrait = mystery ? null : getPortrait(combatant);
+    const portrait = mystery || adhoc ? null : getPortrait(combatant);
 
     return {
       type: "combatant",
@@ -366,11 +584,12 @@ class GLUniverseInitiativeOverlay {
       gmVisibilityMode: visibility.gmMode,
       defeated: Boolean(combatant.defeated),
       disposition,
-      name: mystery ? localize("GLUNI.Unknown") : combatant.name,
+      adhoc,
+      name: mystery ? localize("GLUNI.Unknown") : adhoc?.name ?? combatant.name,
       initiative: combatant.initiative,
       portrait,
-      portraitScaleCap: mystery ? 1 : getPortraitScaleCap(portrait),
-      portraitFrame: mystery ? null : getPortraitFrame(combatant.actor),
+      portraitScaleCap: mystery || adhoc ? 1 : getPortraitScaleCap(portrait),
+      portraitFrame: mystery || adhoc ? null : getPortraitFrame(combatant.actor),
       canEndTurn: Boolean(options.active && !game.user.isGM && this.userOwnsCombatant(combatant, game.user))
     };
   }
@@ -394,6 +613,8 @@ class GLUniverseInitiativeOverlay {
       card.active ? "gluni-card--active" : "",
       this.lastActiveKey === card.key && !card.active ? "gluni-card--outgoing-active" : "",
       card.delayed ? "gluni-card--delayed" : "",
+      card.adhoc ? "gluni-card--adhoc" : "",
+      card.adhoc ? `gluni-card--adhoc-${card.adhoc.type}` : "",
       card.mystery ? "gluni-card--mystery" : "",
       card.defeated ? "gluni-card--defeated" : "",
       `gluni-card--${card.disposition}`,
@@ -406,14 +627,23 @@ class GLUniverseInitiativeOverlay {
         <div class="gluni-card-accent" aria-hidden="true"></div>
         <div class="gluni-card-bracket" aria-hidden="true"></div>
         ${game.user.isGM ? this.renderGMVisibilityMarker(card) : ""}
-        <div class="gluni-card-portrait-wrap">
-          ${card.mystery
-            ? `<div class="gluni-card-mystery-mark" aria-hidden="true">?</div>`
-            : `<img class="gluni-card-portrait" src="${escapeAttr(card.portrait)}" alt="" loading="lazy">`}
-        </div>
+        ${card.adhoc && !card.mystery
+          ? `
+            <div class="gluni-card-adhoc-repeat" aria-hidden="true">
+              ${renderAdhocRepeatText(card.name)}
+            </div>
+            <div class="gluni-card-adhoc-bg" aria-hidden="true"><i class="${escapeAttr(card.adhoc.icon)}"></i></div>
+          `
+          : `<div class="gluni-card-portrait-wrap">
+              ${card.mystery
+                ? `<div class="gluni-card-mystery-mark" aria-hidden="true">?</div>`
+                : `<img class="gluni-card-portrait" src="${escapeAttr(card.portrait)}" alt="" loading="lazy" decoding="async">`}
+            </div>`}
         <div class="gluni-card-content">
           <div class="gluni-card-kicker">
             ${card.active ? `<span class="gluni-active-tag">TURN</span>` : ""}
+            ${card.adhoc ? `<span class="gluni-adhoc-tag">${escapeHTML(card.adhoc.label).toUpperCase()}</span>` : ""}
+            ${card.adhoc?.oneShot ? `<span class="gluni-adhoc-tag gluni-adhoc-tag--oneshot">${localize("GLUNI.AdHoc.OneShot").toUpperCase()} ${formatRound(card.adhoc.round)}</span>` : ""}
             ${card.delayed ? `<span class="gluni-delayed-tag">${localize("GLUNI.Delayed").toUpperCase()}</span>` : ""}
           </div>
           <h3>${escapeHTML(card.name)}</h3>
@@ -443,6 +673,9 @@ class GLUniverseInitiativeOverlay {
       <div class="gluni-turn-controls" aria-label="${localize("GLUNI.Controls.TurnControls")}">
         <button type="button" data-action="previousTurn" title="${localize("GLUNI.Controls.PreviousTurn")}" aria-label="${localize("GLUNI.Controls.PreviousTurn")}">
           <i class="fa-solid fa-chevron-up" aria-hidden="true"></i>
+        </button>
+        <button type="button" data-action="addAdhoc" title="${localize("GLUNI.AdHoc.Add")}" aria-label="${localize("GLUNI.AdHoc.Add")}">
+          <i class="fa-solid fa-plus" aria-hidden="true"></i>
         </button>
         <button type="button" data-action="nextTurn" title="${localize("GLUNI.Controls.NextTurn")}" aria-label="${localize("GLUNI.Controls.NextTurn")}">
           <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
@@ -504,6 +737,11 @@ class GLUniverseInitiativeOverlay {
         <button type="button" data-action="${card.delayed ? "return" : "delay"}" title="${card.delayed ? localize("GLUNI.Controls.Return") : localize("GLUNI.Controls.Delay")}" aria-label="${card.delayed ? localize("GLUNI.Controls.Return") : localize("GLUNI.Controls.Delay")}">
           <i class="fa-solid fa-hourglass-half" aria-hidden="true"></i>
         </button>
+        ${card.adhoc ? `
+          <button type="button" data-action="deleteAdhoc" title="${localize("GLUNI.AdHoc.Delete")}" aria-label="${localize("GLUNI.AdHoc.Delete")}">
+            <i class="fa-solid fa-trash" aria-hidden="true"></i>
+          </button>
+        ` : ""}
       </div>
     `;
   }
@@ -621,7 +859,7 @@ class GLUniverseInitiativeOverlay {
     ghost.style.top = `${Math.round(rect.top)}px`;
     ghost.style.width = `${Math.round(rect.width)}px`;
     ghost.style.height = `${Math.round(rect.height)}px`;
-    ghost.style.clipPath = "polygon(0 -28px, calc(100% - 14px) -28px, 100% calc(-28px + 14px), 100% 100%, 0 100%)";
+    ghost.style.clipPath = "polygon(0 -42px, calc(100% - 14px) -42px, 100% calc(-42px + 14px), 100% 100%, 0 100%)";
     document.body.appendChild(ghost);
     return ghost;
   }
@@ -642,11 +880,6 @@ class GLUniverseInitiativeOverlay {
       gmMode: flagMode,
       playerMode
     };
-  }
-
-  shouldSkipDefeated(combatant) {
-    if (!combatant.defeated) return false;
-    return !game.settings.get(MODULE_ID, SETTINGS.showDefeated);
   }
 
   isDelayed(combatant) {
@@ -706,6 +939,12 @@ class GLUniverseInitiativeOverlay {
 
     const action = button.dataset.action;
 
+    if (action === "addAdhoc") {
+      if (!game.user.isGM) return;
+      this.openAdhocDialog();
+      return;
+    }
+
     if (action === "previousTurn" || action === "nextTurn") {
       if (!game.user.isGM) return;
       await this.changeTurn(action === "nextTurn" ? 1 : -1);
@@ -728,6 +967,12 @@ class GLUniverseInitiativeOverlay {
       return;
     }
 
+    if (action === "deleteAdhoc") {
+      if (!isAdhocCombatant(combatant)) return;
+      await this.deleteAdhocCombatant(combatant);
+      return;
+    }
+
     if (action === "delay") {
       await combatant.setFlag(MODULE_ID, FLAGS.manualDelayed, true);
       if (this.combat?.combatant?.id === combatant.id) await this.combat.nextTurn();
@@ -745,15 +990,154 @@ class GLUniverseInitiativeOverlay {
     }
   }
 
+  openAdhocDialog() {
+    const combat = this.combat;
+    if (!game.user.isGM || !combat?.started) return;
+
+    openAdhocInitiativeDialog({
+      combat,
+      onCreate: data => this.createAdhocCombatant(data)
+    });
+  }
+
+  async createAdhocCombatant(data) {
+    const combat = this.combat;
+    if (!game.user.isGM || !combat?.started) return null;
+
+    const payload = normalizeAdhocPayload(data, combat);
+    const flags = {
+      [MODULE_ID]: {
+        [FLAGS.adhoc]: {
+          name: payload.name,
+          type: payload.type,
+          icon: payload.icon,
+          lifecycle: payload.lifecycle,
+          round: payload.round
+        },
+        [FLAGS.visibility]: payload.visibility
+      }
+    };
+    const combatantData = {
+      name: payload.name,
+      img: FALLBACK_PORTRAIT,
+      hidden: payload.visibility !== VISIBILITY.visible,
+      initiative: payload.initiative,
+      flags
+    };
+
+    try {
+      const [combatant] = await combat.createEmbeddedDocuments("Combatant", [combatantData]);
+      await this.applyCombatantInitiative(combatant, payload.initiative);
+      this.broadcastRefresh();
+      return combatant;
+    } catch (error) {
+      return this.createActorBackedAdhocCombatant(payload, flags, error);
+    }
+  }
+
+  async createActorBackedAdhocCombatant(payload, flags, originalError) {
+    const combat = this.combat;
+    if (!globalThis.Actor || !combat?.started) throw originalError;
+
+    let actor = null;
+    try {
+      actor = await Actor.create({
+        name: payload.name,
+        type: getAdhocActorType(),
+        img: FALLBACK_PORTRAIT,
+        flags: {
+          [MODULE_ID]: {
+            [FLAGS.adhocActor]: true
+          }
+        }
+      }, { renderSheet: false });
+
+      const [combatant] = await combat.createEmbeddedDocuments("Combatant", [{
+        actorId: actor.id,
+        hidden: payload.visibility !== VISIBILITY.visible,
+        initiative: payload.initiative,
+        flags
+      }]);
+      await this.applyCombatantInitiative(combatant, payload.initiative);
+      this.broadcastRefresh();
+      return combatant;
+    } catch (error) {
+      if (actor?.delete) await actor.delete().catch(() => {});
+      console.error(`${MODULE_ID} | Failed to create ad hoc initiative combatant`, error, originalError);
+      throw error;
+    }
+  }
+
+  async applyCombatantInitiative(combatant, initiative) {
+    if (!combatant || !Number.isFinite(initiative)) return;
+    if (typeof this.combat?.setInitiative === "function") {
+      await this.combat.setInitiative(combatant.id, initiative);
+      return;
+    }
+    await combatant.update({ initiative });
+  }
+
+  async deleteAdhocCombatant(combatant, options = {}) {
+    const shouldConfirm = options.confirm !== false;
+    const confirmed = !shouldConfirm || await confirmAdhocDelete(combatant);
+    if (!confirmed) return;
+
+    const actor = combatant.actor;
+    const deleteActor = Boolean(actor?.getFlag?.(MODULE_ID, FLAGS.adhocActor));
+    await combatant.delete();
+    if (deleteActor) await actor.delete().catch(() => {});
+    this.broadcastRefresh();
+  }
+
   async changeTurn(direction) {
     const combat = this.combat;
     if (!combat?.started) return;
+    const outgoingCombatant = combat.combatant;
+    const outgoingRound = combat.round ?? 1;
 
     if (direction > 0 && typeof combat.nextTurn === "function") await combat.nextTurn();
     else if (direction < 0 && typeof combat.previousTurn === "function") await combat.previousTurn();
     else await this.updateTurnFallback(direction);
 
+    if (direction > 0 && isDueOneShotAdhoc(outgoingCombatant, outgoingRound)) {
+      await this.deleteAdhocCombatant(outgoingCombatant, { confirm: false });
+    }
+
+    if (direction > 0) await this.skipInactiveAdhocTurns();
+
     this.broadcastRefresh();
+  }
+
+  skipInactiveAdhocTurnSoon() {
+    window.clearTimeout(this.adhocSkipTimer);
+    this.adhocSkipTimer = window.setTimeout(() => this.skipInactiveAdhocTurns(), 40);
+  }
+
+  async skipInactiveAdhocTurns() {
+    const combat = this.combat;
+    if (!game.user.isGM || !combat?.started || !this.isPrimaryActiveGM()) return;
+
+    const turns = Array.from(combat.turns ?? []);
+    const maxSkips = Math.max(turns.length, 1);
+    let skipped = 0;
+
+    while (skipped < maxSkips) {
+      const combatant = combat.combatant;
+      const adhoc = getAdhocData(combatant);
+      const round = combat.round ?? 1;
+      if (!adhoc?.oneShot) break;
+      if (adhoc.round < round) {
+        await this.deleteAdhocCombatant(combatant, { confirm: false });
+        break;
+      }
+      if (adhoc.round === round) break;
+
+      skipped += 1;
+      if (typeof combat.nextTurn === "function") await combat.nextTurn();
+      else await this.updateTurnFallback(1);
+    }
+
+    if (skipped) this.broadcastRefresh();
   }
 
   async updateTurnFallback(direction) {
@@ -925,19 +1309,22 @@ class GLUniverseInitiativeOverlay {
     const position = game.settings.get(MODULE_ID, SETTINGS.position) ?? {};
     const hasCustomX = Number.isFinite(position.x);
     const y = Number.isFinite(position.y) ? position.y : 120;
+    const next = {
+      top: `${y}px`,
+      left: hasCustomX || edge === "left" ? `${hasCustomX ? position.x : 18}px` : "",
+      right: hasCustomX || edge === "left" ? "auto" : "18px"
+    };
 
-    this.root.style.top = `${y}px`;
-    this.root.style.left = "";
-    this.root.style.right = "";
+    if (
+      this.lastPositionStyle?.top === next.top &&
+      this.lastPositionStyle?.left === next.left &&
+      this.lastPositionStyle?.right === next.right
+    ) return;
 
-    if (hasCustomX) {
-      this.root.style.left = `${position.x}px`;
-      this.root.style.right = "auto";
-      return;
-    }
-
-    if (edge === "left") this.root.style.left = "18px";
-    else this.root.style.right = "18px";
+    this.root.style.top = next.top;
+    this.root.style.left = next.left;
+    this.root.style.right = next.right;
+    this.lastPositionStyle = next;
   }
 
   showRoundSplash(round) {
@@ -948,7 +1335,7 @@ class GLUniverseInitiativeOverlay {
     const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default";
     const formatted = formatRound(round);
     const digitSpans = Array.from(formatted).map(digit => `<span class="d">${digit}</span>`).join("");
-    const subString = game.i18n.format("GLUNI.Splash.Cycle", { round: formatted });
+    const subString = formatLocalized("GLUNI.Splash.Cycle", { round: formatted });
 
     const splash = document.createElement("div");
     splash.className = `gluni-round-splash gluni-round-splash--${intensity}`;
@@ -1121,7 +1508,7 @@ function openPortraitConfigDialog(actor) {
   const portrait = actor.img || FALLBACK_PORTRAIT;
 
   new Dialog({
-    title: game.i18n.format("GLUNI.PortraitConfig.Title", { name: actor.name }),
+    title: formatLocalized("GLUNI.PortraitConfig.Title", { name: actor.name }),
     content: renderPortraitConfigDialog(actor, frame, portrait),
     buttons: {
       reset: {
@@ -1283,6 +1670,251 @@ function activatePortraitConfigDialog(html) {
   updatePreviews();
 }
 
+function openAdhocInitiativeDialog({ combat, onCreate }) {
+  const defaults = getAdhocDialogDefaults(combat);
+
+  new Dialog({
+    title: localize("GLUNI.AdHoc.DialogTitle"),
+    content: renderAdhocInitiativeDialog(defaults),
+    buttons: {
+      create: {
+        icon: '<i class="fa-solid fa-plus"></i>',
+        label: localize("GLUNI.AdHoc.Create"),
+        callback: async html => {
+          const data = readAdhocInitiativeForm(html, combat);
+          if (!data.name) {
+            globalThis.ui?.notifications?.warn(localize("GLUNI.AdHoc.NameRequired"));
+            return false;
+          }
+          await onCreate(data);
+        }
+      }
+    },
+    default: "create",
+    render: html => activateAdhocInitiativeDialog(html)
+  }, {
+    classes: ["gluni-adhoc-dialog"],
+    width: 420,
+    resizable: false
+  }).render(true);
+}
+
+function getAdhocDialogDefaults(combat) {
+  const currentInitiative = Number(combat?.combatant?.initiative);
+  return {
+    name: localize("GLUNI.AdHoc.DefaultName"),
+    initiative: Number.isFinite(currentInitiative) ? currentInitiative : 10,
+    round: Math.max(1, Number(combat?.round) || 1),
+    lifecycle: ADHOC_LIFECYCLE.persistent,
+    type: ADHOC_DEFAULT_TYPE,
+    visibility: VISIBILITY.visible,
+    icon: ADHOC_TYPES[ADHOC_DEFAULT_TYPE].icon
+  };
+}
+
+function renderAdhocInitiativeDialog(defaults) {
+  return `
+    <form class="gluni-adhoc-form" autocomplete="off">
+      <label class="gluni-adhoc-field">
+        <span>${localize("GLUNI.AdHoc.Name")}</span>
+        <input type="text" name="name" value="${escapeAttr(defaults.name)}" required>
+      </label>
+      <div class="gluni-adhoc-row">
+        <label class="gluni-adhoc-field">
+          <span>${localize("GLUNI.AdHoc.Initiative")}</span>
+          <input type="number" name="initiative" value="${escapeAttr(defaults.initiative)}" step="0.01">
+        </label>
+        <label class="gluni-adhoc-field">
+          <span>${localize("GLUNI.AdHoc.Round")}</span>
+          <input type="number" name="round" value="${escapeAttr(defaults.round)}" min="1" step="1" data-adhoc-round>
+        </label>
+      </div>
+      <div class="gluni-adhoc-row">
+        <label class="gluni-adhoc-field">
+          <span>${localize("GLUNI.AdHoc.Lifecycle")}</span>
+          <select name="lifecycle" data-adhoc-lifecycle>
+            <option value="${ADHOC_LIFECYCLE.persistent}" selected>${localize("GLUNI.AdHoc.Persistent")}</option>
+            <option value="${ADHOC_LIFECYCLE.oneShot}">${localize("GLUNI.AdHoc.OneShot")}</option>
+          </select>
+        </label>
+        <label class="gluni-adhoc-field">
+          <span>${localize("GLUNI.AdHoc.Type")}</span>
+          <select name="type">
+            ${Object.entries(ADHOC_TYPES).map(([type, config]) => `
+              <option value="${escapeAttr(type)}" data-icon="${escapeAttr(config.icon)}" ${type === defaults.type ? "selected" : ""}>${localize(config.label)}</option>
+            `).join("")}
+          </select>
+        </label>
+      </div>
+      <label class="gluni-adhoc-field">
+        <span>${localize("GLUNI.AdHoc.Icon")}</span>
+        <div class="gluni-adhoc-icon-input">
+          <i class="${escapeAttr(defaults.icon)}" data-adhoc-icon-preview aria-hidden="true"></i>
+          <input type="text" name="icon" value="${escapeAttr(defaults.icon)}" list="gluni-adhoc-icons">
+        </div>
+        <datalist id="gluni-adhoc-icons">
+          ${ADHOC_ICON_CHOICES.map(icon => `<option value="${escapeAttr(icon)}"></option>`).join("")}
+        </datalist>
+      </label>
+      <label class="gluni-adhoc-field">
+        <span>${localize("GLUNI.AdHoc.Visibility")}</span>
+        <select name="visibility">
+          <option value="${VISIBILITY.visible}" selected>${localize("GLUNI.Controls.Visible")}</option>
+          <option value="${VISIBILITY.mystery}">${localize("GLUNI.Controls.Mystery")}</option>
+          <option value="${VISIBILITY.hidden}">${localize("GLUNI.Controls.Hidden")}</option>
+        </select>
+      </label>
+    </form>
+  `;
+}
+
+function activateAdhocInitiativeDialog(html) {
+  const form = getHTMLElement(html)?.querySelector(".gluni-adhoc-form");
+  if (!form) return;
+
+  const typeSelect = form.elements.type;
+  const iconInput = form.elements.icon;
+  const iconPreview = form.querySelector("[data-adhoc-icon-preview]");
+  const lifecycleSelect = form.querySelector("[data-adhoc-lifecycle]");
+  const roundInput = form.querySelector("[data-adhoc-round]");
+  const updatePreview = () => {
+    if (!iconPreview || !iconInput) return;
+    iconPreview.className = normalizeAdhocIcon(iconInput.value);
+  };
+  const updateLifecycle = () => {
+    if (!roundInput || !lifecycleSelect) return;
+    roundInput.disabled = lifecycleSelect.value !== ADHOC_LIFECYCLE.oneShot;
+  };
+
+  typeSelect?.addEventListener("change", () => {
+    const selected = typeSelect.selectedOptions?.[0];
+    if (selected?.dataset.icon && iconInput) iconInput.value = selected.dataset.icon;
+    updatePreview();
+  });
+  iconInput?.addEventListener("input", updatePreview);
+  lifecycleSelect?.addEventListener("change", updateLifecycle);
+  updatePreview();
+  updateLifecycle();
+}
+
+function readAdhocInitiativeForm(html, combat) {
+  const form = getHTMLElement(html)?.querySelector?.(".gluni-adhoc-form") ?? getHTMLElement(html);
+  const data = new FormData(form);
+  return normalizeAdhocPayload({
+    name: data.get("name"),
+    initiative: data.get("initiative"),
+    round: data.get("round"),
+    lifecycle: data.get("lifecycle"),
+    type: data.get("type"),
+    visibility: data.get("visibility"),
+    icon: data.get("icon")
+  }, combat);
+}
+
+function normalizeAdhocPayload(data, combat) {
+  const fallback = getAdhocDialogDefaults(combat);
+  const type = ADHOC_TYPES[data?.type] ? data.type : fallback.type;
+  const initiative = Number(data?.initiative);
+  const round = Math.max(1, Math.round(Number(data?.round) || fallback.round));
+  const lifecycle = ADHOC_LIFECYCLE_MODES.has(data?.lifecycle) ? data.lifecycle : fallback.lifecycle;
+  const visibility = ADHOC_VISIBILITY_MODES.has(data?.visibility) ? data.visibility : fallback.visibility;
+  const name = String(data?.name ?? fallback.name).trim();
+
+  return {
+    name: name || fallback.name,
+    initiative: Number.isFinite(initiative) ? initiative : fallback.initiative,
+    round,
+    lifecycle,
+    type,
+    visibility,
+    icon: normalizeAdhocIcon(data?.icon ?? ADHOC_TYPES[type].icon)
+  };
+}
+
+function normalizeAdhocIcon(value) {
+  const icon = String(value ?? "").trim();
+  if (ADHOC_ICON_CHOICES.includes(icon)) return icon;
+  const classes = icon.split(/\s+/).filter(Boolean);
+  const hasFamily = classes.some(className => /^fa-(solid|regular|brands)$/.test(className));
+  const hasIcon = classes.some(className => /^fa-[a-z0-9-]+$/i.test(className) && !/^fa-(solid|regular|brands)$/i.test(className));
+  if (hasFamily && hasIcon && classes.every(className => /^fa-[a-z0-9-]+$/i.test(className))) return classes.join(" ");
+  return ADHOC_TYPES[ADHOC_DEFAULT_TYPE].icon;
+}
+
+function renderAdhocRepeatText(name) {
+  const text = escapeHTML(name);
+  const line = Array.from({ length: 5 }, () => `<span>${text}</span>`).join("");
+  return Array.from({ length: 6 }, (_, index) => `
+    <div class="gluni-card-adhoc-repeat-line${index % 2 ? " gluni-card-adhoc-repeat-line--alt" : ""}">
+      ${line}
+    </div>
+  `).join("");
+}
+
+function getAdhocData(combatant) {
+  const value = combatant?.getFlag?.(MODULE_ID, FLAGS.adhoc);
+  if (!value || typeof value !== "object") return null;
+
+  const type = ADHOC_TYPES[value.type] ? value.type : ADHOC_DEFAULT_TYPE;
+  const config = ADHOC_TYPES[type];
+  const name = String(value.name || combatant.name || localize("GLUNI.AdHoc.DefaultName")).trim();
+  const lifecycle = ADHOC_LIFECYCLE_MODES.has(value.lifecycle) ? value.lifecycle : ADHOC_LIFECYCLE.persistent;
+  const round = Math.max(1, Math.round(Number(value.round) || 1));
+
+  return {
+    type,
+    name,
+    label: localize(config.label),
+    icon: normalizeAdhocIcon(value.icon ?? config.icon),
+    disposition: config.disposition,
+    lifecycle,
+    round,
+    oneShot: lifecycle === ADHOC_LIFECYCLE.oneShot
+  };
+}
+
+function isAdhocCombatant(combatant) {
+  return Boolean(getAdhocData(combatant));
+}
+
+function shouldShowAdhocOnRound(combatant, round) {
+  const adhoc = getAdhocData(combatant);
+  return !adhoc?.oneShot || adhoc.round === round;
+}
+
+function isDueOneShotAdhoc(combatant, round) {
+  const adhoc = getAdhocData(combatant);
+  return Boolean(adhoc?.oneShot && adhoc.round === round);
+}
+
+function getAdhocActorType() {
+  const actorConfig = globalThis.CONFIG?.Actor ?? {};
+  const types = new Set([
+    ...Object.keys(actorConfig.typeLabels ?? {}),
+    ...Object.keys(actorConfig.dataModels ?? {}),
+    ...Object.keys(game.system?.model?.Actor ?? {})
+  ]);
+  for (const type of ["npc", "character", "pc", "creature"]) {
+    if (types.has(type)) return type;
+  }
+  return types.values().next().value ?? "npc";
+}
+
+async function confirmAdhocDelete(combatant) {
+  const name = getAdhocData(combatant)?.name ?? combatant?.name ?? localize("GLUNI.AdHoc.DefaultName");
+  if (typeof globalThis.Dialog?.confirm === "function") {
+    return globalThis.Dialog.confirm({
+      title: localize("GLUNI.AdHoc.Delete"),
+      content: `<p>${formatLocalized("GLUNI.AdHoc.DeleteConfirm", { name: escapeHTML(name) })}</p>`,
+      yes: () => true,
+      no: () => false,
+      defaultYes: false
+    });
+  }
+
+  return window.confirm(formatLocalized("GLUNI.AdHoc.DeleteConfirm", { name }));
+}
+
 function syncPortraitInputs(form, input) {
   const name = input.getAttribute("name");
   if (!name) return;
@@ -1307,7 +1939,7 @@ function setPortraitInputValue(form, mode, property, rawValue) {
 
 function readPortraitConfigForm(html) {
   const form = getHTMLElement(html)?.querySelector?.(".gluni-portrait-config-form") ?? getHTMLElement(html);
-  const frame = structuredClone(PORTRAIT_FRAME_DEFAULTS);
+  const frame = clonePortraitFrameDefaults();
 
   for (const mode of ["normal", "expanded"]) {
     for (const property of ["x", "y", "scale"]) {
@@ -1324,7 +1956,7 @@ function getPortraitFrame(actor) {
 }
 
 function normalizePortraitFrame(value) {
-  const frame = structuredClone(PORTRAIT_FRAME_DEFAULTS);
+  const frame = clonePortraitFrameDefaults();
   if (!value || typeof value !== "object") return frame;
 
   for (const mode of ["normal", "expanded"]) {
@@ -1369,6 +2001,13 @@ function renderSinglePortraitFrameStyle(mode, values) {
     `--gluni-portrait-active-y: ${value.y}%;`,
     `--gluni-portrait-active-scale: ${value.scale};`
   ].join(" ");
+}
+
+function clonePortraitFrameDefaults() {
+  return {
+    normal: { ...PORTRAIT_FRAME_DEFAULTS.normal },
+    expanded: { ...PORTRAIT_FRAME_DEFAULTS.expanded }
+  };
 }
 
 function getHTMLElement(value) {
@@ -1422,7 +2061,14 @@ function formatInitiative(initiative) {
 }
 
 function localize(key) {
-  return game.i18n?.localize(key) ?? key;
+  const value = game.i18n?.localize(key);
+  return value && value !== key ? value : LOCALIZATION_FALLBACKS[key] ?? key;
+}
+
+function formatLocalized(key, data = {}) {
+  const value = game.i18n?.format?.(key, data);
+  const template = value && value !== key ? value : LOCALIZATION_FALLBACKS[key] ?? key;
+  return String(template).replace(/\{([^}]+)\}/g, (_match, field) => data[field] ?? "");
 }
 
 function modulo(value, divisor) {
@@ -1434,13 +2080,17 @@ function clamp(value, min, max) {
 }
 
 function escapeHTML(value) {
-  const element = document.createElement("span");
-  element.textContent = value ?? "";
-  return element.innerHTML;
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function escapeAttr(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;");
 }
