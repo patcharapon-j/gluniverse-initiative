@@ -1043,7 +1043,7 @@ function computePortraitScaleCap(width, height) {
   const normalArea = 188 * PORTRAIT_MIN_PIXELS.normalHeight;
   const activeArea = 200 * PORTRAIT_MIN_PIXELS.activeHeight;
   const targetArea = Math.max(normalArea, activeArea);
-  const ratio = Math.sqrt(targetArea / pixels);
+  const ratio = Math.sqrt(pixels / targetArea);
   return clamp(ratio, 0.22, 1);
 }
 
