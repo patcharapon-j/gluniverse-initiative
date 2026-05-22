@@ -1,0 +1,255 @@
+<style>
+  .sp-row.option { display: block; background: #05080b; border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 22px; margin-bottom: 18px; cursor: pointer; }
+  .sp-row.option.selected { border-color: #5eeaff; box-shadow: 0 0 0 2px rgba(94,234,255,0.25); }
+  .sp-row h4 { margin: 0 0 6px; color: #f3fbff; font: 950 16px/1.1 "Bahnschrift", system-ui, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; }
+  .sp-row .desc { color: #8a9aa6; font-size: 13px; line-height: 1.5; margin: 0; max-width: 760px; }
+  .sp-row .motion { margin-top: 8px; padding: 10px 12px; border-left: 2px solid rgba(94,234,255,0.5); background: rgba(94,234,255,0.04); color: #cfdce3; font-size: 12px; line-height: 1.55; }
+  .sp-row .motion strong { color: #5eeaff; font: 950 10px/1 "Bahnschrift",sans-serif; letter-spacing: 0.18em; text-transform: uppercase; display: block; margin-bottom: 4px; }
+  .sp-row .replay { margin-top: 10px; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 3px; background: rgba(94,234,255,0.18); border: 1px solid rgba(94,234,255,0.6); color: #5eeaff; font: 950 11px/1 "Bahnschrift",sans-serif; letter-spacing: 0.2em; text-transform: uppercase; cursor: pointer; }
+  .sp-row .replay:hover { background: rgba(94,234,255,0.28); }
+
+  .stage { position: relative; width: 100%; height: 320px; margin-top: 14px; border-radius: 6px; overflow: hidden; background:
+    radial-gradient(ellipse at 50% 50%, rgba(20,38,52,0.45), rgba(2,4,6,0.96) 70%),
+    linear-gradient(180deg, #02080c, #050b10);
+  }
+  .stage::after { content:""; position:absolute; inset:0; background:
+    radial-gradient(circle at 50% 50%, transparent 30%, rgba(0,0,0,0.55));
+    pointer-events:none;
+  }
+
+  /* ===== Shared S3 composition ===== */
+  .splash { position: absolute; inset: 0; display: grid; place-items: center; }
+  .deck { position: relative; display: grid; place-items: center; gap: 4px; padding: 22px 48px; background:
+    linear-gradient(90deg, rgba(2,5,8,0) 0%, rgba(2,5,8,0.82) 30%, rgba(2,5,8,0.82) 70%, rgba(2,5,8,0) 100%);
+  }
+  .lbl { display: flex; align-items: center; gap: 10px; color: rgba(243,251,255,0.85); font: 950 14px/1 "Bahnschrift",sans-serif; letter-spacing: 0.55em; padding-left: 0.55em; text-transform: uppercase; }
+  .lbl .tick { width: 14px; height: 1px; background: #5eeaff; box-shadow: 0 0 8px #5eeaff; }
+  .num { display: flex; gap: 8px; position: relative; }
+  .num .d { color: #f3fbff; font: 950 180px/0.74 "Bahnschrift",sans-serif; font-variant-numeric: tabular-nums; text-shadow: 0 0 30px rgba(94,234,255,0.55), 0 16px 50px rgba(0,0,0,0.85); position: relative; }
+  .substring { position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); color: rgba(243,251,255,0.36); font: 950 10px/1 "Bahnschrift",sans-serif; letter-spacing: 0.45em; text-transform: uppercase; white-space: nowrap; }
+  .rule { position: absolute; left: 50%; top: 50%; height: 1px; width: 0; background: linear-gradient(90deg, transparent, rgba(94,234,255,0.95) 30%, rgba(94,234,255,0.95) 70%, transparent); transform: translate(-50%,-2px); box-shadow: 0 0 18px rgba(94,234,255,0.5); }
+
+  /* ============================ V1 — Sheen Sweep ============================ */
+  .v1 .rule { animation: v1rule 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  .v1 .deck { opacity: 0; animation: v1deck 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.10s; }
+  .v1 .num .d { opacity: 0.18; }
+  .v1 .num .d:nth-child(1) { animation: v1light 2.8s infinite cubic-bezier(0.2, 1.0, 0.3, 1) 0.30s; }
+  .v1 .num .d:nth-child(2) { animation: v1light 2.8s infinite cubic-bezier(0.2, 1.0, 0.3, 1) 0.38s; }
+  .v1 .lbl { opacity: 0; animation: v1lbl 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.20s; }
+  .v1 .substring { opacity: 0; animation: v1sub 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.52s; }
+  @keyframes v1rule { 0% {width:0; opacity:0;} 4% {opacity:1;} 20% {width:88%; opacity:1;} 70% {width:88%; opacity:1;} 84% {width:88%; opacity:0.4;} 92% {width:0; opacity:0;} 100% {width:0; opacity:0;} }
+  @keyframes v1deck { 0% {opacity:0;} 18% {opacity:1;} 70% {opacity:1;} 88% {opacity:0;} 100% {opacity:0;} }
+  @keyframes v1light {
+    0%   {opacity:0.18; filter: brightness(0.6); text-shadow: 0 0 0 rgba(94,234,255,0), 0 16px 50px rgba(0,0,0,0.85);}
+    14%  {opacity:0.18;}
+    22%  {opacity:1; filter: brightness(1.6); text-shadow: 0 0 40px rgba(94,234,255,0.95), 0 16px 50px rgba(0,0,0,0.85);}
+    32%  {opacity:1; filter: brightness(1.1); text-shadow: 0 0 30px rgba(94,234,255,0.55), 0 16px 50px rgba(0,0,0,0.85);}
+    70%  {opacity:1;}
+    82%  {opacity:0.18; filter: brightness(0.6); text-shadow: 0 0 0 rgba(94,234,255,0);}
+    100% {opacity:0.18;}
+  }
+  @keyframes v1lbl { 0% {opacity:0; transform: translateY(6px);} 12% {opacity:0;} 26% {opacity:1; transform: translateY(0);} 70% {opacity:1;} 82% {opacity:0;} 100% {opacity:0;} }
+  @keyframes v1sub { 0% {opacity:0;} 22% {opacity:0;} 36% {opacity:1;} 70% {opacity:1;} 82% {opacity:0;} 100% {opacity:0;} }
+
+  /* ============================ V2 — Counter Roll ============================ */
+  .v2 .rule { animation: v2rule 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  .v2 .deck { opacity: 0; animation: v2deck 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.10s; }
+  .v2 .lbl { opacity: 0; animation: v1lbl 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.18s; }
+  .v2 .substring { opacity: 0; animation: v1sub 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.55s; }
+  .v2 .num .d { position: relative; height: 134px; width: 100px; overflow: hidden; }
+  .v2 .reel { position: absolute; left: 0; right: 0; top: 0; display: flex; flex-direction: column; align-items: center; }
+  .v2 .reel span { font: 950 180px/0.74 "Bahnschrift",sans-serif; color: #f3fbff; text-shadow: 0 0 30px rgba(94,234,255,0.55), 0 16px 50px rgba(0,0,0,0.85); height: 134px; display: flex; align-items: flex-start; }
+  /* Tens (lands on 0): roll fast then settle */
+  .v2 .num .d:nth-child(1) .reel { animation: v2reel-tens 2.8s infinite steps(20) 0.22s; }
+  .v2 .num .d:nth-child(2) .reel { animation: v2reel-units 2.8s infinite steps(20) 0.30s; }
+  .v2 .num .d:nth-child(1) { opacity: 0; animation: v2digitfade 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.22s; }
+  .v2 .num .d:nth-child(2) { opacity: 0; animation: v2digitfade 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.30s; }
+  @keyframes v2rule { 0% {width:0; opacity:0;} 4% {opacity:1;} 18% {width:88%; opacity:1;} 70% {width:88%; opacity:1;} 86% {width:0; opacity:0;} 100% {width:0; opacity:0;} }
+  @keyframes v2deck { 0% {opacity:0;} 16% {opacity:1;} 70% {opacity:1;} 86% {opacity:0;} 100% {opacity:0;} }
+  @keyframes v2digitfade { 0% {opacity:0;} 14% {opacity:1;} 70% {opacity:1;} 82% {opacity:0; transform: translateY(-30px);} 100% {opacity:0;} }
+  /* Reel scrolls through 0-9 multiple times in the first ~600ms then locks on target. */
+  /* Tens digit lands on 0: scroll through 20 cells, target index 20 (back to 0). Each cell = -134px. */
+  @keyframes v2reel-tens {
+    0%   {transform: translateY(0);}
+    25%  {transform: translateY(calc(-134px * 20));}  /* lands on cell 20 = 0 */
+    70%  {transform: translateY(calc(-134px * 20));}
+    100% {transform: translateY(calc(-134px * 20));}
+  }
+  /* Units lands on 2: target cell index 22 (== 2 in third cycle). */
+  @keyframes v2reel-units {
+    0%   {transform: translateY(0);}
+    30%  {transform: translateY(calc(-134px * 22));}
+    70%  {transform: translateY(calc(-134px * 22));}
+    100% {transform: translateY(calc(-134px * 22));}
+  }
+
+  /* ============================ V3 — Center Pinch ============================ */
+  .v3 .rule { animation: v3rule 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  .v3 .deck { opacity: 0; filter: blur(8px); animation: v3deck 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.18s; }
+  .v3 .num .d { opacity: 0; transform: scale(1.10); position: relative; }
+  .v3 .num .d::after { content:""; position:absolute; left: 50%; bottom: 4px; height: 1px; width: 0; background: linear-gradient(90deg, transparent, rgba(94,234,255,0.95), transparent); transform: translateX(-50%); box-shadow: 0 0 10px rgba(94,234,255,0.7); }
+  .v3 .num .d:nth-child(1) { animation: v3digit 2.8s infinite cubic-bezier(0.16, 1.4, 0.3, 1) 0.30s; }
+  .v3 .num .d:nth-child(2) { animation: v3digit 2.8s infinite cubic-bezier(0.16, 1.4, 0.3, 1) 0.36s; }
+  .v3 .num .d:nth-child(1)::after { animation: v3shock 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.40s; }
+  .v3 .num .d:nth-child(2)::after { animation: v3shock 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.46s; }
+  .v3 .lbl { opacity: 0; animation: v1lbl 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.22s; }
+  .v3 .substring { opacity: 0; animation: v1sub 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.55s; }
+  @keyframes v3rule {
+    0%   {width: 4px; opacity: 0; box-shadow: 0 0 18px rgba(94,234,255,0.5);}
+    4%   {width: 4px; opacity: 1; box-shadow: 0 0 28px rgba(94,234,255,1);}
+    24%  {width: 88%; opacity: 1;}
+    70%  {width: 88%; opacity: 1;}
+    82%  {width: 4px; opacity: 0;}
+    100% {width: 4px; opacity: 0;}
+  }
+  @keyframes v3deck { 0% {opacity:0; filter: blur(8px);} 16% {opacity:0;} 30% {opacity:1; filter: blur(0);} 70% {opacity:1; filter: blur(0);} 82% {opacity:0; filter: blur(6px); transform: scaleY(0.7);} 100% {opacity:0; transform: scaleY(0.7);} }
+  @keyframes v3digit {
+    0%   {opacity:0; transform: scale(1.10);}
+    14%  {opacity:0;}
+    28%  {opacity:1; transform: scale(0.96);}
+    36%  {opacity:1; transform: scale(1.0);}
+    70%  {opacity:1; transform: scale(1.0);}
+    82%  {opacity:0; transform: scaleY(0.5) scaleX(1.06);}
+    100% {opacity:0; transform: scaleY(0.0) scaleX(1.06);}
+  }
+  @keyframes v3shock { 0% {width:0; opacity:0;} 18% {width:0; opacity:0;} 30% {width:140%; opacity:1;} 46% {width:160%; opacity:0;} 100% {width:0; opacity:0;} }
+
+  /* ============================ V4 — Glitch Lock ============================ */
+  .v4 .rule { animation: v2rule 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  .v4 .deck { opacity: 0; animation: v2deck 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.10s; }
+  .v4 .lbl { opacity: 0; animation: v1lbl 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.20s; }
+  .v4 .substring { opacity: 0; animation: v1sub 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.55s; }
+  .v4 .num .d { color: #f3fbff; position: relative; opacity: 0; }
+  .v4 .num .d::before, .v4 .num .d::after { content: attr(data-glyph); position: absolute; inset: 0; font: inherit; pointer-events:none; opacity: 0; }
+  .v4 .num .d::before { color: #5eeaff; mix-blend-mode: screen; }
+  .v4 .num .d::after { color: #ff335f; mix-blend-mode: screen; }
+  .v4 .num .d:nth-child(1) { animation: v4digit 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.26s; }
+  .v4 .num .d:nth-child(2) { animation: v4digit 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.34s; }
+  .v4 .num .d:nth-child(1)::before { animation: v4ghostL 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.26s; }
+  .v4 .num .d:nth-child(1)::after { animation: v4ghostR 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.26s; }
+  .v4 .num .d:nth-child(2)::before { animation: v4ghostL 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.34s; }
+  .v4 .num .d:nth-child(2)::after { animation: v4ghostR 2.8s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.34s; }
+  @keyframes v4digit {
+    0%   {opacity:0;}
+    14%  {opacity:0;}
+    18%  {opacity:0.4;}
+    22%  {opacity:1;}
+    26%  {opacity:0.6;}
+    30%  {opacity:1;}
+    70%  {opacity:1;}
+    78%  {opacity:0.5;}
+    82%  {opacity:0;}
+    100% {opacity:0;}
+  }
+  @keyframes v4ghostL {
+    0%   {opacity:0; transform: translateX(0);}
+    14%  {opacity:0;}
+    18%  {opacity:0.9; transform: translateX(-8px);}
+    24%  {opacity:0.6; transform: translateX(-12px);}
+    30%  {opacity:0; transform: translateX(0);}
+    70%  {opacity:0;}
+    78%  {opacity:0.6; transform: translateX(-6px);}
+    82%  {opacity:0; transform: translateX(0);}
+    100% {opacity:0;}
+  }
+  @keyframes v4ghostR {
+    0%   {opacity:0; transform: translateX(0);}
+    14%  {opacity:0;}
+    18%  {opacity:0.9; transform: translateX(8px);}
+    24%  {opacity:0.6; transform: translateX(12px);}
+    30%  {opacity:0; transform: translateX(0);}
+    70%  {opacity:0;}
+    78%  {opacity:0.6; transform: translateX(6px);}
+    82%  {opacity:0; transform: translateX(0);}
+    100% {opacity:0;}
+  }
+
+  .badge-rec { display: inline-block; margin-left: 8px; padding: 2px 6px; border-radius: 2px; background: rgba(94,234,255,0.18); color: #5eeaff; font: 950 9px/1 "Bahnschrift",sans-serif; letter-spacing: 0.18em; vertical-align: middle; }
+</style>
+
+<h2>S3 motion variants</h2>
+<p class="subtitle">Same composition (rule sweep + centered deck + big number + label + sub-string). Four different in/out personalities. Each loops every 2.8 seconds. Pick the one that feels most "polished tight premium satisfying" — or mix and match (e.g. "V1 in, V3 out").</p>
+
+<!-- V1 -->
+<div class="sp-row option" data-choice="v1" onclick="toggleSelect(this)">
+  <h4>V1 — Sheen Sweep <span class="badge-rec">Recommended</span></h4>
+  <p class="desc">The number is already faintly visible on the canvas at 18% opacity (like an etched plate). When the rule sweeps across, each digit "lights up" as the rule passes it — a brightness pulse + glow burst — then settles. Out is the rule sweeping back and dimming each digit back to its etched ghost.</p>
+  <div class="motion"><strong>Vibe</strong>Confident, architectural, "the system is revealing the value." Quiet but ceremonial.</div>
+  <button class="replay" onclick="event.stopPropagation(); replayStage(this);">↻ Restart cycle</button>
+  <div class="stage" data-stage>
+    <div class="splash v1">
+      <div class="rule"></div>
+      <div class="deck">
+        <div class="lbl"><span class="tick"></span>Round</div>
+        <div class="num"><div class="d">0</div><div class="d">2</div></div>
+        <div class="substring">Initiative · Cycle — 02</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- V2 -->
+<div class="sp-row option" data-choice="v2" onclick="toggleSelect(this)">
+  <h4>V2 — Counter Roll</h4>
+  <p class="desc">Rule sweeps. Deck materializes. Each digit cycles fast through 0–9 like an odometer before locking on the final value. Tens digit settles first, units digit settles a beat later. Out: digits drift upward and fade.</p>
+  <div class="motion"><strong>Vibe</strong>Mission-clock locking in. Mechanical, satisfying tick of arrival. Best for games where each round feels like a "phase advance."</div>
+  <button class="replay" onclick="event.stopPropagation(); replayStage(this);">↻ Restart cycle</button>
+  <div class="stage" data-stage>
+    <div class="splash v2">
+      <div class="rule"></div>
+      <div class="deck">
+        <div class="lbl"><span class="tick"></span>Round</div>
+        <div class="num">
+          <div class="d"><div class="reel"><span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>0</span></div></div>
+          <div class="d"><div class="reel"><span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>0</span><span>1</span><span>2</span></div></div>
+        </div>
+        <div class="substring">Initiative · Cycle — 02</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- V3 -->
+<div class="sp-row option" data-choice="v3" onclick="toggleSelect(this)">
+  <h4>V3 — Center Pinch</h4>
+  <p class="desc">Rule starts as a bright dot at center and splits outward both directions. Deck blur-clears in. Digits scale-snap from 1.10 → 0.96 → 1.00 with a horizontal "shock" line pulsing out from each digit's baseline. Out: digits compress vertically (scaleY 1 → 0.5 → 0) and snap shut as the rule pinches back to center.</p>
+  <div class="motion"><strong>Vibe</strong>Kinetic, weighty, "energy compression." Feels like the system is releasing and then collapsing the moment.</div>
+  <button class="replay" onclick="event.stopPropagation(); replayStage(this);">↻ Restart cycle</button>
+  <div class="stage" data-stage>
+    <div class="splash v3">
+      <div class="rule"></div>
+      <div class="deck">
+        <div class="lbl"><span class="tick"></span>Round</div>
+        <div class="num"><div class="d">0</div><div class="d">2</div></div>
+        <div class="substring">Initiative · Cycle — 02</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- V4 -->
+<div class="sp-row option" data-choice="v4" onclick="toggleSelect(this)">
+  <h4>V4 — Glitch Lock</h4>
+  <p class="desc">As the digit arrives, two ghost copies briefly appear offset (cyan left, red right) — a brief 80ms RGB-split — then collapse into the clean white digit with a hard snap. Out: the same glitch frame plays in reverse before the digits fade.</p>
+  <div class="motion"><strong>Vibe</strong>Sharpest and most game-y. Has a "signal-lock" feel. Great for tactical-game energy but flirts with "loud" — use carefully.</div>
+  <button class="replay" onclick="event.stopPropagation(); replayStage(this);">↻ Restart cycle</button>
+  <div class="stage" data-stage>
+    <div class="splash v4">
+      <div class="rule"></div>
+      <div class="deck">
+        <div class="lbl"><span class="tick"></span>Round</div>
+        <div class="num"><div class="d" data-glyph="0">0</div><div class="d" data-glyph="2">2</div></div>
+        <div class="substring">Initiative · Cycle — 02</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function replayStage(btn) {
+    const row = btn.closest('.sp-row');
+    const stage = row.querySelector('[data-stage]');
+    const clone = stage.cloneNode(true);
+    stage.replaceWith(clone);
+  }
+</script>

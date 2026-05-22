@@ -1,0 +1,28 @@
+{
+  "id": "gluniverse-initiative",
+  "title": "GLUniverse Initiative",
+  "description": "A cinematic portrait-first initiative overlay for Foundry VTT v13.",
+  "version": "0.1.0",
+  "authors": [
+    {
+      "name": "GLUniverse"
+    }
+  ],
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13"
+  },
+  "esmodules": [
+    "scripts/gluniverse-initiative.mjs"
+  ],
+  "styles": [
+    "styles/gluniverse-initiative.css"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ]
+}

@@ -1,0 +1,136 @@
+<style>
+  .sp-row { padding: 22px; border-radius: 10px; background: #05080b; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 18px; }
+  .sp-row h4 { margin: 0 0 6px; color: #f3fbff; font: 950 16px/1.1 "Bahnschrift", system-ui, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; }
+  .sp-row .desc { color: #8a9aa6; font-size: 13px; line-height: 1.5; margin: 0; max-width: 720px; }
+  .sp-row .motion { margin-top: 8px; padding: 10px 12px; border-left: 2px solid rgba(94,234,255,0.5); background: rgba(94,234,255,0.04); color: #cfdce3; font-size: 12px; line-height: 1.55; }
+  .sp-row .motion strong { color: #5eeaff; font: 950 10px/1 "Bahnschrift",sans-serif; letter-spacing: 0.18em; text-transform: uppercase; display: block; margin-bottom: 4px; }
+
+  .sp-stage { position: relative; height: 340px; margin-top: 14px; border-radius: 6px; overflow: hidden; background:
+    radial-gradient(ellipse at 50% 50%, rgba(20,38,52,0.45), rgba(2,4,6,0.96) 70%),
+    linear-gradient(180deg, #02080c, #050b10);
+  }
+  .sp-stage::before { content:""; position:absolute; inset:0; background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 4px);
+    pointer-events:none;
+  }
+  .sp-stage::after { content:""; position:absolute; inset:0; background:
+    radial-gradient(circle at 50% 50%, transparent 30%, rgba(0,0,0,0.55));
+    pointer-events:none;
+  }
+
+  /* ===== S1: Centered Refined ===== */
+  .s1 { position: absolute; inset:0; display: grid; place-items: center; }
+  .s1 .stack { position: relative; display: grid; place-items: center; gap: 4px; }
+  .s1 .lbl { color: rgba(243,251,255,0.78); font: 950 16px/1 "Bahnschrift",sans-serif; letter-spacing: 0.6em; text-transform: uppercase; padding-left: 0.6em; text-shadow: 0 0 18px rgba(94,234,255,0.4); }
+  .s1 .num { color: #f3fbff; font: 950 168px/0.78 "Bahnschrift",sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; text-shadow:
+    0 0 28px rgba(94,234,255,0.55),
+    0 0 90px rgba(94,234,255,0.12),
+    0 12px 40px rgba(0,0,0,0.78);
+  }
+  .s1 .rule { position: absolute; left: 50%; transform: translateX(-50%); height: 1px; width: 240px; background: linear-gradient(90deg, transparent, rgba(94,234,255,0.85), transparent); box-shadow: 0 0 12px rgba(94,234,255,0.4); }
+  .s1 .rule.top { top: -8px; }
+  .s1 .rule.bot { bottom: -10px; width: 320px; }
+
+  /* ===== S2: Asymmetric Architectural ===== */
+  .s2 { position: absolute; inset:0; padding: 60px 80px; display: grid; align-content: center; }
+  .s2 .row { display: grid; grid-template-columns: auto 1fr; gap: 30px; align-items: end; }
+  .s2 .left { display: grid; gap: 6px; }
+  .s2 .kicker { display: flex; align-items: center; gap: 10px; color: rgba(243,251,255,0.7); font: 950 11px/1 "Bahnschrift",sans-serif; letter-spacing: 0.32em; text-transform: uppercase; }
+  .s2 .kicker .tick { width: 18px; height: 1px; background: #5eeaff; box-shadow: 0 0 10px #5eeaff; }
+  .s2 .num { color: #f3fbff; font: 950 184px/0.76 "Bahnschrift",sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+    text-shadow: 0 0 24px rgba(94,234,255,0.45), 0 14px 40px rgba(0,0,0,0.85);
+    position: relative;
+  }
+  .s2 .num::after { content:""; position:absolute; right:-14px; bottom: 14px; width: 8px; height: 8px; background: #5eeaff; box-shadow: 0 0 12px #5eeaff; }
+  .s2 .right { display: grid; gap: 8px; padding-bottom: 16px; }
+  .s2 .right .barline { display: grid; grid-template-columns: 1fr 60px; gap: 12px; align-items: center; }
+  .s2 .right .barline .line { height: 1px; background: linear-gradient(90deg, rgba(243,251,255,0.06), rgba(94,234,255,0.6)); }
+  .s2 .right .barline .badge { font: 950 10px/1 "Bahnschrift",sans-serif; letter-spacing: 0.3em; color: rgba(94,234,255,0.85); text-align:right; }
+  .s2 .right .meta { color: rgba(243,251,255,0.4); font: 950 9px/1.5 "Bahnschrift",sans-serif; letter-spacing: 0.28em; text-transform: uppercase; max-width: 340px; }
+  .s2 .brackets { position:absolute; }
+  .s2 .brackets.tl { left: 40px; top: 40px; width: 22px; height: 22px; border-left: 1px solid rgba(94,234,255,0.7); border-top: 1px solid rgba(94,234,255,0.7); }
+  .s2 .brackets.br { right: 40px; bottom: 40px; width: 22px; height: 22px; border-right: 1px solid rgba(94,234,255,0.7); border-bottom: 1px solid rgba(94,234,255,0.7); }
+
+  /* ===== S3: Punch-In Cinematic ===== */
+  .s3 { position: absolute; inset:0; display: grid; place-items: center; }
+  .s3::before { content:""; position:absolute; left:0; right:0; top:50%; height:1px; background: linear-gradient(90deg, transparent, rgba(94,234,255,0.85) 30%, rgba(94,234,255,0.85) 70%, transparent); transform: translateY(-2px); box-shadow: 0 0 16px rgba(94,234,255,0.4); }
+  .s3 .deck { position: relative; display: grid; place-items: center; gap: 6px; padding: 26px 56px; background:
+    linear-gradient(90deg, rgba(2,5,8,0) 0%, rgba(2,5,8,0.78) 30%, rgba(2,5,8,0.78) 70%, rgba(2,5,8,0) 100%);
+  }
+  .s3 .num { display: flex; gap: 6px; }
+  .s3 .num .d { color: #f3fbff; font: 950 200px/0.74 "Bahnschrift",sans-serif; font-variant-numeric: tabular-nums; text-shadow: 0 0 32px rgba(94,234,255,0.5), 0 16px 50px rgba(0,0,0,0.85); }
+  .s3 .lbl { display: flex; align-items: center; gap: 10px; color: rgba(243,251,255,0.78); font: 950 13px/1 "Bahnschrift",sans-serif; letter-spacing: 0.55em; padding-left: 0.55em; text-transform: uppercase; }
+  .s3 .lbl .tick { width: 12px; height: 1px; background: #5eeaff; }
+  .s3 .substring { position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%); color: rgba(243,251,255,0.32); font: 950 9px/1 "Bahnschrift",sans-serif; letter-spacing: 0.45em; text-transform: uppercase; white-space: nowrap; }
+
+  .badge-rec { display: inline-block; margin-left: 8px; padding: 2px 6px; border-radius: 2px; background: rgba(94,234,255,0.18); color: #5eeaff; font: 950 9px/1 "Bahnschrift",sans-serif; letter-spacing: 0.18em; vertical-align: middle; }
+</style>
+
+<h2>Round splash composition</h2>
+<p class="subtitle">Static view of each composition + motion intent below. Cyan stays the splash signature color (system event, not a faction).</p>
+
+<!-- S1 -->
+<div class="sp-row option" data-choice="s1" onclick="toggleSelect(this)" style="cursor:pointer">
+  <h4>S1 — Centered Refined</h4>
+  <p class="desc">Closest to today: large centered numeral with the ROUND label above. Drops the red secondary glow and the parallelogram skew. Twin scanlines become a single short rule above and a longer one below. Calm, symmetrical, tight.</p>
+  <div class="motion">
+    <strong>Motion (~640ms total)</strong>
+    Rules draw outward from center first (180ms). Label fades in with slight letter-spacing tightening (220ms). Number punches in with a subtle blur-clear + 0→1 scale-snap on a spring curve (320ms). Hold ~700ms. Exit: number lifts and softens, rules retract inward, label tracks slightly wider as it fades.
+  </div>
+  <div class="sp-stage">
+    <div class="s1">
+      <div class="stack">
+        <div class="rule top"></div>
+        <div class="lbl">ROUND</div>
+        <div class="num">02</div>
+        <div class="rule bot"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- S2 -->
+<div class="sp-row option" data-choice="s2" onclick="toggleSelect(this)" style="cursor:pointer">
+  <h4>S2 — Asymmetric Architectural <span class="badge-rec">Recommended</span></h4>
+  <p class="desc">Endfield-signature composition. Massive numeral anchored bottom-left of a structural frame. ROUND label sits high-left with a precision tick. Right side carries thin horizontal rules and a stage tag. Two corner brackets frame the canvas. Reads as "system event, declared." Most distinctive.</p>
+  <div class="motion">
+    <strong>Motion (~720ms total)</strong>
+    Brackets snap-draw into place (140ms, staggered). Kicker tick extends left-to-right and label types in beside it (220ms). Right-side rules draw outward (260ms). Number rises from below with a hard blur-clear and a 0.92→1 scale-snap (380ms). Accent dot pops last with a short flash. Hold ~700ms. Exit: brackets release outward, number drops a few px and softens, rules retract.
+  </div>
+  <div class="sp-stage">
+    <div class="s2">
+      <div class="brackets tl"></div>
+      <div class="brackets br"></div>
+      <div class="row">
+        <div class="left">
+          <div class="kicker"><span class="tick"></span>Round</div>
+          <div class="num">02</div>
+        </div>
+        <div class="right">
+          <div class="barline"><div class="line"></div><div class="badge">STAGE</div></div>
+          <div class="barline"><div class="line"></div><div class="badge">— II —</div></div>
+          <div class="meta">Initiative cycle / advance</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- S3 -->
+<div class="sp-row option" data-choice="s3" onclick="toggleSelect(this)" style="cursor:pointer">
+  <h4>S3 — Punch-In Cinematic</h4>
+  <p class="desc">Single thin precision rule cuts across the entire screen behind the splash. Number sits centered over the rule with the label as a small kicker above. Faint flavor sub-string below ("INITIATIVE / CYCLE — 02"). Cleanest, most "system overlay" feel.</p>
+  <div class="motion">
+    <strong>Motion (~620ms total)</strong>
+    Rule sweeps across the screen left-to-right at 220ms with a soft head glow. Label resolves as it crosses. Digits punch in <em>individually</em> with a 40ms stagger — tens digit then units digit, each with a tiny blur-clear and overshoot-snap. Sub-string types in last. Hold ~680ms. Exit: digits dissolve upward, rule retracts to center, sub-string fades.
+  </div>
+  <div class="sp-stage">
+    <div class="s3">
+      <div class="deck">
+        <div class="lbl"><span class="tick"></span>Round</div>
+        <div class="num"><div class="d">0</div><div class="d">2</div></div>
+        <div class="substring">Initiative · Cycle — 02</div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,200 @@
+<style>
+  .sec { background: #05080b; border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 22px; margin-bottom: 18px; }
+  .sec h4 { margin: 0 0 6px; color: #f3fbff; font: 950 16px/1.1 "Bahnschrift", system-ui, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; }
+  .sec .desc { color: #8a9aa6; font-size: 13px; line-height: 1.5; margin: 0 0 14px; max-width: 760px; }
+  .sec .replay { margin-top: 10px; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 3px; background: rgba(94,234,255,0.18); border: 1px solid rgba(94,234,255,0.6); color: #5eeaff; font: 950 11px/1 "Bahnschrift",sans-serif; letter-spacing: 0.2em; text-transform: uppercase; cursor: pointer; }
+  .timeline { margin-top: 10px; padding: 10px 12px; border-left: 2px solid rgba(94,234,255,0.5); background: rgba(94,234,255,0.04); color: #cfdce3; font-size: 12px; line-height: 1.6; }
+  .timeline strong { color: #5eeaff; font: 950 10px/1 "Bahnschrift",sans-serif; letter-spacing: 0.18em; text-transform: uppercase; display: inline-block; margin-right: 8px; }
+
+  /* ==================== Stage canvas ==================== */
+  .stage { position: relative; width: 100%; height: 380px; border-radius: 6px; overflow: hidden; background:
+    radial-gradient(ellipse at 30% 50%, rgba(20,38,52,0.5), rgba(2,4,6,0.96) 70%),
+    linear-gradient(180deg, #02080c, #050b10);
+  }
+  .stage::after { content:""; position:absolute; inset:0; background:
+    radial-gradient(circle at 30% 50%, transparent 30%, rgba(0,0,0,0.55));
+    pointer-events:none;
+  }
+  /* "Rail" anchored to the left edge */
+  .rail { position: absolute; left: 32px; top: 24px; width: 212px; height: calc(100% - 48px); }
+
+  /* ==================== Card base (Notched Block) ==================== */
+  .card { position: absolute; left: 0; width: 200px; height: 58px; background: #04090d;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+    box-shadow: 0 8px 22px rgba(0,0,0,0.42);
+  }
+  .card .edge { position: absolute; inset: 0; border: 1px solid rgba(244,252,255,0.14); clip-path: inherit; pointer-events: none; }
+  .card .accent { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--ac, #5eeaff); box-shadow: 0 0 14px var(--ac, #5eeaff); }
+  .card .pfp { position: absolute; inset: 0; background:
+    radial-gradient(circle at 65% 30%, rgba(94,234,255,0.18), transparent 40%),
+    linear-gradient(135deg, #1f2a3a, #0b1118 70%); overflow: hidden;
+  }
+  .card .pfp::after { content:""; position:absolute; left:58%; top:18%; width:46%; height:78%; background:
+    radial-gradient(ellipse at 50% 32%, #d6e3eb 0%, #6a7a87 40%, transparent 64%);
+  }
+  .card .scrim { position: absolute; inset: 0; background:
+    linear-gradient(95deg, rgba(2,5,8,0.95), rgba(2,5,8,0.48) 50%, rgba(2,5,8,0));
+  }
+  .card .bracket { position: absolute; left: 10px; top: 8px; width: 8px; height: 8px; border-left: 1px solid rgba(244,252,255,0.55); border-top: 1px solid rgba(244,252,255,0.55); }
+  .card .name { position: absolute; left: 14px; bottom: 10px; right: 60px; color: #f3fbff; font: 950 12px/1 "Bahnschrift",sans-serif; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 1px 6px rgba(0,0,0,0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .init { position: absolute; right: 14px; bottom: 9px; min-width: 30px; height: 19px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px); background: #0b1318; color: #f3fbff; font: 950 12px/1 "Bahnschrift",sans-serif; font-variant-numeric: tabular-nums; }
+  .card .kicker { position: absolute; left: 14px; top: 6px; color: var(--ac, #5eeaff); font: 950 8px/1 "Bahnschrift",sans-serif; letter-spacing: 0.22em; opacity: 0; }
+  .card .sheen { position: absolute; left: 0; top: 32px; height: 1px; width: 0; background: linear-gradient(90deg, transparent, rgba(94,234,255,0.95) 30%, rgba(94,234,255,0.95) 70%, transparent); box-shadow: 0 0 14px rgba(94,234,255,0.6); pointer-events: none; opacity: 0; }
+
+  /* Disposition colors */
+  .card.friend  { --ac: #5eeaff; }
+  .card.neutral { --ac: #f3fbff; }
+  .card.hostile { --ac: #ff335f; }
+
+  /* ==================== Active resting state (applied via class) ==================== */
+  .card.active { width: 212px; height: 124px; box-shadow: 0 16px 36px rgba(0,0,0,0.55), 0 0 0 1px var(--ac); }
+  .card.active .edge { border-color: color-mix(in srgb, var(--ac) 55%, transparent); }
+  .card.active .accent { width: 4px; box-shadow: 0 0 22px var(--ac); }
+  .card.active .bracket { border-color: var(--ac); }
+  .card.active .name { font-size: 16px; bottom: 14px; }
+  .card.active .init { background: var(--ac); color: #04090d; height: 24px; min-width: 38px; font-size: 14px; }
+  .card.active .kicker { opacity: 1; }
+
+  /* ==================== Choreography ==================== */
+  /* 6s cycle: 0-15% rest, 15-35% transition, 35-90% new rest, 90-100% reset mask */
+
+  /* Reset overlay masks the snap-back at the end */
+  .resetmask { position: absolute; inset: 0; background: #02060a; opacity: 0; pointer-events: none; animation: resetmask 6s infinite linear; z-index: 50; }
+  @keyframes resetmask { 0% {opacity: 0;} 88% {opacity: 0;} 92% {opacity: 1;} 99% {opacity: 1;} 100% {opacity: 0;} }
+
+  /* ---- Card A (Kaede / friendly): starts active, exits ghost left ---- */
+  .cA { animation: cA 6s infinite cubic-bezier(0.55, 0, 0.84, 0); }
+  @keyframes cA {
+    0%   { top: 0; left: 0; width: 212px; height: 124px; opacity: 1; transform: translateX(0) scale(1); filter: blur(0); }
+    15%  { top: 0; left: 0; width: 212px; height: 124px; opacity: 1; transform: translateX(0) scale(1); filter: blur(0); }
+    32%  { top: 0; left: 0; width: 212px; height: 124px; opacity: 0; transform: translateX(-110px) scale(0.86); filter: blur(8px); }
+    34%  { top: 0; opacity: 0; }
+    100% { top: 0; left: 0; width: 212px; height: 124px; opacity: 0; transform: translateX(-110px); filter: blur(8px); }
+  }
+
+  /* ---- Card B (Ronan / hostile): starts inactive slot 2, FLIPs to active ---- */
+  .cB { animation: cB 6s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  @keyframes cB {
+    0%   { top: 132px; width: 200px; height: 58px; }
+    15%  { top: 132px; width: 200px; height: 58px; }
+    32%  { top: 0; width: 212px; height: 124px; }
+    100% { top: 0; width: 212px; height: 124px; }
+  }
+  /* B's active-state class swap timing — handled by intermediate "becoming-active" class via animation on child elements */
+  .cB .accent { animation: cBaccent 6s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  @keyframes cBaccent {
+    0%   { width: 3px; box-shadow: 0 0 14px var(--ac); }
+    15%  { width: 3px; }
+    32%  { width: 4px; box-shadow: 0 0 22px var(--ac); }
+    100% { width: 4px; box-shadow: 0 0 22px var(--ac); }
+  }
+  .cB .bracket { animation: cBbracket 6s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  @keyframes cBbracket {
+    0%   { border-color: rgba(244,252,255,0.55); }
+    20%  { border-color: rgba(244,252,255,0.55); }
+    32%  { border-color: var(--ac); }
+    100% { border-color: var(--ac); }
+  }
+  .cB .name { animation: cBname 6s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  @keyframes cBname {
+    0%   { font-size: 12px; bottom: 10px; opacity: 0.78; }
+    15%  { font-size: 12px; bottom: 10px; opacity: 0.78; }
+    32%  { font-size: 16px; bottom: 14px; opacity: 1; }
+    100% { font-size: 16px; bottom: 14px; opacity: 1; }
+  }
+  .cB .init { animation: cBinit 6s infinite cubic-bezier(0.2, 1.35, 0.22, 1); }
+  @keyframes cBinit {
+    0%   { background: #0b1318; color: #f3fbff; height: 19px; min-width: 30px; font-size: 12px; }
+    15%  { background: #0b1318; color: #f3fbff; height: 19px; min-width: 30px; font-size: 12px; }
+    30%  { background: #0b1318; color: #f3fbff; }
+    36%  { background: var(--ac); color: #04090d; height: 24px; min-width: 38px; font-size: 14px; }
+    100% { background: var(--ac); color: #04090d; height: 24px; min-width: 38px; font-size: 14px; }
+  }
+  .cB .kicker { animation: cBkicker 6s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  @keyframes cBkicker {
+    0%   { opacity: 0; }
+    25%  { opacity: 0; }
+    34%  { opacity: 1; }
+    100% { opacity: 1; }
+  }
+  /* B's sheen sweep */
+  .cB .sheen { animation: cBsheen 6s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  @keyframes cBsheen {
+    0%   { width: 0; opacity: 0; top: 32px; }
+    18%  { width: 0; opacity: 0; top: 32px; }
+    20%  { width: 0; opacity: 1; top: 32px; }
+    30%  { width: 100%; opacity: 1; top: 38px; }
+    34%  { width: 100%; opacity: 0; top: 40px; }
+    100% { width: 0; opacity: 0; }
+  }
+
+  /* ---- Card C (Innkeeper / neutral): starts at slot 3, FLIPs up to slot 2 ---- */
+  .cC { animation: cC 6s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  @keyframes cC {
+    0%   { top: 196px; width: 200px; height: 58px; opacity: 1; }
+    15%  { top: 196px; opacity: 1; }
+    32%  { top: 132px; }
+    100% { top: 132px; }
+  }
+
+  /* ---- Card D (Ash Wolf / hostile): new entrant, slides in from bottom to slot 3 ---- */
+  .cD { animation: cD 6s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  @keyframes cD {
+    0%   { top: 210px; opacity: 0; transform: translateY(10px); filter: blur(2px); }
+    20%  { top: 210px; opacity: 0; transform: translateY(10px); filter: blur(2px); }
+    35%  { top: 196px; opacity: 1; transform: translateY(0); filter: blur(0); }
+    100% { top: 196px; opacity: 1; transform: translateY(0); filter: blur(0); }
+  }
+</style>
+
+<h2>Turn-change choreography</h2>
+<p class="subtitle">Live preview of how a turn change plays out on the rail. 6-second loop: <strong style="color:#5eeaff">rest</strong> → <strong style="color:#5eeaff">transition</strong> → <strong style="color:#5eeaff">new rest</strong> → reset. Watch the sheen line draw across Ronan as he becomes active.</p>
+
+<div class="sec">
+  <h4>Live: active card exits, next card grows in with sheen sweep</h4>
+  <p class="desc">Kaede (current active, cyan) ghost-exits left. Ronan (hostile/red, slot 2) FLIPs up into the active slot — accent edge widens, L-bracket lights up red, name scales 12→16px, init chip fills with red, kicker fades in. Sheen line draws horizontally across the top-third of the new active card. Innkeeper (neutral/white) FLIPs up to slot 2. Ash Wolf enters from below to fill slot 3.</p>
+  <button class="replay" onclick="event.stopPropagation(); replayStage(this);">↻ Restart cycle</button>
+  <div class="stage" data-stage>
+    <div class="rail">
+      <!-- Card A: starts active, exits -->
+      <div class="card cA active friend">
+        <div class="pfp"></div><div class="scrim"></div><div class="edge"></div>
+        <div class="accent"></div><div class="bracket"></div>
+        <div class="kicker">ACTIVE</div>
+        <div class="name">Kaede Nagai</div>
+        <div class="init">19</div>
+      </div>
+      <!-- Card B: starts inactive slot 2, becomes active -->
+      <div class="card cB hostile">
+        <div class="pfp"></div><div class="scrim"></div><div class="edge"></div>
+        <div class="accent"></div><div class="bracket"></div>
+        <div class="kicker">ACTIVE</div>
+        <div class="name">Ronan Vex</div>
+        <div class="init">14</div>
+        <div class="sheen"></div>
+      </div>
+      <!-- Card C: starts slot 3, moves up to slot 2 -->
+      <div class="card cC neutral">
+        <div class="pfp"></div><div class="scrim"></div><div class="edge"></div>
+        <div class="accent"></div><div class="bracket"></div>
+        <div class="name">Innkeeper</div>
+        <div class="init">12</div>
+      </div>
+      <!-- Card D: new entry from bottom to slot 3 -->
+      <div class="card cD hostile">
+        <div class="pfp"></div><div class="scrim"></div><div class="edge"></div>
+        <div class="accent"></div><div class="bracket"></div>
+        <div class="name">Ash Wolf</div>
+        <div class="init">10</div>
+      </div>
+      <div class="resetmask"></div>
+    </div>
+  </div>
+  <div class="timeline">
+    <div><strong>0 – 900ms</strong>rest. Kaede active, Ronan + Innkeeper visible below.</div>
+    <div><strong>900 – 1100ms</strong>Kaede ghost: translateX -110px, scale 0.86, blur 8px, fade. Sharp accelerated exit curve.</div>
+    <div><strong>1100 – 1900ms</strong>Ronan FLIPs up (top: 132 → 0) while height grows 58 → 124. Portrait expands. Sheen draws L→R across top-third. Bracket, name, init chip, kicker all transition into active state.</div>
+    <div><strong>1900 – 2100ms</strong>Ash Wolf fades up from below to fill slot 3 (translateY 10 → 0, blur clears).</div>
+    <div><strong>2100ms+</strong>rest in new state, then loop reset.</div>
+  </div>
+</div>

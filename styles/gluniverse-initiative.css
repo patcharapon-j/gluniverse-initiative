@@ -1,0 +1,1287 @@
+:root {
+  --gluni-cyan: #5eeaff;
+  --gluni-red: #ff335f;
+  --gluni-gold: #ffd166;
+  --gluni-violet: #b497ff;
+  --gluni-white: #f3fbff;
+  --gluni-ink: #05080b;
+  --gluni-line: rgba(224, 246, 255, 0.22);
+  --gluni-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --gluni-snap: cubic-bezier(0.2, 1.35, 0.22, 1);
+}
+
+.gluni-initiative {
+  position: fixed;
+  z-index: 70;
+  width: min(188px, calc(100vw - 20px));
+  color: var(--gluni-white);
+  font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  letter-spacing: 0;
+  pointer-events: none;
+  transform: translateZ(0);
+}
+
+.gluni-initiative--hidden {
+  display: none;
+}
+
+.gluni-initiative--left {
+  left: 10px;
+}
+
+.gluni-initiative--right {
+  right: 10px;
+}
+
+.gluni-shell {
+  position: relative;
+  pointer-events: auto;
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.gluni-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
+  gap: 6px;
+}
+
+.gluni-drag-handle,
+.gluni-round-chip,
+.gluni-turn-controls button,
+.gluni-end-turn {
+  border: 1px solid rgba(224, 246, 255, 0.18);
+  border-radius: 4px;
+  background: linear-gradient(135deg, rgba(7, 14, 19, 0.9), rgba(12, 23, 31, 0.76));
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.32), inset 0 0 18px rgba(94, 234, 255, 0.06);
+  backdrop-filter: blur(8px);
+}
+
+.gluni-drag-handle {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 23px;
+  padding: 0;
+  color: rgba(243, 251, 255, 0.7);
+  cursor: grab;
+}
+
+.gluni-drag-handle:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.gluni-initiative--dragging .gluni-drag-handle {
+  cursor: grabbing;
+}
+
+.gluni-floating-turn-controls {
+  position: absolute;
+  top: var(--gluni-control-top, 56px);
+  z-index: 18;
+  pointer-events: auto;
+}
+
+.gluni-initiative--left .gluni-floating-turn-controls {
+  left: calc(100% + 6px);
+}
+
+.gluni-initiative--right .gluni-floating-turn-controls {
+  right: calc(100% + 6px);
+}
+
+.gluni-turn-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.gluni-turn-controls button {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  color: rgba(243, 251, 255, 0.78);
+  cursor: pointer;
+  transition:
+    color 160ms var(--gluni-ease),
+    border-color 160ms var(--gluni-ease),
+    background 160ms var(--gluni-ease),
+    transform 160ms var(--gluni-ease);
+}
+
+.gluni-turn-controls button:hover {
+  color: #041015;
+  border-color: transparent;
+  background: var(--gluni-cyan);
+  transform: translateY(-1px);
+}
+
+.gluni-round-chip {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 5px;
+  min-width: 76px;
+  height: 23px;
+  padding: 3px 7px;
+  border-color: rgba(94, 234, 255, 0.26);
+}
+
+.gluni-round-chip span {
+  color: rgba(243, 251, 255, 0.62);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.gluni-round-chip strong {
+  color: var(--gluni-cyan);
+  font-size: 15px;
+  font-weight: 950;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 14px rgba(94, 234, 255, 0.7);
+}
+
+.gluni-rail,
+.gluni-delayed-list,
+.gluni-delayed-section {
+  display: grid;
+  gap: 5px;
+}
+
+.gluni-card {
+  --gluni-flip-x: 0px;
+  --gluni-flip-y: 0px;
+  --gluni-active-shift: 0px;
+  --gluni-card-scale: 1;
+  --gluni-portrait-normal-x: 54%;
+  --gluni-portrait-normal-y: 24%;
+  --gluni-portrait-normal-scale: 1.06;
+  --gluni-portrait-active-x: 55%;
+  --gluni-portrait-active-y: 12%;
+  --gluni-portrait-active-scale: 1.2;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  align-items: end;
+  justify-self: stretch;
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid var(--gluni-line);
+  border-radius: 5px;
+  overflow: hidden;
+  background: rgba(4, 9, 13, 0.88);
+  box-shadow: 0 9px 24px rgba(0, 0, 0, 0.34), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  transform:
+    translate(var(--gluni-flip-x), var(--gluni-flip-y))
+    translateX(var(--gluni-active-shift))
+    scale(var(--gluni-card-scale));
+  transform-origin: center;
+  transition:
+    min-height 420ms var(--gluni-ease),
+    width 420ms var(--gluni-ease),
+    transform 440ms var(--gluni-snap),
+    border-color 280ms var(--gluni-ease),
+    box-shadow 280ms var(--gluni-ease),
+    filter 280ms var(--gluni-ease),
+    opacity 280ms var(--gluni-ease);
+}
+
+.gluni-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background:
+    linear-gradient(90deg, rgba(3, 7, 10, 0.94), rgba(3, 7, 10, 0.54) 47%, rgba(3, 7, 10, 0.08)),
+    linear-gradient(180deg, transparent 32%, rgba(0, 0, 0, 0.82));
+  pointer-events: none;
+}
+
+.gluni-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 18%, transparent), transparent 54%),
+    repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 6px);
+  opacity: 0.66;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.gluni-card-accent {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 7;
+  width: 3px;
+  background: var(--gluni-accent, var(--gluni-cyan));
+  box-shadow: 0 0 16px var(--gluni-accent, var(--gluni-cyan));
+}
+
+.gluni-card-portrait-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.gluni-card-portrait {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--gluni-portrait-normal-x) var(--gluni-portrait-normal-y);
+  transform: scale(var(--gluni-portrait-normal-scale));
+  filter: contrast(1.08) saturate(1.06);
+  transition:
+    transform 520ms var(--gluni-ease),
+    object-position 520ms var(--gluni-ease),
+    filter 360ms var(--gluni-ease);
+}
+
+.gluni-card-mystery-mark {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(243, 251, 255, 0.92);
+  background:
+    radial-gradient(circle at 50% 48%, rgba(180, 151, 255, 0.22), transparent 42%),
+    linear-gradient(135deg, rgba(10, 6, 18, 0.88), rgba(4, 8, 13, 0.94));
+  font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-size: 42px;
+  font-weight: 950;
+  line-height: 1;
+  text-shadow:
+    0 0 18px rgba(180, 151, 255, 0.82),
+    0 8px 26px rgba(0, 0, 0, 0.9);
+  transform: scale(1);
+  transition:
+    transform 520ms var(--gluni-ease),
+    color 360ms var(--gluni-ease),
+    text-shadow 360ms var(--gluni-ease);
+}
+
+.gluni-card-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background:
+    radial-gradient(circle at 84% 16%, rgba(255, 255, 255, 0.2), transparent 22%),
+    linear-gradient(112deg, rgba(94, 234, 255, 0.14), transparent 44%);
+  mix-blend-mode: screen;
+  opacity: 0.78;
+  pointer-events: none;
+}
+
+.gluni-card-content {
+  position: relative;
+  z-index: 8;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 5px;
+  align-items: end;
+  min-width: 0;
+  padding: 6px 7px 6px 9px;
+}
+
+.gluni-card-kicker {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 10px;
+}
+
+.gluni-active-tag,
+.gluni-delayed-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 11px;
+  padding: 0 4px;
+  border-radius: 2px;
+  color: #041015;
+  background: var(--gluni-accent, var(--gluni-cyan));
+  font-size: 7px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.gluni-delayed-tag {
+  color: var(--gluni-white);
+  background: rgba(180, 151, 255, 0.28);
+  border: 1px solid rgba(180, 151, 255, 0.52);
+}
+
+.gluni-card h3 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--gluni-white);
+  font-size: 11px;
+  font-weight: 950;
+  line-height: 1.02;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+}
+
+.gluni-initiative-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid rgba(243, 251, 255, 0.22);
+  border-radius: 3px;
+  color: var(--gluni-white);
+  background: rgba(0, 0, 0, 0.48);
+  font-size: 10px;
+  font-weight: 950;
+  font-variant-numeric: tabular-nums;
+}
+
+.gluni-card--active {
+  --gluni-card-scale: 1.02;
+  width: calc(100% + 12px);
+  min-height: 108px;
+  overflow: visible;
+  border-color: color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 82%, white 18%);
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.46),
+    0 0 24px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 34%, transparent 66%);
+}
+
+.gluni-initiative--left .gluni-card--active {
+  justify-self: start;
+}
+
+.gluni-initiative--right .gluni-card--active {
+  justify-self: end;
+}
+
+.gluni-initiative--left .gluni-card--active {
+  --gluni-active-shift: 5px;
+}
+
+.gluni-initiative--right .gluni-card--active {
+  --gluni-active-shift: -5px;
+}
+
+.gluni-card--active .gluni-card-portrait-wrap {
+  top: -24px;
+  overflow: visible;
+  clip-path: inset(0 0 0 0 round 5px);
+}
+
+.gluni-card--active .gluni-card-portrait {
+  height: calc(100% + 24px);
+  object-position: var(--gluni-portrait-active-x) var(--gluni-portrait-active-y);
+  transform: translateY(-9px) scale(var(--gluni-portrait-active-scale));
+}
+
+.gluni-card--active::before {
+  top: auto;
+  height: 38px;
+  background:
+    linear-gradient(90deg, rgba(3, 7, 10, 0.82), rgba(3, 7, 10, 0.38) 48%, rgba(3, 7, 10, 0.02)),
+    linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.74));
+}
+
+.gluni-card--active::after {
+  top: auto;
+  height: 42px;
+  border-top-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 10%, transparent), transparent 58%),
+    repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 7px);
+  opacity: 0.38;
+}
+
+.gluni-card--active .gluni-card-vignette {
+  top: auto;
+  bottom: 0;
+  height: 34px;
+  background: linear-gradient(112deg, rgba(94, 234, 255, 0.08), transparent 46%);
+  opacity: 0.34;
+}
+
+.gluni-card--active .gluni-card-mystery-mark {
+  color: #fff;
+  font-size: 72px;
+  transform: translateY(-4px) scale(1.08);
+  text-shadow:
+    0 0 26px rgba(180, 151, 255, 0.96),
+    0 0 54px rgba(94, 234, 255, 0.24),
+    0 12px 32px rgba(0, 0, 0, 0.9);
+}
+
+.gluni-card--active h3 {
+  font-size: 13px;
+}
+
+.gluni-card--active .gluni-initiative-badge {
+  height: 21px;
+  min-width: 30px;
+  color: #041015;
+  background: var(--gluni-accent, var(--gluni-cyan));
+  border-color: transparent;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 42%, transparent 58%);
+}
+
+.gluni-end-turn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  color: #041015;
+  background: var(--gluni-accent, var(--gluni-cyan));
+  border-color: transparent;
+  white-space: nowrap;
+  box-shadow:
+    0 0 18px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 42%, transparent 58%),
+    0 8px 22px rgba(0, 0, 0, 0.34);
+  cursor: pointer;
+  transition:
+    transform 180ms var(--gluni-ease),
+    filter 180ms var(--gluni-ease),
+    box-shadow 180ms var(--gluni-ease);
+}
+
+.gluni-end-turn span {
+  font-size: 8px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.gluni-end-turn:hover {
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 26px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 58%, transparent 42%),
+    0 10px 26px rgba(0, 0, 0, 0.38);
+}
+
+.gluni-card--friendly {
+  --gluni-accent: var(--gluni-cyan);
+}
+
+.gluni-card--neutral {
+  --gluni-accent: var(--gluni-gold);
+}
+
+.gluni-card--hostile {
+  --gluni-accent: var(--gluni-red);
+}
+
+.gluni-card--secret,
+.gluni-card--mystery {
+  --gluni-accent: var(--gluni-violet);
+}
+
+.gluni-card--defeated {
+  filter: saturate(0.24) brightness(0.7);
+  opacity: 0.72;
+}
+
+.gluni-card--gm-hidden {
+  border-color: rgba(255, 51, 95, 0.72);
+  outline: 1px solid rgba(255, 51, 95, 0.38);
+  outline-offset: -4px;
+}
+
+.gluni-card--gm-mystery {
+  border-color: rgba(180, 151, 255, 0.78);
+  outline: 1px dashed rgba(180, 151, 255, 0.6);
+  outline-offset: -4px;
+}
+
+.gluni-card--gm-visible {
+  border-color: rgba(94, 234, 255, 0.72);
+  outline: 1px solid rgba(94, 234, 255, 0.38);
+  outline-offset: -4px;
+}
+
+.gluni-gm-visibility {
+  position: absolute;
+  inset: 5px 5px auto auto;
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 14px;
+  min-width: 31px;
+  padding: 0 4px;
+  border: 1px solid rgba(243, 251, 255, 0.18);
+  border-radius: 2px;
+  color: rgba(243, 251, 255, 0.72);
+  background: rgba(2, 6, 9, 0.72);
+  font-size: 7px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.gluni-gm-visibility--visible {
+  color: #041015;
+  background: var(--gluni-cyan);
+  border-color: transparent;
+}
+
+.gluni-gm-visibility--hidden {
+  color: #fff;
+  background: rgba(255, 51, 95, 0.72);
+  border-color: rgba(255, 51, 95, 0.9);
+}
+
+.gluni-gm-visibility--mystery {
+  color: #fff;
+  background: rgba(180, 151, 255, 0.62);
+  border-color: rgba(180, 151, 255, 0.88);
+}
+
+.gluni-card-controls {
+  position: absolute;
+  inset: auto 5px 5px auto;
+  z-index: 10;
+  display: flex;
+  gap: 3px;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.gluni-card:hover .gluni-card-controls,
+.gluni-card:focus-within .gluni-card-controls {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.gluni-card-controls button {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(243, 251, 255, 0.18);
+  border-radius: 3px;
+  color: rgba(243, 251, 255, 0.86);
+  background: rgba(3, 8, 12, 0.82);
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+}
+
+.gluni-card-controls button:hover,
+.gluni-card-controls button.is-selected {
+  color: #041015;
+  background: var(--gluni-accent, var(--gluni-cyan));
+  border-color: transparent;
+}
+
+.gluni-round-separator {
+  --gluni-flip-x: 0px;
+  --gluni-flip-y: 0px;
+  --gluni-active-shift: 0px;
+  --gluni-card-scale: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 19px;
+  border: 1px solid rgba(94, 234, 255, 0.24);
+  border-radius: 4px;
+  background: linear-gradient(90deg, transparent, rgba(94, 234, 255, 0.18), transparent);
+  color: rgba(243, 251, 255, 0.72);
+  font-size: 8px;
+  font-weight: 950;
+  transform: translate(var(--gluni-flip-x), var(--gluni-flip-y));
+  transition: transform 440ms var(--gluni-snap), opacity 240ms var(--gluni-ease);
+}
+
+.gluni-round-separator strong {
+  color: var(--gluni-cyan);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gluni-delayed-section {
+  padding-top: 1px;
+}
+
+.gluni-delayed-heading {
+  color: rgba(243, 251, 255, 0.58);
+  font-size: 8px;
+  font-weight: 950;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85);
+}
+
+.gluni-delayed-list .gluni-card {
+  min-height: 42px;
+  opacity: 0.92;
+}
+
+.gluni-delayed-list .gluni-card--active {
+  min-height: 70px;
+}
+
+.gluni-item--entering {
+  animation: gluni-card-enter 420ms var(--gluni-snap) both;
+}
+
+.gluni-item--entering-bottom {
+  animation: gluni-card-enter-bottom 360ms var(--gluni-ease) both;
+}
+
+.gluni-item--preflip {
+  transition: none !important;
+}
+
+.gluni-item--flipping {
+  will-change: transform;
+}
+
+.gluni-card--active-entering {
+  animation: gluni-active-signal 620ms var(--gluni-snap) both;
+}
+
+.gluni-card.gluni-item--entering.gluni-card--active-entering {
+  animation:
+    gluni-card-enter 420ms var(--gluni-snap) both,
+    gluni-active-signal 620ms var(--gluni-snap) both;
+}
+
+.gluni-card--active-entering .gluni-card-portrait {
+  animation: gluni-active-portrait 620ms var(--gluni-snap) both;
+}
+
+.gluni-card--active-entering .gluni-card-mystery-mark {
+  animation: gluni-active-mystery 620ms var(--gluni-snap) both;
+}
+
+.gluni-card--active-entering .gluni-card-content {
+  animation: gluni-active-content 560ms var(--gluni-ease) both;
+}
+
+.gluni-card--outgoing-active {
+  animation: gluni-card-rejoin 380ms var(--gluni-ease) both;
+}
+
+.gluni-card-ghost {
+  position: fixed;
+  z-index: 89;
+  pointer-events: none;
+  margin: 0;
+  transform: translateX(0) scale(1);
+}
+
+.gluni-card-ghost--leave.gluni-card-ghost--left {
+  animation: gluni-active-exit-left 520ms cubic-bezier(0.72, 0, 0.22, 1) forwards;
+}
+
+.gluni-card-ghost--leave.gluni-card-ghost--right {
+  animation: gluni-active-exit-right 520ms cubic-bezier(0.72, 0, 0.22, 1) forwards;
+}
+
+.gluni-initiative--reduced .gluni-card,
+.gluni-initiative--reduced .gluni-card-portrait,
+.gluni-initiative--reduced .gluni-card-mystery-mark,
+.gluni-initiative--reduced .gluni-card-controls,
+.gluni-initiative--reduced .gluni-end-turn,
+.gluni-initiative--reduced .gluni-turn-controls button {
+  transition-duration: 120ms;
+}
+
+.gluni-initiative--cinematic .gluni-card {
+  transition-duration: 620ms;
+}
+
+.gluni-initiative--cinematic .gluni-card-portrait {
+  transition-duration: 760ms;
+}
+
+.gluni-initiative--cinematic .gluni-card-mystery-mark {
+  transition-duration: 760ms;
+}
+
+.gluni-round-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  opacity: 0;
+  font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+}
+
+.gluni-round-splash::before,
+.gluni-round-splash::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: min(560px, 78vw);
+  height: 2px;
+  background:
+    linear-gradient(90deg, transparent, rgba(94, 234, 255, 0.94) 48%, rgba(255, 51, 95, 0.82) 52%, transparent),
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+  transform: translateX(-50%) scaleX(0.06);
+  opacity: 0;
+  box-shadow: 0 0 28px rgba(94, 234, 255, 0.58);
+}
+
+.gluni-round-splash::before {
+  top: calc(50% - 72px);
+}
+
+.gluni-round-splash::after {
+  top: calc(50% + 76px);
+}
+
+.gluni-round-splash-inner {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: min(240px, 70vw);
+  row-gap: 1px;
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+  filter: blur(4px);
+}
+
+.gluni-round-splash-inner::before {
+  content: "";
+  position: absolute;
+  width: min(340px, 68vw);
+  height: 58px;
+  border: 1px solid rgba(94, 234, 255, 0.18);
+  background:
+    linear-gradient(90deg, transparent, rgba(2, 8, 12, 0.54), transparent),
+    linear-gradient(180deg, rgba(94, 234, 255, 0.08), transparent 42%, rgba(255, 51, 95, 0.08));
+  transform: skewX(-16deg) scaleX(0.84);
+  opacity: 0.62;
+}
+
+.gluni-round-splash-inner span,
+.gluni-round-splash-inner strong {
+  position: relative;
+  z-index: 1;
+}
+
+.gluni-round-splash-inner span {
+  color: rgba(243, 251, 255, 0.84);
+  font-size: clamp(14px, 1.7vw, 22px);
+  font-weight: 950;
+  line-height: 1;
+  opacity: 0;
+  transform: translateY(8px) scaleX(0.96);
+  transform-origin: center;
+  text-shadow: 0 0 22px rgba(94, 234, 255, 0.7);
+}
+
+.gluni-round-splash-inner strong {
+  color: var(--gluni-white);
+  font-size: clamp(108px, 17vw, 230px);
+  font-weight: 950;
+  line-height: 0.76;
+  opacity: 0;
+  font-variant-numeric: tabular-nums;
+  transform: translateY(10px) scale(0.94);
+  transform-origin: center;
+  text-shadow:
+    0 0 24px rgba(94, 234, 255, 0.92),
+    0 0 78px rgba(255, 51, 95, 0.42),
+    0 20px 64px rgba(0, 0, 0, 0.72);
+}
+
+.gluni-round-splash--show {
+  opacity: 1;
+}
+
+.gluni-round-splash--show .gluni-round-splash-inner {
+  animation: gluni-round-frame-in 280ms var(--gluni-ease) forwards;
+}
+
+.gluni-round-splash--show .gluni-round-splash-inner span {
+  animation: gluni-round-label-in 440ms var(--gluni-ease) 80ms both;
+}
+
+.gluni-round-splash--show .gluni-round-splash-inner strong {
+  animation: gluni-round-number-in 520ms var(--gluni-snap) 20ms both;
+}
+
+.gluni-round-splash--show::before,
+.gluni-round-splash--show::after {
+  animation: gluni-scanline 520ms var(--gluni-ease) forwards;
+}
+
+.gluni-round-splash--leave {
+  animation: gluni-round-shell-leave 420ms cubic-bezier(0.55, 0, 0.84, 0) forwards;
+}
+
+.gluni-round-splash--leave .gluni-round-splash-inner {
+  animation: gluni-round-frame-out 360ms cubic-bezier(0.55, 0, 0.84, 0) forwards;
+}
+
+.gluni-round-splash--leave .gluni-round-splash-inner span {
+  animation: gluni-round-label-out 360ms cubic-bezier(0.55, 0, 0.84, 0) forwards;
+}
+
+.gluni-round-splash--leave .gluni-round-splash-inner strong {
+  animation: gluni-round-number-out 380ms cubic-bezier(0.55, 0, 0.84, 0) forwards;
+}
+
+.gluni-round-splash--cinematic.gluni-round-splash--show .gluni-round-splash-inner {
+  animation-duration: 360ms;
+}
+
+.gluni-round-splash--cinematic.gluni-round-splash--show .gluni-round-splash-inner span {
+  animation-duration: 560ms;
+}
+
+.gluni-round-splash--cinematic.gluni-round-splash--show .gluni-round-splash-inner strong {
+  animation-duration: 680ms;
+}
+
+.gluni-round-splash--reduced .gluni-round-splash-inner strong {
+  font-size: clamp(86px, 14vw, 188px);
+}
+
+.gluni-portrait-dialog .window-content {
+  color: var(--gluni-white);
+  background:
+    linear-gradient(135deg, rgba(5, 9, 13, 0.96), rgba(12, 22, 30, 0.94)),
+    radial-gradient(circle at 78% 12%, rgba(94, 234, 255, 0.12), transparent 34%);
+  font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+}
+
+.gluni-portrait-config-form {
+  display: grid;
+  gap: 12px;
+}
+
+.gluni-portrait-config-note {
+  margin: 0;
+  color: rgba(243, 251, 255, 0.72);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.gluni-portrait-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.gluni-portrait-config-panel {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(224, 246, 255, 0.18);
+  border-radius: 5px;
+  background: rgba(2, 7, 11, 0.62);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.gluni-portrait-config-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gluni-portrait-config-panel-head strong {
+  color: var(--gluni-white);
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.gluni-portrait-config-panel-head span {
+  overflow: hidden;
+  color: rgba(243, 251, 255, 0.56);
+  font-size: 8px;
+  font-weight: 850;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.gluni-card--frame-preview {
+  justify-self: center;
+  flex: 0 0 auto;
+  width: 188px;
+  cursor: grab;
+  transform: none;
+  transition: none;
+}
+
+.gluni-card--frame-preview-normal {
+  min-height: 52px;
+}
+
+.gluni-card--frame-preview-expanded {
+  width: 200px;
+  min-height: 108px;
+  margin-top: 24px;
+}
+
+.gluni-card--frame-preview .gluni-card-portrait,
+.gluni-card--frame-preview .gluni-card-mystery-mark,
+.gluni-card--frame-preview .gluni-card-content {
+  transition: none;
+}
+
+.gluni-card--frame-preview .gluni-card-portrait {
+  user-select: none;
+  pointer-events: none;
+}
+
+.gluni-card--frame-preview.gluni-portrait-preview--dragging {
+  cursor: grabbing;
+}
+
+.gluni-portrait-control {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) 58px;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+}
+
+.gluni-portrait-control span {
+  color: rgba(243, 251, 255, 0.72);
+  font-size: 9px;
+  font-weight: 850;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.gluni-portrait-control input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--gluni-cyan);
+}
+
+.gluni-portrait-control input[type="number"] {
+  width: 58px;
+  height: 24px;
+  padding: 0 5px;
+  border: 1px solid rgba(224, 246, 255, 0.2);
+  border-radius: 4px;
+  color: var(--gluni-white);
+  background: rgba(0, 0, 0, 0.42);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 900;
+  text-align: right;
+}
+
+@keyframes gluni-card-enter {
+  from {
+    opacity: 0;
+    transform:
+      translate(var(--gluni-flip-x), var(--gluni-flip-y))
+      translateY(-18px)
+      translateX(var(--gluni-active-shift))
+      scale(0.94);
+    filter: blur(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform:
+      translate(0, 0)
+      translateX(var(--gluni-active-shift))
+      scale(var(--gluni-card-scale));
+    filter: blur(0);
+  }
+}
+
+@keyframes gluni-card-enter-bottom {
+  from {
+    opacity: 0;
+    transform:
+      translate(var(--gluni-flip-x), var(--gluni-flip-y))
+      translateY(10px)
+      translateX(var(--gluni-active-shift))
+      scale(0.985);
+    filter: blur(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform:
+      translate(0, 0)
+      translateX(var(--gluni-active-shift))
+      scale(var(--gluni-card-scale));
+    filter: blur(0);
+  }
+}
+
+@keyframes gluni-card-rejoin {
+  from {
+    opacity: 0;
+    transform: translateY(16px) translateX(var(--gluni-active-shift)) scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) translateX(var(--gluni-active-shift)) scale(var(--gluni-card-scale));
+  }
+}
+
+@keyframes gluni-active-signal {
+  0% {
+    box-shadow:
+      0 10px 24px rgba(0, 0, 0, 0.38),
+      0 0 0 color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 0%, transparent 100%);
+  }
+
+  46% {
+    box-shadow:
+      0 18px 44px rgba(0, 0, 0, 0.52),
+      0 0 34px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 46%, transparent 54%);
+  }
+
+  100% {
+    box-shadow:
+      0 16px 36px rgba(0, 0, 0, 0.46),
+      0 0 24px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 34%, transparent 66%);
+  }
+}
+
+@keyframes gluni-active-portrait {
+  0% {
+    transform: translateY(4px) scale(var(--gluni-portrait-normal-scale));
+    object-position: var(--gluni-portrait-normal-x) var(--gluni-portrait-normal-y);
+    filter: contrast(1.02) saturate(0.98) blur(1.5px);
+  }
+
+  54% {
+    transform: translateY(-13px) scale(var(--gluni-portrait-active-scale));
+    object-position: var(--gluni-portrait-active-x) var(--gluni-portrait-active-y);
+    filter: contrast(1.16) saturate(1.18) blur(0);
+  }
+
+  100% {
+    transform: translateY(-9px) scale(var(--gluni-portrait-active-scale));
+    object-position: var(--gluni-portrait-active-x) var(--gluni-portrait-active-y);
+    filter: contrast(1.08) saturate(1.06) blur(0);
+  }
+}
+
+@keyframes gluni-active-mystery {
+  0% {
+    opacity: 0.8;
+    transform: translateY(8px) scale(0.9);
+    filter: blur(1.5px);
+  }
+
+  48% {
+    opacity: 1;
+    transform: translateY(-8px) scale(1.18);
+    filter: blur(0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1.08);
+    filter: blur(0);
+  }
+}
+
+@keyframes gluni-active-content {
+  0% {
+    opacity: 0.72;
+    transform: translateY(8px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes gluni-active-exit-left {
+  0% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(-88px) scale(0.86);
+    filter: blur(8px);
+  }
+}
+
+@keyframes gluni-active-exit-right {
+  0% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(88px) scale(0.86);
+    filter: blur(8px);
+  }
+}
+
+@keyframes gluni-round-frame-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+    filter: blur(4px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes gluni-round-frame-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(1.02);
+    filter: blur(3px);
+  }
+}
+
+@keyframes gluni-round-label-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scaleX(0.96);
+    filter: blur(3px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scaleX(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes gluni-round-label-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scaleX(1.18);
+    filter: blur(2px);
+  }
+}
+
+@keyframes gluni-round-number-in {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.94);
+    filter: blur(5px);
+  }
+
+  58% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.015);
+    filter: blur(0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes gluni-round-number-out {
+  to {
+    opacity: 0;
+    transform: translateY(-3px) scale(1.045);
+    filter: blur(3px);
+  }
+}
+
+@keyframes gluni-round-shell-leave {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes gluni-scanline {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scaleX(0.06);
+  }
+
+  45% {
+    opacity: 1;
+    transform: translateX(-50%) scaleX(1);
+  }
+
+  100% {
+    opacity: 0.5;
+    transform: translateX(-50%) scaleX(0.76);
+  }
+}
+
+@media (max-width: 720px) {
+  .gluni-initiative {
+    width: min(176px, calc(100vw - 16px));
+  }
+
+  .gluni-portrait-config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gluni-card {
+    min-height: 48px;
+  }
+
+  .gluni-card--active {
+    min-height: 98px;
+  }
+
+  .gluni-card h3 {
+    font-size: 10px;
+  }
+
+  .gluni-card--active h3 {
+    font-size: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gluni-card,
+  .gluni-round-separator,
+  .gluni-card-portrait,
+  .gluni-card-mystery-mark,
+  .gluni-card-controls,
+  .gluni-end-turn,
+  .gluni-turn-controls button,
+  .gluni-round-splash,
+  .gluni-round-splash-inner {
+    animation: none !important;
+    transition-duration: 1ms !important;
+  }
+}

@@ -1,0 +1,120 @@
+<style>
+  .pal-row { display: grid; grid-template-columns: 260px 1fr; gap: 28px; align-items: start; padding: 20px; border-radius: 10px; background: #05080b; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 16px; }
+  .pal-row h4 { margin: 0 0 6px; color: #f3fbff; font: 950 16px/1.1 "Bahnschrift", system-ui, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; }
+  .pal-row .desc { color: #8a9aa6; font-size: 13px; line-height: 1.5; margin: 0 0 10px; }
+  .pal-swatches { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+  .pal-sw { display: flex; align-items: center; gap: 8px; font: 950 10px/1 "Bahnschrift",sans-serif; letter-spacing: 0.12em; color: rgba(244,252,255,0.65); text-transform: uppercase; }
+  .pal-sw .dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+  .pal-deck { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .pal-deck .col { display: flex; flex-direction: column; gap: 6px; width: 200px; }
+  .col-label { color: rgba(244,252,255,0.4); font: 950 9px/1 "Bahnschrift",sans-serif; letter-spacing: 0.2em; text-transform: uppercase; }
+
+  /* portrait look */
+  .pfp { position: absolute; inset: 0; background:
+    radial-gradient(circle at 65% 28%, rgba(255,255,255,0.10), transparent 38%),
+    linear-gradient(135deg, #1f2a3a 0%, #0b1118 70%);
+  }
+  .pfp::after { content:""; position:absolute; left:58%; top:18%; width:46%; height:78%; background:
+    radial-gradient(ellipse at 50% 32%, #d6e3eb 0%, #6a7a87 40%, transparent 64%);
+  }
+
+  /* Notched silhouette (Direction B) */
+  .nb { position: relative; width: 100%; height: 58px; background: #04090d;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.40); border: 0; overflow: hidden;
+  }
+  .nb::before { content:""; position: absolute; inset: 0; border: 1px solid var(--edge, rgba(244,252,255,0.14)); clip-path: inherit; pointer-events:none; }
+  .nb.active { height: 124px; }
+  .nb.active::before { border-color: var(--edge-active, rgba(94,234,255,0.55)); }
+  .nb .accent { position: absolute; left:0; top:0; bottom:0; width: 3px; background: var(--accent, #5eeaff); box-shadow: 0 0 16px var(--accent, #5eeaff); }
+  .nb .scrim { position: absolute; inset: 0; background:
+    linear-gradient(95deg, rgba(2,5,8,0.95), rgba(2,5,8,0.48) 50%, rgba(2,5,8,0));
+  }
+  .nb .bracket-l { position:absolute; left: 10px; top: 8px; width: 8px; height: 8px; border-left: 1px solid rgba(244,252,255,0.55); border-top: 1px solid rgba(244,252,255,0.55); }
+  .nb .name { position: absolute; left: 14px; bottom: 10px; right: 58px; color: #f3fbff; font: 950 12px/1 "Bahnschrift",sans-serif; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 1px 6px rgba(0,0,0,0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nb.active .name { font-size: 16px; bottom: 14px; }
+  .nb .init { position: absolute; right: 14px; bottom: 9px; min-width: 30px; height: 19px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px); background: var(--initbg, #0b1318); color: var(--initc, #f3fbff); font: 950 12px/1 "Bahnschrift",sans-serif; font-variant-numeric: tabular-nums; }
+  .nb.active .init { background: var(--accent, #5eeaff); color: var(--init-on-accent, #04090d); height: 26px; min-width: 38px; font-size: 15px; }
+  .nb .tag { position: absolute; left: 14px; top: 6px; color: var(--tag, rgba(94,234,255,0.85)); font: 950 8px/1 "Bahnschrift",sans-serif; letter-spacing: 0.22em; }
+
+  /* Palette 1: Current */
+  .p1 .friend  { --accent:#5eeaff; --edge-active: rgba(94,234,255,0.55); --tag: rgba(94,234,255,0.85); }
+  .p1 .neutral { --accent:#ffd166; --edge-active: rgba(255,209,102,0.5); --tag: rgba(255,209,102,0.85); }
+  .p1 .hostile { --accent:#ff335f; --edge-active: rgba(255,51,95,0.6); --tag: rgba(255,51,95,0.85); }
+  .p1 .secret  { --accent:#b497ff; --edge-active: rgba(180,151,255,0.5); --tag: rgba(180,151,255,0.85); }
+
+  /* Palette 2: Endfield-cool (refined) — desaturated, amber for hostile */
+  .p2 .friend  { --accent:#79e5ff; --edge-active: rgba(121,229,255,0.55); --tag: rgba(121,229,255,0.85); }
+  .p2 .neutral { --accent:#f0d8a0; --edge-active: rgba(240,216,160,0.45); --tag: rgba(240,216,160,0.80); }
+  .p2 .hostile { --accent:#ffa657; --edge-active: rgba(255,166,87,0.55); --tag: rgba(255,166,87,0.88); }
+  .p2 .secret  { --accent:#c7b3ff; --edge-active: rgba(199,179,255,0.5); --tag: rgba(199,179,255,0.85); }
+
+  /* Palette 3: Ice & Amber duality — cool for ours, warm for theirs */
+  .p3 .friend  { --accent:#e8f7ff; --edge-active: rgba(232,247,255,0.6); --tag: rgba(232,247,255,0.85); }
+  .p3 .neutral { --accent:#a8c0cc; --edge-active: rgba(168,192,204,0.5); --tag: rgba(168,192,204,0.78); }
+  .p3 .hostile { --accent:#ff8a3d; --edge-active: rgba(255,138,61,0.6); --tag: rgba(255,138,61,0.92); }
+  .p3 .secret  { --accent:#9b8df0; --edge-active: rgba(155,141,240,0.5); --tag: rgba(155,141,240,0.82); }
+</style>
+
+<h2>Palette &amp; accent system</h2>
+<p class="subtitle">Pick the disposition color system. Friendly / Neutral / Hostile / Secret all shown on the chosen Notched Block silhouette. The active card lights up its full accent; inactive only show the edge bar.</p>
+
+<!-- P1 -->
+<div class="pal-row option p1" data-choice="p1" onclick="toggleSelect(this)" style="cursor:pointer">
+  <div>
+    <h4>P1 — Current</h4>
+    <p class="desc">Keep today's saturated palette. Cyan / Gold / Red / Violet. Maximum disposition recognition. Pops hardest. Loudest.</p>
+    <div class="pal-swatches">
+      <span class="pal-sw"><span class="dot" style="background:#5eeaff"></span>Friend</span>
+      <span class="pal-sw"><span class="dot" style="background:#ffd166"></span>Neutral</span>
+      <span class="pal-sw"><span class="dot" style="background:#ff335f"></span>Hostile</span>
+      <span class="pal-sw"><span class="dot" style="background:#b497ff"></span>Secret</span>
+    </div>
+  </div>
+  <div class="pal-deck">
+    <div class="col"><span class="col-label">Friendly (active)</span><div class="nb active friend"><div class="pfp"></div><div class="scrim"></div><div class="accent"></div><div class="bracket-l"></div><div class="tag">ACTIVE</div><div class="name">Kaede Nagai</div><div class="init">19</div></div></div>
+    <div class="col"><span class="col-label">Neutral</span><div class="nb neutral"><div class="pfp"></div><div class="scrim"></div><div class="accent"></div><div class="bracket-l"></div><div class="name">Innkeeper</div><div class="init">12</div></div></div>
+    <div class="col"><span class="col-label">Hostile</span><div class="nb hostile"><div class="pfp"></div><div class="scrim"></div><div class="accent"></div><div class="bracket-l"></div><div class="name">Ash Wolf</div><div class="init">10</div></div></div>
+    <div class="col"><span class="col-label">Secret</span><div class="nb secret"><div class="pfp"></div><div class="scrim"></div><div class="accent"></div><div class="bracket-l"></div><div class="name">???</div><div class="init">??</div></div></div>
+  </div>
+</div>
+
+<!-- P2 -->
+<div class="pal-row option p2" data-choice="p2" onclick="toggleSelect(this)" style="cursor:pointer">
+  <div>
+    <h4>P2 — Refined (recommended)</h4>
+    <p class="desc">Same four-disposition system, slightly desaturated. Hostile shifts from saturated red to <strong style="color:#ffa657">amber-orange</strong> — closer to Endfield's warning language and easier on the eye over long sessions. Neutral becomes paper-gold, secret becomes lavender. Quieter, more premium, still readable.</p>
+    <div class="pal-swatches">
+      <span class="pal-sw"><span class="dot" style="background:#79e5ff"></span>Friend</span>
+      <span class="pal-sw"><span class="dot" style="background:#f0d8a0"></span>Neutral</span>
+      <span class="pal-sw"><span class="dot" style="background:#ffa657"></span>Hostile</span>
+      <span class="pal-sw"><span class="dot" style="background:#c7b3ff"></span>Secret</span>
+    </div>
+  </div>
+  <div class="pal-deck">
+    <div class="col"><span class="col-label">Friendly (active)</span><div class="nb active friend"><div class="pfp"></div><div class="scrim"></div><div class="accent"></div><div class="bracket-l"></div><div class="tag">ACTIVE</div><div class="name">Kaede Nagai</div><div class="init">19</div></div></div>
+    <div class="col"><span class="col-label">Neutral</span><div class="nb neutral"><div class="pfp"></div><div class="scrim"></div><div class="accent"></div><div class="bracket-l"></div><div class="name">Innkeeper</div><div class="init">12</div></div></div>
+    <div class="col"><span class="col-label">Hostile</span><div class="nb hostile"><div class="pfp"></div><div class="scrim"></div><div class="accent"></div><div class="bracket-l"></div><div class="name">Ash Wolf</div><div class="init">10</div></div></div>
+    <div class="col"><span class="col-label">Secret</span><div class="nb secret"><div class="pfp"></div><div class="scrim"></div><div class="accent"></div><div class="bracket-l"></div><div class="name">???</div><div class="init">??</div></div></div>
+  </div>
+</div>
+
+<!-- P3 -->
+<div class="pal-row option p3" data-choice="p3" onclick="toggleSelect(this)" style="cursor:pointer">
+  <div>
+    <h4>P3 — Ice &amp; Amber</h4>
+    <p class="desc">Strongest temperature contrast. "Ours" reads as ice-white / cool, "theirs" reads as warm amber-orange. Neutral becomes steel-grey, secret stays a quiet violet. Most cinematic identity at a glance, but friendly loses its recognizable cyan signature.</p>
+    <div class="pal-swatches">
+      <span class="pal-sw"><span class="dot" style="background:#e8f7ff"></span>Friend</span>
+      <span class="pal-sw"><span class="dot" style="background:#a8c0cc"></span>Neutral</span>
+      <span class="pal-sw"><span class="dot" style="background:#ff8a3d"></span>Hostile</span>
+      <span class="pal-sw"><span class="dot" style="background:#9b8df0"></span>Secret</span>
+    </div>
+  </div>
+  <div class="pal-deck">
+    <div class="col"><span class="col-label">Friendly (active)</span><div class="nb active friend"><div class="pfp"></div><div class="scrim"></div><div class="accent"></div><div class="bracket-l"></div><div class="tag">ACTIVE</div><div class="name">Kaede Nagai</div><div class="init">19</div></div></div>
+    <div class="col"><span class="col-label">Neutral</span><div class="nb neutral"><div class="pfp"></div><div class="scrim"></div><div class="accent"></div><div class="bracket-l"></div><div class="name">Innkeeper</div><div class="init">12</div></div></div>
+    <div class="col"><span class="col-label">Hostile</span><div class="nb hostile"><div class="pfp"></div><div class="scrim"></div><div class="accent"></div><div class="bracket-l"></div><div class="name">Ash Wolf</div><div class="init">10</div></div></div>
+    <div class="col"><span class="col-label">Secret</span><div class="nb secret"><div class="pfp"></div><div class="scrim"></div><div class="accent"></div><div class="bracket-l"></div><div class="name">???</div><div class="init">??</div></div></div>
+  </div>
+</div>

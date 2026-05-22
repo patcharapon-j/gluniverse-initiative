@@ -1,0 +1,168 @@
+<style>
+  .gluv-stage { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin-top: 12px; }
+  .gluv-col { display: flex; flex-direction: column; gap: 14px; align-items: stretch; }
+  .gluv-col h4 { margin: 0 0 2px; color: #f3fbff; font: 950 14px/1.1 "Bahnschrift", system-ui, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; }
+  .gluv-col .desc { color: #8a9aa6; font-size: 12px; line-height: 1.4; margin: 0; }
+  .gluv-stack { display: flex; flex-direction: column; gap: 6px; padding: 14px; border-radius: 10px; background: #05080b; border: 1px solid rgba(255,255,255,0.06); }
+
+  /* shared portrait look */
+  .pfp { position: absolute; inset: 0; background:
+    radial-gradient(circle at 65% 28%, rgba(94,234,255,0.18), transparent 38%),
+    linear-gradient(135deg, #1f2a3a 0%, #0b1118 70%);
+  }
+  .pfp::after { content:""; position:absolute; left:58%; top:18%; width:46%; height:88%; background:
+    radial-gradient(ellipse at 50% 30%, #d6e3eb 0%, #6a7a87 38%, transparent 62%);
+    filter: blur(0.3px);
+  }
+
+  /* ===== Direction A — Quiet Edge ===== */
+  .a-card { position: relative; height: 56px; border-radius: 6px; overflow: hidden; background:#04090d;
+    border: 1px solid rgba(244,252,255,0.10);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.40);
+  }
+  .a-card.active { height: 116px; box-shadow: 0 14px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(94,234,255,0.45); border-color: rgba(94,234,255,0.55); }
+  .a-card .accent { position: absolute; left:0; top:0; bottom:0; width: 2px; background:#5eeaff; box-shadow: 0 0 14px #5eeaff; }
+  .a-card .scrim { position: absolute; inset: 0; background:
+    linear-gradient(90deg, rgba(2,5,8,0.94), rgba(2,5,8,0.45) 48%, rgba(2,5,8,0.05));
+  }
+  .a-card .rule { position: absolute; left: 8px; right: 10px; top: 9px; height: 1px; background: rgba(244,252,255,0.10); }
+  .a-card.active .rule { top: 12px; background: linear-gradient(90deg, rgba(94,234,255,0.6), rgba(94,234,255,0.0) 60%); }
+  .a-card .name { position: absolute; left: 10px; bottom: 8px; right: 50px; color: #f3fbff; font: 950 11px/1 "Bahnschrift",sans-serif; letter-spacing: 0.06em; text-transform: uppercase; text-shadow: 0 1px 6px rgba(0,0,0,0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .a-card.active .name { font-size: 14px; bottom: 11px; }
+  .a-card .init { position: absolute; right: 8px; bottom: 7px; min-width: 26px; height: 18px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; background: rgba(0,0,0,0.55); border: 1px solid rgba(244,252,255,0.18); color:#f3fbff; font: 950 11px/1 "Bahnschrift",sans-serif; font-variant-numeric: tabular-nums; }
+  .a-card.active .init { background:#5eeaff; color:#04090d; border-color: transparent; box-shadow: 0 0 14px rgba(94,234,255,0.5); height: 22px; min-width: 32px; font-size: 13px; }
+  .a-card .tag { position: absolute; left: 10px; top: 6px; color: rgba(94,234,255,0.85); font: 950 8px/1 "Bahnschrift",sans-serif; letter-spacing: 0.14em; }
+
+  /* ===== Direction B — Notched Block ===== */
+  .b-card { position: relative; height: 56px; background: #04090d;
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.40); border: 0;
+  }
+  .b-card::before { content:""; position: absolute; inset: 0; border: 1px solid rgba(244,252,255,0.12); clip-path: inherit; }
+  .b-card.active { height: 120px; }
+  .b-card.active::before { border-color: rgba(94,234,255,0.55); }
+  .b-card .accent { position: absolute; left:0; top:0; bottom:0; width: 3px; background:#5eeaff; box-shadow: 0 0 16px #5eeaff; }
+  .b-card .scrim { position: absolute; inset: 0; background:
+    linear-gradient(95deg, rgba(2,5,8,0.95), rgba(2,5,8,0.48) 50%, rgba(2,5,8,0));
+  }
+  .b-card .notchline { position:absolute; right:0; top:0; width:14px; height:14px; border-bottom:1px solid rgba(94,234,255,0.55); transform: translateY(-1px) rotate(45deg); transform-origin: 100% 0%; }
+  .b-card .bracket-l { position:absolute; left: 8px; top: 6px; width: 7px; height: 7px; border-left: 1px solid rgba(244,252,255,0.50); border-top: 1px solid rgba(244,252,255,0.50); }
+  .b-card .name { position: absolute; left: 12px; bottom: 8px; right: 56px; color: #f3fbff; font: 950 11px/1 "Bahnschrift",sans-serif; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 1px 6px rgba(0,0,0,0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .b-card.active .name { font-size: 15px; bottom: 12px; }
+  .b-card .init { position: absolute; right: 12px; bottom: 7px; min-width: 28px; height: 18px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px); background:#0b1318; color:#f3fbff; font: 950 11px/1 "Bahnschrift",sans-serif; font-variant-numeric: tabular-nums; }
+  .b-card.active .init { background:#5eeaff; color:#04090d; height: 24px; min-width: 36px; font-size: 14px; }
+  .b-card .tag { position: absolute; left: 12px; top: 5px; color: rgba(94,234,255,0.85); font: 950 8px/1 "Bahnschrift",sans-serif; letter-spacing: 0.18em; }
+
+  /* ===== Direction C — Layered Frame ===== */
+  .c-wrap { position: relative; padding-left: 6px; }
+  .c-wrap::before { content:""; position:absolute; left:0; top:6px; bottom:6px; width:1px; background: linear-gradient(180deg, transparent, rgba(94,234,255,0.6), transparent); }
+  .c-wrap.active::before { left:-2px; background: linear-gradient(180deg, transparent, rgba(94,234,255,0.9) 30%, rgba(94,234,255,0.9) 70%, transparent); }
+  .c-card { position: relative; height: 56px; background: linear-gradient(180deg, #060b10, #04080c); border: 1px solid rgba(244,252,255,0.10); border-radius: 2px; box-shadow: 0 8px 22px rgba(0,0,0,0.42); overflow: hidden; }
+  .c-wrap.active .c-card { height: 120px; border-color: rgba(94,234,255,0.5); }
+  .c-card .scrim { position: absolute; inset: 0; background:
+    linear-gradient(92deg, rgba(2,6,9,0.95), rgba(2,6,9,0.50) 52%, rgba(2,6,9,0));
+  }
+  .c-card .bracket { position: absolute; width: 9px; height: 9px; }
+  .c-card .bracket.tl { left: 4px; top: 4px; border-left: 1px solid rgba(94,234,255,0.75); border-top: 1px solid rgba(94,234,255,0.75); }
+  .c-card .bracket.tr { right: 4px; top: 4px; border-right: 1px solid rgba(94,234,255,0.45); border-top: 1px solid rgba(94,234,255,0.45); }
+  .c-card .bracket.bl { left: 4px; bottom: 4px; border-left: 1px solid rgba(94,234,255,0.45); border-bottom: 1px solid rgba(94,234,255,0.45); }
+  .c-card .bracket.br { right: 4px; bottom: 4px; border-right: 1px solid rgba(94,234,255,0.45); border-bottom: 1px solid rgba(94,234,255,0.45); }
+  .c-card .name { position: absolute; left: 14px; bottom: 8px; right: 58px; color: #f3fbff; font: 950 11px/1 "Bahnschrift",sans-serif; letter-spacing: 0.10em; text-transform: uppercase; text-shadow: 0 1px 6px rgba(0,0,0,0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .c-wrap.active .c-card .name { font-size: 16px; bottom: 13px; }
+  .c-card .init { position: absolute; right: 12px; bottom: 7px; min-width: 30px; height: 19px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; background: transparent; color:#5eeaff; font: 950 12px/1 "Bahnschrift",sans-serif; font-variant-numeric: tabular-nums; border-left: 1px solid rgba(94,234,255,0.6); }
+  .c-wrap.active .c-card .init { font-size: 16px; }
+  .c-card .tag { position: absolute; left: 16px; top: 6px; color: rgba(244,252,255,0.55); font: 950 8px/1 "Bahnschrift",sans-serif; letter-spacing: 0.22em; }
+  .c-card.active-prefix { color:#5eeaff; }
+
+  .swatch { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+</style>
+
+<h2>Card silhouette &amp; chrome direction</h2>
+<p class="subtitle">Same combatant, same accent color — only the visual language changes. Top = active turn, bottom = inactive. Pick the one whose <em>shape and chrome</em> feels closest to where you want the overhaul to land.</p>
+
+<div class="gluv-stage">
+  <!-- A -->
+  <div class="gluv-col">
+    <div onclick="toggleSelect(this)" data-choice="a" class="option" style="padding:0; background:transparent; border:0; cursor:pointer;">
+      <h4>A — Quiet Edge</h4>
+      <p class="desc">Same rounded landscape silhouette. Drops the scanline texture. One thin precision rule along the top. Soft cyan edge bar with calm glow. Restrained, reads as "premium HUD that breathes."</p>
+      <div class="gluv-stack">
+        <div class="a-card active">
+          <div class="pfp"></div>
+          <div class="scrim"></div>
+          <div class="accent"></div>
+          <div class="rule"></div>
+          <div class="tag">ACTIVE</div>
+          <div class="name">Kaede Nagai</div>
+          <div class="init">19</div>
+        </div>
+        <div class="a-card">
+          <div class="pfp"></div>
+          <div class="scrim"></div>
+          <div class="accent"></div>
+          <div class="rule"></div>
+          <div class="name">Ronan Vex</div>
+          <div class="init">14</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- B -->
+  <div class="gluv-col">
+    <div onclick="toggleSelect(this)" data-choice="b" class="option" style="padding:0; background:transparent; border:0; cursor:pointer;">
+      <h4>B — Notched Block</h4>
+      <p class="desc">Sharper, slightly architectural — top-right corner cut diagonally, a single L-bracket at top-left, initiative badge as an angled chip. Reads as "tactical premium," more aggressive than A.</p>
+      <div class="gluv-stack">
+        <div class="b-card active">
+          <div class="pfp"></div>
+          <div class="scrim"></div>
+          <div class="accent"></div>
+          <div class="bracket-l"></div>
+          <div class="tag">ACTIVE</div>
+          <div class="name">Kaede Nagai</div>
+          <div class="init">19</div>
+        </div>
+        <div class="b-card">
+          <div class="pfp"></div>
+          <div class="scrim"></div>
+          <div class="accent"></div>
+          <div class="bracket-l"></div>
+          <div class="name">Ronan Vex</div>
+          <div class="init">14</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- C -->
+  <div class="gluv-col">
+    <div onclick="toggleSelect(this)" data-choice="c" class="option" style="padding:0; background:transparent; border:0; cursor:pointer;">
+      <h4>C — Bracketed Frame</h4>
+      <p class="desc">Cards almost rectangular. Four corner brackets draw the eye. A second precision rule sits outside the card on the accent side. Initiative badge becomes a number divider, not a button. Most "Endfield-architectural."</p>
+      <div class="gluv-stack">
+        <div class="c-wrap active">
+          <div class="c-card">
+            <div class="pfp"></div>
+            <div class="scrim"></div>
+            <div class="bracket tl"></div><div class="bracket tr"></div>
+            <div class="bracket bl"></div><div class="bracket br"></div>
+            <div class="tag">ACTIVE</div>
+            <div class="name">Kaede Nagai</div>
+            <div class="init">19</div>
+          </div>
+        </div>
+        <div class="c-wrap">
+          <div class="c-card">
+            <div class="pfp"></div>
+            <div class="scrim"></div>
+            <div class="bracket tl"></div><div class="bracket tr"></div>
+            <div class="bracket bl"></div><div class="bracket br"></div>
+            <div class="name">Ronan Vex</div>
+            <div class="init">14</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:24px"><strong style="color:#f3fbff">Note:</strong> portrait area is a placeholder gradient — assume real character art fills it in the actual module. You're picking the <em>chrome language</em>, not the portrait.</p>

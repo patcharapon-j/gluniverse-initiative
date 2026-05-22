@@ -1,0 +1,201 @@
+<style>
+  .sp-row { padding: 22px; border-radius: 10px; background: #05080b; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 18px; }
+  .sp-row h4 { margin: 0 0 6px; color: #f3fbff; font: 950 16px/1.1 "Bahnschrift", system-ui, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; }
+  .sp-row .desc { color: #8a9aa6; font-size: 13px; line-height: 1.5; margin: 0; max-width: 720px; }
+  .sp-row .motion { margin-top: 8px; padding: 10px 12px; border-left: 2px solid rgba(94,234,255,0.5); background: rgba(94,234,255,0.04); color: #cfdce3; font-size: 12px; line-height: 1.55; }
+  .sp-row .motion strong { color: #5eeaff; font: 950 10px/1 "Bahnschrift",sans-serif; letter-spacing: 0.18em; text-transform: uppercase; display: block; margin-bottom: 4px; }
+  .sp-row .replay { margin-top: 10px; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 3px; background: rgba(94,234,255,0.18); border: 1px solid rgba(94,234,255,0.6); color: #5eeaff; font: 950 11px/1 "Bahnschrift",sans-serif; letter-spacing: 0.2em; text-transform: uppercase; cursor: pointer; }
+  .sp-row .replay:hover { background: rgba(94,234,255,0.28); }
+  .hint-bar { padding: 12px 16px; margin-bottom: 14px; border-radius: 6px; background: rgba(94,234,255,0.10); border: 1px solid rgba(94,234,255,0.40); color: #cfeefa; font-size: 13px; line-height: 1.5; }
+  .hint-bar strong { color: #5eeaff; }
+
+  .sp-stage { position: relative; height: 340px; margin-top: 14px; border-radius: 6px; overflow: hidden; background:
+    radial-gradient(ellipse at 50% 50%, rgba(20,38,52,0.45), rgba(2,4,6,0.96) 70%),
+    linear-gradient(180deg, #02080c, #050b10);
+  }
+  .sp-stage::after { content:""; position:absolute; inset:0; background:
+    radial-gradient(circle at 50% 50%, transparent 30%, rgba(0,0,0,0.55));
+    pointer-events:none;
+  }
+
+  /* 2.6s cycle: in 0-30% (780ms), hold 30-65% (910ms), out 65-85% (520ms), gap 85-100% (390ms) */
+
+  /* ===================== S1: Centered Refined ===================== */
+  .s1 { position: absolute; inset:0; display: grid; place-items: center; }
+  .s1 .stack { position: relative; display: grid; place-items: center; gap: 4px; }
+  .s1 .lbl { color: rgba(243,251,255,0.85); font: 950 18px/1 "Bahnschrift",sans-serif; letter-spacing: 0.6em; text-transform: uppercase; padding-left: 0.6em; text-shadow: 0 0 18px rgba(94,234,255,0.5);
+    opacity: 0; animation: s1lbl 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .s1 .num { color: #f3fbff; font: 950 168px/0.78 "Bahnschrift",sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; text-shadow:
+    0 0 28px rgba(94,234,255,0.6),
+    0 0 90px rgba(94,234,255,0.15),
+    0 12px 40px rgba(0,0,0,0.78);
+    opacity: 0; animation: s1num 2.6s infinite cubic-bezier(0.2, 1.35, 0.22, 1);
+  }
+  .s1 .rule { position: absolute; left: 50%; height: 1px; background: linear-gradient(90deg, transparent, rgba(94,234,255,0.95), transparent); box-shadow: 0 0 14px rgba(94,234,255,0.6); transform: translateX(-50%) scaleX(0); opacity: 0; }
+  .s1 .rule.top { top: -8px; width: 240px; animation: s1rule 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  .s1 .rule.bot { bottom: -10px; width: 320px; animation: s1rule 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1) 0.04s; }
+
+  @keyframes s1rule { 0% {transform: translateX(-50%) scaleX(0); opacity:0;} 4% {opacity:1;} 22% {transform: translateX(-50%) scaleX(1); opacity:1;} 65% {transform: translateX(-50%) scaleX(1); opacity:1;} 82% {transform: translateX(-50%) scaleX(0.1); opacity:0;} 100% {opacity:0;} }
+  @keyframes s1lbl { 0% {opacity:0; letter-spacing: 1.0em; filter: blur(4px);} 8% {opacity:0;} 26% {opacity:1; letter-spacing: 0.6em; filter: blur(0);} 65% {opacity:1; letter-spacing: 0.6em;} 82% {opacity:0; letter-spacing: 1.1em; filter: blur(2px);} 100% {opacity:0;} }
+  @keyframes s1num { 0% {opacity:0; transform: translateY(22px) scale(0.88); filter: blur(8px);} 10% {opacity:0;} 30% {opacity:1; transform: translateY(0) scale(1); filter: blur(0);} 65% {opacity:1; transform: translateY(0) scale(1);} 82% {opacity:0; transform: translateY(-10px) scale(1.05); filter: blur(4px);} 100% {opacity:0;} }
+
+  /* ===================== S2: Asymmetric Architectural ===================== */
+  .s2 { position: absolute; inset:0; padding: 60px 80px; display: grid; align-content: center; }
+  .s2 .row { display: grid; grid-template-columns: auto 1fr; gap: 30px; align-items: end; }
+  .s2 .left { display: grid; gap: 8px; }
+  .s2 .kicker { display: flex; align-items: center; gap: 10px; color: rgba(243,251,255,0.78); font: 950 12px/1 "Bahnschrift",sans-serif; letter-spacing: 0.32em; text-transform: uppercase;
+    opacity: 0; animation: s2kicker 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1);
+    animation-delay: 0.20s;
+  }
+  .s2 .kicker .tick { width: 0; height: 1px; background: #5eeaff; box-shadow: 0 0 10px #5eeaff;
+    animation: s2tick 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1);
+    animation-delay: 0.14s;
+  }
+  .s2 .num { color: #f3fbff; font: 950 184px/0.76 "Bahnschrift",sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+    text-shadow: 0 0 28px rgba(94,234,255,0.55), 0 14px 40px rgba(0,0,0,0.85);
+    position: relative;
+    opacity: 0; animation: s2num 2.6s infinite cubic-bezier(0.2, 1.35, 0.22, 1);
+    animation-delay: 0.34s;
+  }
+  .s2 .num::after { content:""; position:absolute; right:-14px; bottom: 18px; width: 10px; height: 10px; background: #5eeaff; box-shadow: 0 0 14px #5eeaff;
+    opacity: 0; transform: scale(0); animation: s2dot 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1);
+    animation-delay: 0.60s;
+  }
+  .s2 .right { display: grid; gap: 10px; padding-bottom: 16px; }
+  .s2 .right .barline { display: grid; grid-template-columns: 1fr 60px; gap: 12px; align-items: center; opacity: 0; }
+  .s2 .right .barline:nth-child(1) { animation: s2barline 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1); animation-delay: 0.24s; }
+  .s2 .right .barline:nth-child(2) { animation: s2barline 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1); animation-delay: 0.30s; }
+  .s2 .right .barline .line { height: 1px; background: linear-gradient(90deg, rgba(243,251,255,0.06), rgba(94,234,255,0.7)); transform-origin: left center; transform: scaleX(0); animation: s2line 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1); animation-delay: 0.26s; }
+  .s2 .right .barline:nth-child(2) .line { animation-delay: 0.34s; }
+  .s2 .right .barline .badge { font: 950 11px/1 "Bahnschrift",sans-serif; letter-spacing: 0.3em; color: rgba(94,234,255,0.9); text-align:right; }
+  .s2 .right .meta { color: rgba(243,251,255,0.45); font: 950 10px/1.5 "Bahnschrift",sans-serif; letter-spacing: 0.28em; text-transform: uppercase; max-width: 340px;
+    opacity: 0; animation: s2meta 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1); animation-delay: 0.50s;
+  }
+  .s2 .brackets { position:absolute; opacity: 0; }
+  .s2 .brackets.tl { left: 40px; top: 40px; width: 22px; height: 22px; border-left: 1px solid rgba(94,234,255,0.8); border-top: 1px solid rgba(94,234,255,0.8);
+    animation: s2bracket 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1); animation-delay: 0.02s;
+  }
+  .s2 .brackets.br { right: 40px; bottom: 40px; width: 22px; height: 22px; border-right: 1px solid rgba(94,234,255,0.8); border-bottom: 1px solid rgba(94,234,255,0.8);
+    animation: s2bracket 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1); animation-delay: 0.08s;
+  }
+
+  @keyframes s2bracket { 0% {opacity:0; transform: translate(-8px,-8px) scale(0.5);} 14% {opacity:1; transform: translate(0,0) scale(1);} 65% {opacity:1;} 84% {opacity:0; transform: translate(6px,6px) scale(1.08);} 100% {opacity:0;} }
+  @keyframes s2tick { 0% {width:0;} 8% {width:0;} 26% {width:20px;} 65% {width:20px;} 82% {width:0;} 100% {width:0;} }
+  @keyframes s2kicker { 0% {opacity:0; transform: translateX(-12px); filter: blur(4px);} 10% {opacity:0;} 30% {opacity:1; transform: translateX(0); filter: blur(0);} 65% {opacity:1;} 82% {opacity:0; transform: translateX(8px); filter: blur(2px);} 100% {opacity:0;} }
+  @keyframes s2line { 0% {transform: scaleX(0);} 10% {transform: scaleX(0);} 32% {transform: scaleX(1);} 65% {transform: scaleX(1);} 82% {transform: scaleX(0.1);} 100% {transform: scaleX(0);} }
+  @keyframes s2barline { 0% {opacity:0;} 10% {opacity:1;} 65% {opacity:1;} 84% {opacity:0;} 100% {opacity:0;} }
+  @keyframes s2num { 0% {opacity:0; transform: translateY(36px) scale(0.88); filter: blur(10px);} 14% {opacity:0;} 36% {opacity:1; transform: translateY(0) scale(1); filter: blur(0);} 65% {opacity:1; transform: translateY(0) scale(1);} 82% {opacity:0; transform: translateY(-12px) scale(1.06); filter: blur(4px);} 100% {opacity:0;} }
+  @keyframes s2dot { 0% {opacity:0; transform: scale(0);} 18% {opacity:0;} 26% {opacity:1; transform: scale(2);} 36% {opacity:1; transform: scale(1);} 65% {opacity:1; transform: scale(1);} 82% {opacity:0; transform: scale(0.8);} 100% {opacity:0;} }
+  @keyframes s2meta { 0% {opacity:0;} 22% {opacity:0;} 36% {opacity:1;} 65% {opacity:1;} 82% {opacity:0;} 100% {opacity:0;} }
+
+  /* ===================== S3: Punch-In Cinematic ===================== */
+  .s3 { position: absolute; inset:0; display: grid; place-items: center; }
+  .s3::before { content:""; position:absolute; left:50%; top:50%; height:1px; width: 0; background: linear-gradient(90deg, transparent, rgba(94,234,255,0.95) 30%, rgba(94,234,255,0.95) 70%, transparent); transform: translate(-50%,-2px); box-shadow: 0 0 18px rgba(94,234,255,0.5); animation: s3rule 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1); }
+  .s3 .deck { position: relative; display: grid; place-items: center; gap: 6px; padding: 26px 56px; background:
+    linear-gradient(90deg, rgba(2,5,8,0) 0%, rgba(2,5,8,0.82) 30%, rgba(2,5,8,0.82) 70%, rgba(2,5,8,0) 100%);
+    opacity: 0; animation: s3deck 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1); animation-delay: 0.10s;
+  }
+  .s3 .num { display: flex; gap: 8px; }
+  .s3 .num .d { color: #f3fbff; font: 950 200px/0.74 "Bahnschrift",sans-serif; font-variant-numeric: tabular-nums; text-shadow: 0 0 32px rgba(94,234,255,0.6), 0 16px 50px rgba(0,0,0,0.85);
+    opacity: 0;
+  }
+  .s3 .num .d:nth-child(1) { animation: s3digit 2.6s infinite cubic-bezier(0.2, 1.35, 0.22, 1); animation-delay: 0.30s; }
+  .s3 .num .d:nth-child(2) { animation: s3digit 2.6s infinite cubic-bezier(0.2, 1.35, 0.22, 1); animation-delay: 0.42s; }
+  .s3 .lbl { display: flex; align-items: center; gap: 10px; color: rgba(243,251,255,0.85); font: 950 14px/1 "Bahnschrift",sans-serif; letter-spacing: 0.55em; padding-left: 0.55em; text-transform: uppercase;
+    opacity: 0; animation: s3lbl 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1); animation-delay: 0.22s;
+  }
+  .s3 .lbl .tick { width: 14px; height: 1px; background: #5eeaff; }
+  .s3 .substring { position: absolute; bottom: -24px; left: 50%; transform: translateX(-50%); color: rgba(243,251,255,0.36); font: 950 10px/1 "Bahnschrift",sans-serif; letter-spacing: 0.45em; text-transform: uppercase; white-space: nowrap;
+    opacity: 0; animation: s3sub 2.6s infinite cubic-bezier(0.16, 1, 0.3, 1); animation-delay: 0.58s;
+  }
+
+  @keyframes s3rule { 0% {width: 0; opacity: 0;} 4% {opacity: 1;} 26% {width: 88%; opacity: 1;} 65% {width: 88%; opacity: 1;} 82% {width: 0; opacity: 0;} 100% {opacity: 0; width: 0;} }
+  @keyframes s3deck { 0% {opacity: 0;} 22% {opacity: 1;} 65% {opacity: 1;} 84% {opacity: 0;} 100% {opacity: 0;} }
+  @keyframes s3lbl { 0% {opacity: 0; transform: translateY(8px); filter: blur(3px);} 14% {opacity: 0;} 30% {opacity: 1; transform: translateY(0); filter: blur(0);} 65% {opacity: 1;} 82% {opacity: 0; transform: translateY(-6px); filter: blur(2px);} 100% {opacity: 0;} }
+  @keyframes s3digit { 0% {opacity: 0; transform: translateY(28px) scale(0.88); filter: blur(9px);} 14% {opacity: 0;} 36% {opacity: 1; transform: translateY(0) scale(1); filter: blur(0);} 65% {opacity: 1; transform: translateY(0) scale(1);} 82% {opacity: 0; transform: translateY(-14px) scale(1.06); filter: blur(4px);} 100% {opacity: 0;} }
+  @keyframes s3sub { 0% {opacity: 0;} 22% {opacity: 0;} 40% {opacity: 1;} 65% {opacity: 1;} 82% {opacity: 0;} 100% {opacity: 0;} }
+
+  .badge-rec { display: inline-block; margin-left: 8px; padding: 2px 6px; border-radius: 2px; background: rgba(94,234,255,0.18); color: #5eeaff; font: 950 9px/1 "Bahnschrift",sans-serif; letter-spacing: 0.18em; vertical-align: middle; }
+</style>
+
+<h2>Round splash composition</h2>
+<div class="hint-bar"><strong>Heads up:</strong> if you see static text below and nothing moves, hit <strong>Ctrl+Shift+R</strong> (hard refresh) — the auto-reload may not have fired. Each splash now plays a full cycle every 2.6 seconds. Watch for a few cycles then pick.</div>
+
+<!-- S1 -->
+<div class="sp-row option" data-choice="s1" onclick="toggleSelect(this)" style="cursor:pointer">
+  <h4>S1 — Centered Refined</h4>
+  <p class="desc">Large centered numeral with the ROUND label above. Drops the red secondary glow and the parallelogram skew. Twin scanlines become a single short rule above and a longer one below. Calm, symmetrical, tight.</p>
+  <div class="motion">
+    <strong>Motion</strong>
+    Rules draw outward from center, label fades in with letter-spacing tightening, number punches in with blur-clear and slight overshoot. Holds, then exits with number lifting and rules retracting.
+  </div>
+  <button class="replay" onclick="event.stopPropagation(); replayStage(this);">↻ Restart cycle</button>
+  <div class="sp-stage" data-stage>
+    <div class="s1">
+      <div class="stack">
+        <div class="rule top"></div>
+        <div class="lbl">ROUND</div>
+        <div class="num">02</div>
+        <div class="rule bot"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- S2 -->
+<div class="sp-row option" data-choice="s2" onclick="toggleSelect(this)" style="cursor:pointer">
+  <h4>S2 — Asymmetric Architectural <span class="badge-rec">Recommended</span></h4>
+  <p class="desc">Endfield-signature composition. Massive numeral anchored bottom-left of a structural frame. ROUND label sits high-left with a precision tick. Right side carries thin horizontal rules and a stage tag. Two corner brackets frame the canvas. Most distinctive.</p>
+  <div class="motion">
+    <strong>Motion</strong>
+    Brackets snap-draw in (staggered). Kicker tick extends and label types in beside it. Right-side rules draw outward. Number rises from below with a hard blur-clear and spring scale-snap. Accent dot pops last with a brief flash.
+  </div>
+  <button class="replay" onclick="event.stopPropagation(); replayStage(this);">↻ Restart cycle</button>
+  <div class="sp-stage" data-stage>
+    <div class="s2">
+      <div class="brackets tl"></div>
+      <div class="brackets br"></div>
+      <div class="row">
+        <div class="left">
+          <div class="kicker"><span class="tick"></span>Round</div>
+          <div class="num">02</div>
+        </div>
+        <div class="right">
+          <div class="barline"><div class="line"></div><div class="badge">STAGE</div></div>
+          <div class="barline"><div class="line"></div><div class="badge">— II —</div></div>
+          <div class="meta">Initiative cycle / advance</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- S3 -->
+<div class="sp-row option" data-choice="s3" onclick="toggleSelect(this)" style="cursor:pointer">
+  <h4>S3 — Punch-In Cinematic</h4>
+  <p class="desc">Single thin precision rule cuts across the entire screen behind the splash. Number sits centered over the rule with the label as a small kicker above. Faint flavor sub-string below. Cleanest, most "system overlay" feel.</p>
+  <div class="motion">
+    <strong>Motion</strong>
+    Rule sweeps across the screen left-to-right. Label resolves as it crosses. Digits punch in individually with stagger — tens then units — each with blur-clear and overshoot-snap. Sub-string types in last.
+  </div>
+  <button class="replay" onclick="event.stopPropagation(); replayStage(this);">↻ Restart cycle</button>
+  <div class="sp-stage" data-stage>
+    <div class="s3">
+      <div class="deck">
+        <div class="lbl"><span class="tick"></span>Round</div>
+        <div class="num"><div class="d">0</div><div class="d">2</div></div>
+        <div class="substring">Initiative · Cycle — 02</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function replayStage(btn) {
+    const row = btn.closest('.sp-row');
+    const stage = row.querySelector('[data-stage]');
+    const clone = stage.cloneNode(true);
+    stage.replaceWith(clone);
+  }
+</script>
