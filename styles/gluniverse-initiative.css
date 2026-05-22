@@ -1,13 +1,20 @@
 :root {
-  --gluni-cyan: #5eeaff;
-  --gluni-red: #ff335f;
-  --gluni-gold: #ffd166;
-  --gluni-violet: #b497ff;
-  --gluni-white: #f3fbff;
-  --gluni-ink: #05080b;
-  --gluni-line: rgba(224, 246, 255, 0.22);
-  --gluni-ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --gluni-snap: cubic-bezier(0.2, 1.35, 0.22, 1);
+  --gluni-cyan:        #5eeaff;
+  --gluni-white:       #f3fbff;
+  --gluni-red:         #ff335f;
+  --gluni-violet:      #b497ff;
+  --gluni-ink:         #02070b;
+  --gluni-line:        rgba(244, 252, 255, 0.10);
+  --gluni-line-strong: rgba(244, 252, 255, 0.55);
+  --gluni-text-dim:    rgba(243, 251, 255, 0.62);
+
+  --gluni-ease:        cubic-bezier(0.16, 1, 0.3, 1);
+  --gluni-snap:        cubic-bezier(0.2, 1.35, 0.22, 1);
+  --gluni-exit:        cubic-bezier(0.55, 0, 0.84, 0);
+  --gluni-d-quick:     180ms;
+  --gluni-d-card:      420ms;
+  --gluni-d-splash-in: 720ms;
+  --gluni-d-splash-out: 460ms;
 }
 
 .gluni-initiative {
@@ -483,7 +490,7 @@
 }
 
 .gluni-card--neutral {
-  --gluni-accent: var(--gluni-gold);
+  --gluni-accent: var(--gluni-white);
 }
 
 .gluni-card--hostile {
