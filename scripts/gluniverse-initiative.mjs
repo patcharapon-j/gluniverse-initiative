@@ -30,8 +30,8 @@ const PORTRAIT_FRAME_DEFAULTS = Object.freeze({
   expanded: Object.freeze({ x: 55, y: 12, scale: 1.2 })
 });
 const PORTRAIT_FRAME_LIMITS = Object.freeze({
-  x: Object.freeze({ min: -50, max: 150 }),
-  y: Object.freeze({ min: -50, max: 150 }),
+  x: Object.freeze({ min: -100, max: 200 }),
+  y: Object.freeze({ min: -100, max: 200 }),
   scale: Object.freeze({ min: 0.5, max: 3 })
 });
 
@@ -153,6 +153,7 @@ class GLUniverseInitiativeOverlay {
     this.drag = null;
     this.renderTimer = null;
     this.lastRound = game.combat?.round ?? null;
+    this.lastRenderedRound = game.combat?.round ?? null;
     this.lastTurnKey = "";
     this.lastActiveId = null;
     this.lastActiveKey = null;
@@ -225,6 +226,8 @@ class GLUniverseInitiativeOverlay {
     const view = this.buildViewModel(combat);
     const turnKey = view.normal.map(item => item.key ?? `${item.type}:${item.round}`).join("|");
     const isTurnChange = this.lastTurnKey && turnKey !== this.lastTurnKey;
+    const previousRenderedRound = this.lastRenderedRound;
+    const roundDelta = Number.isFinite(previousRenderedRound) ? Math.max(0, (combat.round ?? 1) - previousRenderedRound) : 0;
     const previousActiveKey = this.lastActiveKey;
     const isDelayReturn = Boolean(this.pendingDelayReturnId && view.activeId === this.pendingDelayReturnId);
     const outgoingGhost = isTurnChange && !isDelayReturn ? this.createOutgoingGhost(edge) : null;
@@ -245,11 +248,12 @@ class GLUniverseInitiativeOverlay {
       <div class="gluni-shell">
         <header class="gluni-header">
           <button class="gluni-drag-handle" type="button" title="Move tracker" aria-label="Move tracker" ${game.user.isGM ? "" : "disabled"}>
-            <i class="fa-solid fa-grip-lines" aria-hidden="true"></i>
+            <span class="gluni-drag-handle-grip" aria-hidden="true"></span>
           </button>
           <div class="gluni-round-chip">
-            <span>${localize("GLUNI.Round").toUpperCase()}</span>
-            <strong>${formatRound(combat.round)}</strong>
+            <span class="gluni-round-chip-label">${localize("GLUNI.Round").toUpperCase()}</span>
+            <span class="gluni-round-chip-divider" aria-hidden="true"></span>
+            <strong class="gluni-round-chip-num">${formatRound(combat.round)}</strong>
           </div>
         </header>
         <div class="gluni-rail">
@@ -261,10 +265,11 @@ class GLUniverseInitiativeOverlay {
     `;
 
     this.positionFloatingControls();
-    if (isTurnChange) this.animateTurnChange(oldRects, { previousActiveKey, isDelayReturn });
+    if (isTurnChange) this.animateTurnChange(oldRects, { previousActiveKey, isDelayReturn, roundDelta });
     if (outgoingGhost) this.playOutgoingGhost(outgoingGhost);
     this.lastActiveId = view.activeId;
     this.lastActiveKey = view.activeKey;
+    this.lastRenderedRound = combat.round ?? null;
     if (isDelayReturn) this.pendingDelayReturnId = null;
   }
 
@@ -500,7 +505,10 @@ class GLUniverseInitiativeOverlay {
 
     return `
       <section class="gluni-delayed-section">
-        <div class="gluni-delayed-heading">${localize("GLUNI.Delayed").toUpperCase()}</div>
+        <div class="gluni-delayed-heading">
+          <span class="gluni-delayed-tick" aria-hidden="true"></span>
+          <span>&mdash; ${localize("GLUNI.Delayed").toUpperCase()}</span>
+        </div>
         <div class="gluni-delayed-list">
           ${delayedCards.map(card => this.renderCombatantCard(card)).join("")}
         </div>
@@ -522,36 +530,42 @@ class GLUniverseInitiativeOverlay {
   animateTurnChange(oldRects, options = {}) {
     const items = Array.from(this.root.querySelectorAll("[data-gluni-key]"));
     const previousActiveKey = options.previousActiveKey ?? null;
+    const roundDelta = Number(options.roundDelta) || 0;
 
     for (const item of items) {
       const isActive = item.classList.contains("gluni-card--active");
       const wasActive = item.dataset.gluniKey === previousActiveKey;
       if (wasActive && !isActive && !options.isDelayReturn) continue;
 
-      const oldRect = oldRects.get(item.dataset.gluniKey);
+      const oldRect = this.getContinuityRect(oldRects, item.dataset.gluniKey, roundDelta);
       if (!oldRect) {
         item.classList.add("gluni-item--entering");
         if (!isActive) item.classList.add("gluni-item--entering-bottom");
         if (isActive && item.dataset.gluniKey !== previousActiveKey) item.classList.add("gluni-card--active-entering");
-        window.setTimeout(() => item.classList.remove("gluni-item--entering", "gluni-item--entering-bottom", "gluni-card--active-entering"), 620);
+        window.setTimeout(() => item.classList.remove("gluni-item--entering", "gluni-item--entering-bottom", "gluni-card--active-entering"), 680);
         continue;
       }
 
       const newRect = item.getBoundingClientRect();
-      const dx = oldRect.left - newRect.left;
-      const dy = oldRect.top - newRect.top;
+      const dx = oldRect.left + oldRect.width / 2 - (newRect.left + newRect.width / 2);
+      const dy = oldRect.top + oldRect.height / 2 - (newRect.top + newRect.height / 2);
+      const scaleX = newRect.width ? oldRect.width / newRect.width : 1;
+      const scaleY = newRect.height ? oldRect.height / newRect.height : 1;
       const moved = Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5;
+      const resized = Math.abs(scaleX - 1) >= 0.01 || Math.abs(scaleY - 1) >= 0.01;
 
       if (isActive && item.dataset.gluniKey !== previousActiveKey) {
         item.classList.add("gluni-card--active-entering");
         window.setTimeout(() => item.classList.remove("gluni-card--active-entering"), 680);
       }
 
-      if (!moved) continue;
+      if (!moved && !resized) continue;
 
       item.classList.add("gluni-item--preflip");
       item.style.setProperty("--gluni-flip-x", `${Math.round(dx)}px`);
       item.style.setProperty("--gluni-flip-y", `${Math.round(dy)}px`);
+      item.style.setProperty("--gluni-flip-scale-x", scaleX.toFixed(4));
+      item.style.setProperty("--gluni-flip-scale-y", scaleY.toFixed(4));
       item.getBoundingClientRect();
       item.classList.remove("gluni-item--preflip");
       item.classList.add("gluni-item--flipping");
@@ -559,10 +573,31 @@ class GLUniverseInitiativeOverlay {
       window.requestAnimationFrame(() => {
         item.style.setProperty("--gluni-flip-x", "0px");
         item.style.setProperty("--gluni-flip-y", "0px");
+        item.style.setProperty("--gluni-flip-scale-x", "1");
+        item.style.setProperty("--gluni-flip-scale-y", "1");
       });
 
       window.setTimeout(() => item.classList.remove("gluni-item--flipping"), 680);
     }
+  }
+
+  getContinuityRect(oldRects, key, roundDelta = 0) {
+    const direct = oldRects.get(key);
+    if (direct || roundDelta <= 0 || !key) return direct;
+
+    const combatantMatch = key.match(/^combatant:([^:]+):round:(\d+)$/);
+    if (combatantMatch) {
+      const [, id, roundOffset] = combatantMatch;
+      return oldRects.get(`combatant:${id}:round:${Number(roundOffset) + roundDelta}`) ?? null;
+    }
+
+    const separatorMatch = key.match(/^separator:(\d+):offset:(\d+)$/);
+    if (separatorMatch) {
+      const [, round, roundOffset] = separatorMatch;
+      return oldRects.get(`separator:${round}:offset:${Number(roundOffset) + roundDelta}`) ?? null;
+    }
+
+    return null;
   }
 
   createOutgoingGhost(edge) {
@@ -726,7 +761,10 @@ class GLUniverseInitiativeOverlay {
   async requestEndTurn() {
     const combat = this.combat;
     const combatant = combat?.combatant;
-    if (!combat?.started || !combatant || !this.userOwnsCombatant(combatant, game.user)) return;
+    if (!combat?.started || !combatant || !this.userOwnsCombatant(combatant, game.user)) {
+      this.shakeEndTurnButton();
+      return;
+    }
 
     if (game.user.isGM) {
       await this.changeTurn(1);
@@ -740,7 +778,18 @@ class GLUniverseInitiativeOverlay {
         combatantId: combatant.id,
         userId: game.user.id
       });
+    } else {
+      this.shakeEndTurnButton();
     }
+  }
+
+  shakeEndTurnButton() {
+    const button = this.root?.querySelector(".gluni-end-turn");
+    if (!button) return;
+    button.classList.remove("gluni-end-turn--denied");
+    void button.offsetWidth;
+    button.classList.add("gluni-end-turn--denied");
+    window.setTimeout(() => button.classList.remove("gluni-end-turn--denied"), 240);
   }
 
   async onSocketEndTurnRequest(data) {
@@ -888,12 +937,22 @@ class GLUniverseInitiativeOverlay {
     if (this.lastSplashRound === round) return;
     this.lastSplashRound = round;
 
+    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default";
+    const formatted = formatRound(round);
+    const digitSpans = Array.from(formatted).map(digit => `<span class="d">${digit}</span>`).join("");
+    const subString = game.i18n.format("GLUNI.Splash.Cycle", { round: formatted });
+
     const splash = document.createElement("div");
-    splash.className = `gluni-round-splash gluni-round-splash--${game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default"}`;
+    splash.className = `gluni-round-splash gluni-round-splash--${intensity}`;
     splash.innerHTML = `
+      <div class="gluni-round-rule" aria-hidden="true"></div>
       <div class="gluni-round-splash-inner">
-        <span>${localize("GLUNI.Round").toUpperCase()}</span>
-        <strong>${formatRound(round)}</strong>
+        <div class="gluni-round-label">
+          <span class="tick" aria-hidden="true"></span>
+          <span>${localize("GLUNI.Round").toUpperCase()}</span>
+        </div>
+        <div class="gluni-round-num">${digitSpans}</div>
+        <div class="gluni-round-sub"><span>${escapeHTML(subString)}</span></div>
       </div>
     `;
     document.body.appendChild(splash);
@@ -905,16 +964,16 @@ class GLUniverseInitiativeOverlay {
 
   getRoundSplashHold() {
     const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
-    if (intensity === "reduced") return 450;
-    if (intensity === "cinematic") return 1150;
-    return 850;
+    if (intensity === "reduced") return 300;
+    if (intensity === "cinematic") return 940;
+    return 760;
   }
 
   getRoundSplashDuration() {
     const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
-    if (intensity === "reduced") return 850;
-    if (intensity === "cinematic") return 1750;
-    return 1300;
+    if (intensity === "reduced") return 820;
+    if (intensity === "cinematic") return 1500;
+    return 1240;
   }
 
   broadcastRefresh() {
@@ -1142,8 +1201,8 @@ function activatePortraitConfigDialog(html) {
       const onMove = moveEvent => {
         const deltaX = ((moveEvent.clientX - event.clientX) / startRect.width) * 100;
         const deltaY = ((moveEvent.clientY - event.clientY) / startRect.height) * 100;
-        setPortraitInputValue(form, mode, "x", startX + deltaX);
-        setPortraitInputValue(form, mode, "y", startY + deltaY);
+        setPortraitInputValue(form, mode, "x", startX - deltaX);
+        setPortraitInputValue(form, mode, "y", startY - deltaY);
         updatePreviews();
       };
       const onUp = upEvent => {
