@@ -572,18 +572,20 @@ class GLUniverseInitiativeOverlay {
     const rect = activeCard.getBoundingClientRect();
     const ghost = activeCard.cloneNode(true);
     ghost.querySelector(".gluni-card-controls")?.remove();
+    ghost.querySelector(".gluni-card-sheen")?.remove();
     ghost.classList.add("gluni-card-ghost", `gluni-card-ghost--${edge}`);
     ghost.style.left = `${Math.round(rect.left)}px`;
     ghost.style.top = `${Math.round(rect.top)}px`;
     ghost.style.width = `${Math.round(rect.width)}px`;
     ghost.style.height = `${Math.round(rect.height)}px`;
+    ghost.style.clipPath = "polygon(0 -28px, calc(100% - 14px) -28px, 100% calc(-28px + 14px), 100% 100%, 0 100%)";
     document.body.appendChild(ghost);
     return ghost;
   }
 
   playOutgoingGhost(ghost) {
     window.requestAnimationFrame(() => ghost.classList.add("gluni-card-ghost--leave"));
-    window.setTimeout(() => ghost.remove(), 560);
+    window.setTimeout(() => ghost.remove(), 540);
   }
 
   resolveVisibility(combatant) {
