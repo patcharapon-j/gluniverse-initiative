@@ -695,7 +695,7 @@
 }
 
 .gluni-item--entering {
-  animation: gluni-card-enter 420ms var(--gluni-snap) both;
+  animation: gluni-card-enter var(--gluni-d-card) var(--gluni-snap) both;
 }
 
 .gluni-item--entering-bottom {
@@ -762,7 +762,7 @@
 }
 
 .gluni-card--outgoing-active {
-  animation: gluni-card-rejoin 380ms var(--gluni-ease) both;
+  animation: gluni-card-rejoin 440ms var(--gluni-ease) both;
 }
 
 .gluni-card-ghost {
@@ -1088,12 +1088,11 @@
     opacity: 0;
     transform:
       translate(var(--gluni-flip-x), var(--gluni-flip-y))
-      translateY(-18px)
+      translateY(-14px)
       translateX(var(--gluni-active-shift))
-      scale(0.94);
-    filter: blur(4px);
+      scale(0.96);
+    filter: blur(3px);
   }
-
   to {
     opacity: 1;
     transform:
@@ -1128,12 +1127,13 @@
 @keyframes gluni-card-rejoin {
   from {
     opacity: 0;
-    transform: translateY(16px) translateX(var(--gluni-active-shift)) scale(0.94);
+    transform: translateY(12px) translateX(var(--gluni-active-shift)) scale(0.96);
+    filter: blur(2px);
   }
-
   to {
     opacity: 1;
     transform: translateY(0) translateX(var(--gluni-active-shift)) scale(var(--gluni-card-scale));
+    filter: blur(0);
   }
 }
 
