@@ -33,6 +33,7 @@
   "GLUNI.PortraitConfig.Scale": "Zoom",
   "GLUNI.PortraitConfig.Reset": "Reset",
   "GLUNI.PortraitConfig.Save": "Save",
+  "GLUNI.Splash.Cycle": "INITIATIVE · CYCLE — {round}",
   "GLUNI.Round": "Round",
   "GLUNI.Unknown": "Unknown",
   "GLUNI.Delayed": "Delayed"
