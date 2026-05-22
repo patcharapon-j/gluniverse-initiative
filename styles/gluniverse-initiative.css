@@ -710,14 +710,43 @@
   will-change: transform;
 }
 
-.gluni-card--active-entering {
-  animation: gluni-active-signal 620ms var(--gluni-snap) both;
+.gluni-card-sheen {
+  position: absolute;
+  top: 32%;
+  height: 1px;
+  z-index: 9;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--gluni-accent, var(--gluni-cyan)) 24%,
+    var(--gluni-accent, var(--gluni-cyan)) 76%,
+    transparent
+  );
+  box-shadow: 0 0 14px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 70%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
+.gluni-initiative--right .gluni-card-sheen {
+  left: 8px;
+  right: 8px;
+  transform-origin: left center;
+}
+
+.gluni-initiative--left .gluni-card-sheen {
+  left: 8px;
+  right: 8px;
+  transform-origin: right center;
+}
+
+.gluni-card--active-entering .gluni-card-sheen {
+  animation: gluni-card-sheen-draw 360ms var(--gluni-ease) 140ms both;
 }
 
 .gluni-card.gluni-item--entering.gluni-card--active-entering {
-  animation:
-    gluni-card-enter 420ms var(--gluni-snap) both,
-    gluni-active-signal 620ms var(--gluni-snap) both;
+  animation: gluni-card-enter var(--gluni-d-card) var(--gluni-snap) both;
 }
 
 .gluni-card--active-entering .gluni-card-portrait {
@@ -1105,23 +1134,17 @@
   }
 }
 
-@keyframes gluni-active-signal {
+@keyframes gluni-card-sheen-draw {
   0% {
-    box-shadow:
-      0 10px 24px rgba(0, 0, 0, 0.38),
-      0 0 0 color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 0%, transparent 100%);
+    opacity: 0;
+    transform: scaleX(0);
   }
-
-  46% {
-    box-shadow:
-      0 18px 44px rgba(0, 0, 0, 0.52),
-      0 0 34px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 46%, transparent 54%);
+  18% {
+    opacity: 1;
   }
-
   100% {
-    box-shadow:
-      0 16px 36px rgba(0, 0, 0, 0.46),
-      0 0 24px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 34%, transparent 66%);
+    opacity: 0;
+    transform: scaleX(1);
   }
 }
 
