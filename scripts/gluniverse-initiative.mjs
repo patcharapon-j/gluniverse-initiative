@@ -24,6 +24,10 @@ const VISIBILITY = {
 };
 
 const FALLBACK_PORTRAIT = "icons/svg/mystery-man.svg";
+const PORTRAIT_MIN_PIXELS = Object.freeze({
+  normalHeight: 58,
+  activeHeight: 152
+});
 const CONFIGURABLE_ACTOR_TYPES = new Set(["character", "npc", "pc"]);
 const PORTRAIT_FRAME_DEFAULTS = Object.freeze({
   normal: Object.freeze({ x: 54, y: 24, scale: 1.06 }),
@@ -36,6 +40,7 @@ const PORTRAIT_FRAME_LIMITS = Object.freeze({
 });
 
 let overlay;
+const portraitQualityCache = new Map();
 
 Hooks.once("init", () => {
   registerSettings();
@@ -349,6 +354,8 @@ class GLUniverseInitiativeOverlay {
     const mystery = visibility.playerMode === VISIBILITY.mystery && !game.user.isGM;
     const disposition = getDisposition(combatant, mystery);
 
+    const portrait = mystery ? null : getPortrait(combatant);
+
     return {
       type: "combatant",
       id: combatant.id,
@@ -361,7 +368,8 @@ class GLUniverseInitiativeOverlay {
       disposition,
       name: mystery ? localize("GLUNI.Unknown") : combatant.name,
       initiative: combatant.initiative,
-      portrait: mystery ? null : getPortrait(combatant),
+      portrait,
+      portraitScaleCap: mystery ? 1 : getPortraitScaleCap(portrait),
       portraitFrame: mystery ? null : getPortraitFrame(combatant.actor),
       canEndTurn: Boolean(options.active && !game.user.isGM && this.userOwnsCombatant(combatant, game.user))
     };
@@ -391,7 +399,7 @@ class GLUniverseInitiativeOverlay {
       `gluni-card--${card.disposition}`,
       game.user.isGM && card.gmVisibilityMode !== VISIBILITY.auto ? `gluni-card--gm-${card.gmVisibilityMode}` : ""
     ].filter(Boolean).join(" ");
-    const style = card.portraitFrame ? ` style="${escapeAttr(renderPortraitFrameStyle(card.portraitFrame))}"` : "";
+    const style = renderCombatantStyle(card);
 
     return `
       <article class="${classes}" data-gluni-key="${escapeAttr(card.key)}" data-combatant-id="${card.id}"${style}>
@@ -986,6 +994,57 @@ function getPortrait(combatant) {
   const actorImage = combatant.actor?.img;
   const tokenImage = combatant.token?.texture?.src || combatant.token?.img || combatant.img;
   return actorImage || tokenImage || FALLBACK_PORTRAIT;
+}
+
+function renderCombatantStyle(card) {
+  const styleParts = [];
+  if (card.portraitFrame) styleParts.push(renderPortraitFrameStyle(card.portraitFrame));
+  if (Number.isFinite(card.portraitScaleCap)) {
+    styleParts.push(`--gluni-portrait-quality-cap: ${card.portraitScaleCap.toFixed(3)};`);
+  }
+  return styleParts.length ? ` style="${escapeAttr(styleParts.join(" "))}"` : "";
+}
+
+function getPortraitScaleCap(path) {
+  if (!path) return 1;
+  const cached = portraitQualityCache.get(path);
+  if (cached) return cached.scaleCap;
+
+  const pending = { scaleCap: 1, ready: false };
+  portraitQualityCache.set(path, pending);
+  loadPortraitScaleCap(path, pending);
+  return pending.scaleCap;
+}
+
+async function loadPortraitScaleCap(path, entry) {
+  try {
+    const texture = await loadTexture(path, { fallback: FALLBACK_PORTRAIT });
+    const baseTexture = texture?.baseTexture;
+    if (baseTexture && globalThis.PIXI?.SCALE_MODES) {
+      baseTexture.scaleMode = PIXI.SCALE_MODES.LINEAR;
+      baseTexture.update?.();
+    }
+    const width = baseTexture?.realWidth ?? baseTexture?.width ?? texture?.width ?? 0;
+    const height = baseTexture?.realHeight ?? baseTexture?.height ?? texture?.height ?? 0;
+    const cap = computePortraitScaleCap(width, height);
+    entry.scaleCap = cap;
+    entry.ready = true;
+    overlay?.renderSoon();
+  } catch (_error) {
+    entry.scaleCap = 1;
+    entry.ready = true;
+  }
+}
+
+function computePortraitScaleCap(width, height) {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return 1;
+  const pixels = width * height;
+  if (pixels <= 0) return 1;
+  const normalArea = 188 * PORTRAIT_MIN_PIXELS.normalHeight;
+  const activeArea = 200 * PORTRAIT_MIN_PIXELS.activeHeight;
+  const targetArea = Math.max(normalArea, activeArea);
+  const ratio = Math.sqrt(pixels / targetArea);
+  return clamp(ratio, 0.22, 1);
 }
 
 function addPortraitHeaderButton(app, buttons) {

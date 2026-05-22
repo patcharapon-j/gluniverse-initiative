@@ -220,6 +220,7 @@
   --gluni-portrait-active-x: 55%;
   --gluni-portrait-active-y: 12%;
   --gluni-portrait-active-scale: 1.2;
+  --gluni-portrait-quality-cap: 1;
   position: relative;
   isolation: isolate;
   display: grid;
@@ -327,9 +328,11 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  image-rendering: auto;
+  image-rendering: smooth;
   object-position: var(--gluni-portrait-normal-x) var(--gluni-portrait-normal-y);
   transform-origin: var(--gluni-portrait-normal-x) var(--gluni-portrait-normal-y);
-  transform: scale(var(--gluni-portrait-normal-scale));
+  transform: scale(calc(var(--gluni-portrait-normal-scale) * var(--gluni-portrait-quality-cap)));
   filter: contrast(1.08) saturate(1.06);
   transition:
     transform 520ms var(--gluni-ease),
@@ -502,7 +505,7 @@
 .gluni-card--active .gluni-card-portrait {
   object-position: var(--gluni-portrait-active-x) var(--gluni-portrait-active-y);
   transform-origin: var(--gluni-portrait-active-x) var(--gluni-portrait-active-y);
-  transform: scale(var(--gluni-portrait-active-scale));
+  transform: scale(calc(var(--gluni-portrait-active-scale) * var(--gluni-portrait-quality-cap)));
 }
 
 .gluni-card--active::before {
