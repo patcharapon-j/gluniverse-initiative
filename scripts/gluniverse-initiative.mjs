@@ -391,13 +391,13 @@ class GLUniverseInitiativeOverlay {
     return `
       <article class="${classes}" data-gluni-key="${escapeAttr(card.key)}" data-combatant-id="${card.id}"${style}>
         <div class="gluni-card-accent" aria-hidden="true"></div>
+        <div class="gluni-card-bracket" aria-hidden="true"></div>
         ${game.user.isGM ? this.renderGMVisibilityMarker(card) : ""}
         <div class="gluni-card-portrait-wrap">
           ${card.mystery
             ? `<div class="gluni-card-mystery-mark" aria-hidden="true">?</div>`
             : `<img class="gluni-card-portrait" src="${escapeAttr(card.portrait)}" alt="" loading="lazy">`}
         </div>
-        <div class="gluni-card-vignette" aria-hidden="true"></div>
         <div class="gluni-card-content">
           <div class="gluni-card-kicker">
             ${card.active ? `<span class="gluni-active-tag">TURN</span>` : ""}
@@ -406,6 +406,7 @@ class GLUniverseInitiativeOverlay {
           <h3>${escapeHTML(card.name)}</h3>
           <span class="gluni-initiative-badge">${formatInitiative(card.initiative)}</span>
         </div>
+        ${card.active ? `<div class="gluni-card-sheen" aria-hidden="true"></div>` : ""}
         ${game.user.isGM ? this.renderGMControls(card) : ""}
       </article>
     `;
@@ -1059,10 +1060,10 @@ function renderPortraitConfigPanel(mode, label, values, portrait, actorName) {
       </div>
       <article class="${previewClasses}" data-frame-preview="${mode}" style="${escapeAttr(frameStyle)}" title="${localize("GLUNI.PortraitConfig.PreviewHint")}">
         <div class="gluni-card-accent" aria-hidden="true"></div>
+        <div class="gluni-card-bracket" aria-hidden="true"></div>
         <div class="gluni-card-portrait-wrap">
           <img class="gluni-card-portrait" src="${escapeAttr(portrait)}" alt="${escapeAttr(actorName)}" draggable="false">
         </div>
-        <div class="gluni-card-vignette" aria-hidden="true"></div>
         <div class="gluni-card-content">
           <div class="gluni-card-kicker">${mode === "expanded" ? `<span class="gluni-active-tag">TURN</span>` : ""}</div>
           <h3>${escapeHTML(actorName)}</h3>
