@@ -392,12 +392,32 @@
 .gluni-card--active {
   --gluni-card-scale: 1.02;
   width: calc(100% + 12px);
-  min-height: 108px;
+  min-height: 124px;
   overflow: visible;
-  border-color: color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 82%, white 18%);
-  box-shadow:
-    0 16px 36px rgba(0, 0, 0, 0.46),
-    0 0 24px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 34%, transparent 66%);
+  background: var(--gluni-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 60%, var(--gluni-line) 40%);
+  clip-path: polygon(
+    0 -28px,
+    calc(100% - 14px) -28px,
+    100% calc(-28px + 14px),
+    100% 100%,
+    0 100%
+  );
+}
+
+.gluni-card--active .gluni-card-accent {
+  width: 4px;
+  box-shadow: 0 0 24px var(--gluni-accent, var(--gluni-cyan));
+}
+
+.gluni-card--active .gluni-card-bracket {
+  top: -22px;
+  border-top-color: var(--gluni-accent, var(--gluni-cyan));
+  border-left-color: var(--gluni-accent, var(--gluni-cyan));
+}
+
+.gluni-initiative--left .gluni-card--active .gluni-card-bracket {
+  border-right-color: var(--gluni-accent, var(--gluni-cyan));
 }
 
 .gluni-initiative--left .gluni-card--active {
@@ -417,33 +437,41 @@
 }
 
 .gluni-card--active .gluni-card-portrait-wrap {
-  top: -24px;
-  overflow: visible;
-  clip-path: inset(0 0 0 0 round 5px);
+  top: -28px;
+  height: calc(100% + 28px);
+  clip-path: polygon(
+    0 0,
+    calc(100% - 14px) 0,
+    100% 14px,
+    100% 100%,
+    0 100%
+  );
 }
 
 .gluni-card--active .gluni-card-portrait {
-  height: calc(100% + 24px);
   object-position: var(--gluni-portrait-active-x) var(--gluni-portrait-active-y);
-  transform: translateY(-9px) scale(var(--gluni-portrait-active-scale));
+  transform: scale(var(--gluni-portrait-active-scale));
 }
 
 .gluni-card--active::before {
   top: auto;
-  height: 38px;
-  background:
-    linear-gradient(90deg, rgba(3, 7, 10, 0.82), rgba(3, 7, 10, 0.38) 48%, rgba(3, 7, 10, 0.02)),
-    linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.74));
+  bottom: 0;
+  height: 64px;
+  background: linear-gradient(
+    95deg,
+    rgba(2, 5, 8, 0.94),
+    rgba(2, 5, 8, 0.46) 52%,
+    rgba(2, 5, 8, 0)
+  );
 }
 
-.gluni-card--active::after {
-  top: auto;
-  height: 42px;
-  border-top-color: rgba(255, 255, 255, 0.08);
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 10%, transparent), transparent 58%),
-    repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 7px);
-  opacity: 0.38;
+.gluni-initiative--left .gluni-card--active::before {
+  background: linear-gradient(
+    -95deg,
+    rgba(2, 5, 8, 0.94),
+    rgba(2, 5, 8, 0.46) 52%,
+    rgba(2, 5, 8, 0)
+  );
 }
 
 
@@ -458,16 +486,17 @@
 }
 
 .gluni-card--active h3 {
-  font-size: 13px;
+  font-size: 16px;
+  letter-spacing: 0.08em;
 }
 
 .gluni-card--active .gluni-initiative-badge {
-  height: 21px;
-  min-width: 30px;
-  color: #041015;
+  min-width: 32px;
+  height: 22px;
+  padding: 0 7px;
+  color: var(--gluni-ink);
   background: var(--gluni-accent, var(--gluni-cyan));
-  border-color: transparent;
-  box-shadow: 0 0 16px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 42%, transparent 58%);
+  font-size: 14px;
 }
 
 .gluni-end-turn {
