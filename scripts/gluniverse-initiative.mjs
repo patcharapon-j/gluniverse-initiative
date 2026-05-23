@@ -115,7 +115,7 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Delayed": "Delayed",
   "GLUNI.GuardBreak": "Break",
   "GLUNI.PF2e.BreakEffect.Name": "Break",
-  "GLUNI.PF2e.BreakEffect.Description": "<p>Your guard has been broken. You take a -2 status penalty to AC and all saving throws.</p>",
+  "GLUNI.PF2e.BreakEffect.Description": "<p>Your guard has been broken. You take a -2 status penalty to AC and all saving throws, and you lose all resistances.</p>",
   "GLUNI.Dying": "Dying",
   "GLUNI.Dying.Aria": "Dying {value} of {max}",
   "GLUNI.PortraitConfig.ActiveCard": "Active card",
@@ -1804,7 +1804,8 @@ class GLUniverseInitiativeOverlay {
         duration: { value: -1, unit: "unlimited", expiry: null, sustained: false },
         rules: [
           { key: "FlatModifier", selector: "ac", type: "status", value: -PF2E_GUARD_BREAK_PENALTY },
-          { key: "FlatModifier", selector: "saving-throw", type: "status", value: -PF2E_GUARD_BREAK_PENALTY }
+          { key: "FlatModifier", selector: "saving-throw", type: "status", value: -PF2E_GUARD_BREAK_PENALTY },
+          { key: "ActiveEffectLike", mode: "override", path: "system.attributes.resistances", value: [] }
         ]
       },
       flags: { [MODULE_ID]: { guardBreak: true } }
