@@ -58,6 +58,12 @@
   border: 0;
   contain: layout style;
   box-shadow: none;
+  transform: scale(var(--gluni-ui-scale, 1));
+  transform-origin: top right;
+}
+
+.gluni-initiative--left .gluni-shell {
+  transform-origin: top left;
 }
 
 .gluni-header {

@@ -8,6 +8,7 @@ const SETTINGS = {
   animationIntensity: "animationIntensity",
   showDefeated: "showDefeated",
   position: "position",
+  uiScale: "uiScale",
   tokenOverlayShape: "tokenOverlayShape"
 };
 
@@ -45,6 +46,8 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.TokenOverlayShape.Hint": "Shape of the status overlay drawn on tokens with delay or guard break.",
   "GLUNI.Settings.TokenOverlayShape.Name": "Token overlay shape",
   "GLUNI.Settings.TokenOverlayShape.Square": "Square",
+  "GLUNI.Settings.UIScale.Hint": "Scale the initiative tracker for only this user.",
+  "GLUNI.Settings.UIScale.Name": "UI scale",
   "GLUNI.Settings.VisibleCount.Hint": "Number of normal initiative combatants to show from the current turn forward.",
   "GLUNI.Settings.VisibleCount.Name": "Visible combatants",
   "GLUNI.Controls.Auto": "Auto",
@@ -318,6 +321,21 @@ function registerSettings() {
     onChange: rerender
   });
 
+  game.settings.register(MODULE_ID, SETTINGS.uiScale, {
+    name: localize("GLUNI.Settings.UIScale.Name"),
+    hint: localize("GLUNI.Settings.UIScale.Hint"),
+    scope: "client",
+    config: true,
+    type: Number,
+    range: {
+      min: 0.75,
+      max: 1.5,
+      step: 0.05
+    },
+    default: 1,
+    onChange: rerender
+  });
+
   game.settings.register(MODULE_ID, SETTINGS.tokenOverlayShape, {
     name: localize("GLUNI.Settings.TokenOverlayShape.Name"),
     hint: localize("GLUNI.Settings.TokenOverlayShape.Hint"),
@@ -333,7 +351,7 @@ function registerSettings() {
   });
 
   game.settings.register(MODULE_ID, SETTINGS.position, {
-    scope: "world",
+    scope: "client",
     config: false,
     type: Object,
     default: {
@@ -384,6 +402,7 @@ class GLUniverseInitiativeOverlay {
     this.lastDyingIds = new Set();
     this.lastDelayedIds = new Set();
     this.lastBrokenIds = new Set();
+    this.handledEndTurnRequests = new Set();
   }
 
   mount() {
@@ -502,6 +521,7 @@ class GLUniverseInitiativeOverlay {
       this.lastRootClassName = rootClassName;
     }
 
+    this.applyUIScale(settings.uiScale);
     this.applyPosition(settings.edge);
 
     if (markupChanged) {
@@ -525,11 +545,13 @@ class GLUniverseInitiativeOverlay {
 
   getRenderSettings() {
     const visibleCount = clamp(Number(game.settings.get(MODULE_ID, SETTINGS.visibleCount)) || 5, 1, 12);
+    const uiScale = clamp(Number(game.settings.get(MODULE_ID, SETTINGS.uiScale)) || 1, 0.75, 1.5);
 
     return {
       edge: game.settings.get(MODULE_ID, SETTINGS.edge) || "right",
       intensity: game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default",
       visibleCount,
+      uiScale,
       showDefeated: Boolean(game.settings.get(MODULE_ID, SETTINGS.showDefeated)),
       isGM: Boolean(game.user.isGM)
     };
@@ -539,7 +561,7 @@ class GLUniverseInitiativeOverlay {
     return `
       <div class="gluni-shell">
         <header class="gluni-header">
-          <button class="gluni-drag-handle" type="button" title="Move tracker" aria-label="Move tracker" ${settings.isGM ? "" : "disabled"}>
+          <button class="gluni-drag-handle" type="button" title="Move tracker" aria-label="Move tracker">
             <span class="gluni-drag-handle-grip" aria-hidden="true"></span>
           </button>
           <div class="gluni-round-chip">
@@ -1238,21 +1260,20 @@ class GLUniverseInitiativeOverlay {
     this.broadcastRefresh();
   }
 
-  async changeTurn(direction) {
-    const combat = this.combat;
+  async changeTurn(direction, combat = this.combat) {
     if (!combat?.started) return;
     const outgoingCombatant = combat.combatant;
     const outgoingRound = combat.round ?? 1;
 
     if (direction > 0 && typeof combat.nextTurn === "function") await combat.nextTurn();
     else if (direction < 0 && typeof combat.previousTurn === "function") await combat.previousTurn();
-    else await this.updateTurnFallback(direction);
+    else await this.updateTurnFallback(direction, combat);
 
     if (direction > 0 && isDueOneShotAdhoc(outgoingCombatant, outgoingRound)) {
       await this.deleteAdhocCombatant(outgoingCombatant, { confirm: false });
     }
 
-    if (direction > 0) await this.skipInactiveAdhocTurns();
+    if (direction > 0) await this.skipInactiveAdhocTurns(combat);
 
     this.broadcastRefresh();
   }
@@ -1262,8 +1283,7 @@ class GLUniverseInitiativeOverlay {
     this.adhocSkipTimer = window.setTimeout(() => this.skipInactiveAdhocTurns(), 40);
   }
 
-  async skipInactiveAdhocTurns() {
-    const combat = this.combat;
+  async skipInactiveAdhocTurns(combat = this.combat) {
     if (!game.user.isGM || !combat?.started || !this.isPrimaryActiveGM()) return;
 
     const turns = Array.from(combat.turns ?? []);
@@ -1283,14 +1303,13 @@ class GLUniverseInitiativeOverlay {
 
       skipped += 1;
       if (typeof combat.nextTurn === "function") await combat.nextTurn();
-      else await this.updateTurnFallback(1);
+      else await this.updateTurnFallback(1, combat);
     }
 
     if (skipped) this.broadcastRefresh();
   }
 
-  async updateTurnFallback(direction) {
-    const combat = this.combat;
+  async updateTurnFallback(direction, combat = this.combat) {
     const turns = Array.from(combat?.turns ?? []);
     if (!combat?.started || !turns.length) return;
 
@@ -1315,6 +1334,7 @@ class GLUniverseInitiativeOverlay {
     if (game.socket) {
       game.socket.emit(SOCKET_NAME, {
         type: "requestEndTurn",
+        requestId: `${game.user.id}:${combat.id}:${combatant.id}:${Date.now()}`,
         combatId: combat.id,
         combatantId: combatant.id,
         userId: game.user.id
@@ -1334,28 +1354,58 @@ class GLUniverseInitiativeOverlay {
   }
 
   async onSocketEndTurnRequest(data) {
-    if (!this.isPrimaryActiveGM()) return;
+    if (!game.user.isGM || !data?.combatId || !data?.combatantId || !data?.userId) return;
 
-    const combat = this.combat;
+    const requestId = data.requestId || `${data.userId}:${data.combatId}:${data.combatantId}`;
+    if (this.handledEndTurnRequests.has(requestId)) return;
+    this.handledEndTurnRequests.add(requestId);
+    window.setTimeout(() => this.handledEndTurnRequests.delete(requestId), 10000);
+
+    const gmRank = this.getActiveGMRank();
+    if (gmRank > 0) await wait(gmRank * 180);
+
+    const combat = this.getCombatById(data.combatId);
     if (!combat?.started || combat.id !== data.combatId) return;
     if (combat.combatant?.id !== data.combatantId) return;
 
     const requestingUser = game.users?.get(data.userId);
     if (!requestingUser || !this.userOwnsCombatant(combat.combatant, requestingUser)) return;
 
-    await this.changeTurn(1);
+    await this.changeTurn(1, combat);
+  }
+
+  getCombatById(combatId) {
+    if (this.combat?.id === combatId) return this.combat;
+
+    const direct = game.combats?.get?.(combatId);
+    if (direct) return direct;
+
+    const combats = game.combats?.contents ?? Array.from(game.combats ?? []);
+    return Array.from(combats)
+      .map(entry => Array.isArray(entry) ? entry[1] : entry)
+      .find(combat => combat?.id === combatId) ?? null;
   }
 
   isPrimaryActiveGM() {
     if (!game.user.isGM) return false;
 
+    const activeGMs = this.getActiveGMs();
+    return (activeGMs[0]?.id ?? game.user.id) === game.user.id;
+  }
+
+  getActiveGMRank() {
+    if (!game.user.isGM) return -1;
+    const activeGMs = this.getActiveGMs();
+    const rank = activeGMs.findIndex(user => user.id === game.user.id);
+    return rank >= 0 ? rank : 0;
+  }
+
+  getActiveGMs() {
     const users = game.users?.contents ?? Array.from(game.users ?? []);
-    const activeGMs = Array.from(users)
+    return Array.from(users)
       .map(entry => Array.isArray(entry) ? entry[1] : entry)
       .filter(user => user?.active && user.isGM)
       .sort((a, b) => String(a.id).localeCompare(String(b.id)));
-
-    return (activeGMs[0]?.id ?? game.user.id) === game.user.id;
   }
 
   userOwnsCombatant(combatant, user) {
@@ -1523,13 +1573,13 @@ class GLUniverseInitiativeOverlay {
   }
 
   onPointerDown(event) {
-    if (!game.user.isGM) return;
     const handle = event.target.closest(".gluni-drag-handle");
     if (handle && this.root.contains(handle)) {
       this.startTrackerDrag(event);
       return;
     }
 
+    if (!game.user.isGM) return;
     if (event.button !== 0) return;
     if (event.target.closest("button, input, select, textarea, .gluni-card-controls")) return;
 
@@ -1605,7 +1655,6 @@ class GLUniverseInitiativeOverlay {
       x: Math.round(rect.left),
       y: Math.round(rect.top)
     });
-    this.broadcastRefresh();
   };
 
   onCardPointerMove = event => {
@@ -1809,6 +1858,10 @@ class GLUniverseInitiativeOverlay {
     this.root.style.left = next.left;
     this.root.style.right = next.right;
     this.lastPositionStyle = next;
+  }
+
+  applyUIScale(scale) {
+    this.root?.style.setProperty("--gluni-ui-scale", String(scale || 1));
   }
 
   showRoundSplash(round) {
@@ -3333,6 +3386,10 @@ function modulo(value, divisor) {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function wait(ms) {
+  return new Promise(resolve => window.setTimeout(resolve, ms));
 }
 
 function escapeHTML(value) {

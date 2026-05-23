@@ -14,6 +14,8 @@
   "GLUNI.Settings.AnimationIntensity.Cinematic": "Cinematic",
   "GLUNI.Settings.ShowDefeated.Name": "Show defeated combatants",
   "GLUNI.Settings.ShowDefeated.Hint": "When disabled, defeated combatants are omitted from the cinematic overlay.",
+  "GLUNI.Settings.UIScale.Name": "UI scale",
+  "GLUNI.Settings.UIScale.Hint": "Scale the initiative tracker for only this user.",
   "GLUNI.Settings.TokenOverlayShape.Name": "Token overlay shape",
   "GLUNI.Settings.TokenOverlayShape.Hint": "Shape of the status overlay drawn on tokens with delay or guard break.",
   "GLUNI.Settings.TokenOverlayShape.Circle": "Circle",
