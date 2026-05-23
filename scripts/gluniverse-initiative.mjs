@@ -29,10 +29,16 @@ const FLAGS = {
   visibility: "visibility",
   manualDelayed: "manualDelayed",
   guardBroken: "guardBroken",
+  breakGauge: "breakGauge",
   portraitFrame: "portraitFrame",
   adhoc: "adhoc",
   adhocActor: "adhocActor"
 };
+
+// Break gauge: a GM-managed resource bar that depletes toward a guard break.
+// Stored per-combatant under FLAGS.breakGauge as { max, value, mode }.
+const BREAK_GAUGE_DEFAULT_MAX = 100;
+const BREAK_GAUGE_MODES = Object.freeze({ smooth: "smooth", segmented: "segmented" });
 
 const VISIBILITY = {
   auto: "auto",
@@ -83,6 +89,18 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Controls.TokenGuardBreak": "Toggle break on token",
   "GLUNI.Controls.TokenGuardBreak.NoCombat": "Start combat before marking break.",
   "GLUNI.Controls.TokenGuardBreak.NoCombatant": "This token is not in the active combat.",
+  "GLUNI.Controls.TokenBreakGauge": "Break gauge",
+  "GLUNI.BreakGauge.Label": "Break",
+  "GLUNI.BreakGauge.Title": "Break gauge",
+  "GLUNI.BreakGauge.Max": "Max",
+  "GLUNI.BreakGauge.Current": "Current",
+  "GLUNI.BreakGauge.Mode": "Mode",
+  "GLUNI.BreakGauge.Mode.Smooth": "Smooth",
+  "GLUNI.BreakGauge.Mode.Segmented": "Segmented",
+  "GLUNI.BreakGauge.Enable": "Show break gauge",
+  "GLUNI.BreakGauge.Apply": "Apply",
+  "GLUNI.BreakGauge.Clear": "Remove",
+  "GLUNI.BreakGauge.Aria": "Break gauge {value} of {max}",
   "GLUNI.Controls.DecreaseInitiative": "Decrease initiative",
   "GLUNI.Controls.Hidden": "Hide",
   "GLUNI.Controls.IncreaseInitiative": "Increase initiative",
@@ -248,6 +266,7 @@ const PORTRAIT_FRAME_LIMITS = Object.freeze({
 
 let overlay;
 let tokenOverlays;
+let breakGaugeEditor = null;
 const portraitQualityCache = new Map();
 
 Hooks.once("init", () => {
@@ -285,7 +304,10 @@ Hooks.on("getActorSheetHeaderButtons", (app, buttons) => addPortraitHeaderButton
 Hooks.on("getHeaderControlsApplicationV2", (app, controls) => addPortraitHeaderControl(app, controls));
 Hooks.on("renderApplicationV1", (app, html) => injectPortraitTitlebarButton(app, html));
 Hooks.on("renderApplicationV2", (app, html) => injectPortraitTitlebarButton(app, html));
-Hooks.on("renderTokenHUD", (hud, html, data) => addGuardBreakTokenHudButton(hud, html, data));
+Hooks.on("renderTokenHUD", (hud, html, data) => {
+  addGuardBreakTokenHudButton(hud, html, data);
+  addBreakGaugeTokenHudButton(hud, html, data);
+});
 Hooks.on("combatRound", (_combat, updateData) => {
   if (typeof updateData?.round === "number") overlay?.showRoundSplash(updateData.round);
 });
@@ -497,6 +519,50 @@ async function toggleTokenHudGuardBreak(token, button) {
   if (button) button.title = localize(isBroken ? "GLUNI.Controls.ClearGuardBreak" : "GLUNI.Controls.GuardBreak");
 }
 
+function addBreakGaugeTokenHudButton(hud, html, data) {
+  if (!game.user.isGM) return;
+
+  const element = getHTMLElement(html);
+  const token = hud?.object ?? canvas?.scene?.tokens?.get(data?._id ?? "")?.object ?? null;
+  if (!element || !token?.document) return;
+  if (element.querySelector(".gluni-token-break-gauge")) return;
+
+  const combatant = getCombatantForToken(game.combat, token);
+  const hasGauge = Boolean(combatant && getBreakGaugeState(combatant));
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `control-icon gluni-token-break-gauge${hasGauge ? " active" : ""}`;
+  button.title = localize("GLUNI.Controls.TokenBreakGauge");
+  button.ariaLabel = localize("GLUNI.Controls.TokenBreakGauge");
+  button.dataset.tooltip = localize("GLUNI.Controls.TokenBreakGauge");
+  button.innerHTML = '<i class="fa-solid fa-gauge-high" aria-hidden="true"></i>';
+  button.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    openTokenBreakGaugeEditor(token, button);
+  });
+
+  const column = element.querySelector(".col.right") ?? element.querySelector(".right") ?? element;
+  column.append(button);
+}
+
+function openTokenBreakGaugeEditor(token, button) {
+  const combat = game.combat ?? null;
+  if (!combat?.started) {
+    ui.notifications?.warn(localize("GLUNI.Controls.TokenGuardBreak.NoCombat"));
+    return;
+  }
+
+  const combatant = getCombatantForToken(combat, token);
+  if (!combatant || isAdhocCombatant(combatant)) {
+    ui.notifications?.warn(localize("GLUNI.Controls.TokenGuardBreak.NoCombatant"));
+    return;
+  }
+
+  openBreakGaugeEditor(combatant, button?.getBoundingClientRect?.() ?? null);
+}
+
 function getCombatantForToken(combat, token, combatants = getCombatantList(combat)) {
   const direct = token?.document?.combatant ?? token?.combatant ?? null;
   if (direct?.id && combat?.combatants?.get?.(direct.id)) return direct;
@@ -652,6 +718,7 @@ class GLUniverseInitiativeOverlay {
 
     if (!this.enabled || !hasActiveCombat) {
       this.closeInitiativeContextMenu();
+      closeBreakGaugeEditor();
       this.root.className = "gluni-initiative gluni-initiative--hidden";
       if (this.lastMarkup) {
         this.root.innerHTML = "";
@@ -866,6 +933,7 @@ class GLUniverseInitiativeOverlay {
       disposition,
       adhoc,
       guardBroken: !adhoc && Boolean(getGuardBreakState(combatant)),
+      breakGauge: mystery || adhoc ? null : getBreakGaugeState(combatant),
       dying: mystery || adhoc ? null : getPF2eDyingState(combatant),
       name: mystery ? localize("GLUNI.Unknown") : adhoc?.name ?? combatant.name,
       initiative: combatant.initiative,
@@ -961,6 +1029,7 @@ class GLUniverseInitiativeOverlay {
           </div>
           <h3>${escapeHTML(card.name)}</h3>
           ${card.dying ? renderDyingPips(card.dying) : ""}
+          ${card.breakGauge ? renderBreakGaugeBar(card.breakGauge) : ""}
         </div>
         <span class="gluni-initiative-badge">${formatInitiative(card.initiative)}</span>
         ${card.active ? `<div class="gluni-card-holo" aria-hidden="true"></div><div class="gluni-card-sheen" aria-hidden="true"></div>` : ""}
@@ -1881,6 +1950,43 @@ class GLUniverseInitiativeOverlay {
     this.broadcastRefresh();
   }
 
+  // Marks a combatant with a break gauge (or updates an existing one). Writing
+  // the flag drives the guard-break state: a depleted gauge applies guard break
+  // (and, on PF2e, the break effect), refilling above zero clears it.
+  async setBreakGauge(combatant, { max, value, mode } = {}) {
+    if (!game.user.isGM || !combatant || isAdhocCombatant(combatant)) return;
+
+    const safeMax = Math.max(1, Math.round(Number(max) || 0));
+    const safeValue = clamp(Math.round(Number(value) || 0), 0, safeMax);
+    const safeMode = mode === BREAK_GAUGE_MODES.segmented ? BREAK_GAUGE_MODES.segmented : BREAK_GAUGE_MODES.smooth;
+
+    await combatant.setFlag(MODULE_ID, FLAGS.breakGauge, { max: safeMax, value: safeValue, mode: safeMode });
+    await this.syncBreakGuard(combatant, safeValue);
+  }
+
+  // Removes the gauge entirely. If the gauge was the reason for an active guard
+  // break (value at zero), the guard break is cleared along with it.
+  async clearBreakGauge(combatant) {
+    if (!game.user.isGM || !combatant) return;
+    const state = getBreakGaugeState(combatant);
+    await combatant.unsetFlag(MODULE_ID, FLAGS.breakGauge);
+    if (state && state.value <= 0 && getGuardBreakState(combatant)) {
+      await this.clearGuardBreak(combatant);
+    } else {
+      this.broadcastRefresh();
+    }
+  }
+
+  // Keeps the guard-break state in lockstep with the gauge value. Both
+  // applyGuardBreak and clearGuardBreak already broadcast a refresh; the
+  // unchanged branch broadcasts so the new gauge value reaches every client.
+  async syncBreakGuard(combatant, value) {
+    const broken = Boolean(getGuardBreakState(combatant));
+    if (value <= 0 && !broken) await this.applyGuardBreak(combatant);
+    else if (value > 0 && broken) await this.clearGuardBreak(combatant);
+    else this.broadcastRefresh();
+  }
+
   async moveGuardBrokenCombatantBeforeActive(combatant, activeId) {
     const combat = this.combat;
     const current = combat?.combatant;
@@ -2267,6 +2373,10 @@ class GLUniverseInitiativeOverlay {
           <i class="fa-solid fa-plus" aria-hidden="true"></i>
         </button>
       </div>
+      <button type="button" class="gluni-context-gauge${getBreakGaugeState(combatant) ? " gluni-context-gauge--active" : ""}" data-context-action="break-gauge">
+        <i class="fa-solid fa-gauge-high" aria-hidden="true"></i>
+        <span>${escapeHTML(localize("GLUNI.BreakGauge.Title").toUpperCase())}</span>
+      </button>
     `;
 
     document.body.appendChild(menu);
@@ -2294,6 +2404,13 @@ class GLUniverseInitiativeOverlay {
 
     menu.addEventListener("click", async clickEvent => {
       const action = clickEvent.target.closest("[data-context-action]")?.dataset.contextAction;
+      if (action === "break-gauge") {
+        clickEvent.preventDefault();
+        const anchor = menu.getBoundingClientRect();
+        this.closeInitiativeContextMenu();
+        openBreakGaugeEditor(combatant, anchor);
+        return;
+      }
       if (action !== "increase" && action !== "decrease") return;
       clickEvent.preventDefault();
       const base = Number(input?.value);
@@ -2768,6 +2885,161 @@ function getGuardBreakState(combatant) {
   if (!value) return null;
   if (typeof value === "object") return value;
   return {};
+}
+
+// Normalizes the stored break-gauge flag into { max, value, mode, ratio } or
+// null when the combatant is not marked. Max is clamped to >= 1 and value to
+// the [0, max] range so render/draw code can trust the numbers.
+function getBreakGaugeState(combatant) {
+  const raw = combatant?.getFlag?.(MODULE_ID, FLAGS.breakGauge);
+  if (!raw || typeof raw !== "object") return null;
+  const max = Math.max(1, Math.round(Number(raw.max) || 0));
+  if (!Number.isFinite(max)) return null;
+  const value = clamp(Math.round(Number(raw.value) || 0), 0, max);
+  const mode = raw.mode === BREAK_GAUGE_MODES.segmented ? BREAK_GAUGE_MODES.segmented : BREAK_GAUGE_MODES.smooth;
+  return { max, value, mode, ratio: max > 0 ? value / max : 0 };
+}
+
+function renderBreakGaugeBar(gauge) {
+  if (!gauge) return "";
+  const { max, value, mode, ratio } = gauge;
+  const label = formatLocalized("GLUNI.BreakGauge.Aria", { value, max });
+  const broken = value <= 0;
+  let track;
+  if (mode === BREAK_GAUGE_MODES.segmented) {
+    const pips = Array.from({ length: max }, (_unused, index) =>
+      `<span class="gluni-break-gauge-seg${index < value ? " gluni-break-gauge-seg--on" : ""}" aria-hidden="true"></span>`
+    ).join("");
+    track = `<div class="gluni-break-gauge-segs">${pips}</div>`;
+  } else {
+    const pct = clamp(ratio * 100, 0, 100);
+    track = `
+      <div class="gluni-break-gauge-bar">
+        <div class="gluni-break-gauge-fill" style="width:${pct.toFixed(2)}%"></div>
+      </div>
+    `;
+  }
+  return `
+    <div class="gluni-break-gauge${broken ? " gluni-break-gauge--empty" : ""}" role="img" aria-label="${escapeAttr(label)}">
+      <span class="gluni-break-gauge-tag">${escapeHTML(localize("GLUNI.BreakGauge.Label").toUpperCase())}</span>
+      ${track}
+      <span class="gluni-break-gauge-value">${value}<small>/${max}</small></span>
+    </div>
+  `;
+}
+
+function closeBreakGaugeEditor() {
+  if (breakGaugeEditor?.closeOnOutside) {
+    document.removeEventListener("pointerdown", breakGaugeEditor.closeOnOutside);
+    window.removeEventListener("keydown", breakGaugeEditor.onKeyDown);
+  }
+  breakGaugeEditor?.element?.remove();
+  breakGaugeEditor = null;
+}
+
+// Floating editor for a combatant's break gauge. Opened from the initiative
+// card right-click menu and from the token HUD button; both edit the same flag
+// via overlay.setBreakGauge / overlay.clearBreakGauge. `anchor` is a viewport
+// rect (e.g. the source button) the popover is positioned beneath.
+function openBreakGaugeEditor(combatant, anchor) {
+  if (!game.user.isGM || !combatant || isAdhocCombatant(combatant)) return;
+  closeBreakGaugeEditor();
+
+  const state = getBreakGaugeState(combatant);
+  const initial = state ?? { max: BREAK_GAUGE_DEFAULT_MAX, value: BREAK_GAUGE_DEFAULT_MAX, mode: BREAK_GAUGE_MODES.smooth };
+  let mode = initial.mode;
+
+  const form = document.createElement("form");
+  form.className = "gluni-break-gauge-editor";
+  form.innerHTML = `
+    <div class="gluni-break-gauge-editor-title">${escapeHTML(localize("GLUNI.BreakGauge.Title").toUpperCase())}</div>
+    <label class="gluni-context-field">
+      <span>${escapeHTML(localize("GLUNI.BreakGauge.Max"))}</span>
+      <input type="number" name="max" min="1" step="1" value="${escapeAttr(String(initial.max))}">
+    </label>
+    <label class="gluni-context-field">
+      <span>${escapeHTML(localize("GLUNI.BreakGauge.Current"))}</span>
+      <input type="number" name="value" min="0" step="1" value="${escapeAttr(String(initial.value))}">
+    </label>
+    <div class="gluni-context-actions">
+      <button type="button" data-gauge-action="decrease" title="-1" aria-label="-1"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>
+      <div class="gluni-break-gauge-modes" role="group">
+        <button type="button" data-gauge-mode="smooth">${escapeHTML(localize("GLUNI.BreakGauge.Mode.Smooth"))}</button>
+        <button type="button" data-gauge-mode="segmented">${escapeHTML(localize("GLUNI.BreakGauge.Mode.Segmented"))}</button>
+      </div>
+      <button type="button" data-gauge-action="increase" title="+1" aria-label="+1"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+    </div>
+    <div class="gluni-break-gauge-editor-buttons">
+      ${state ? `<button type="button" class="gluni-break-gauge-remove" data-gauge-action="remove">${escapeHTML(localize("GLUNI.BreakGauge.Clear").toUpperCase())}</button>` : ""}
+      <button type="submit" class="gluni-break-gauge-apply">${escapeHTML(localize("GLUNI.BreakGauge.Apply").toUpperCase())}</button>
+    </div>
+  `;
+
+  document.body.appendChild(form);
+
+  const maxInput = form.querySelector("input[name='max']");
+  const valueInput = form.querySelector("input[name='value']");
+  const modeButtons = Array.from(form.querySelectorAll("[data-gauge-mode]"));
+  const syncModeButtons = () => modeButtons.forEach(btn => btn.classList.toggle("active", btn.dataset.gaugeMode === mode));
+  syncModeButtons();
+
+  const rect = form.getBoundingClientRect();
+  const anchorRect = anchor ?? { left: window.innerWidth / 2, bottom: window.innerHeight / 2 };
+  const left = clamp(anchorRect.left, 6, window.innerWidth - rect.width - 6);
+  const top = clamp((anchorRect.bottom ?? anchorRect.top ?? 0) + 6, 6, window.innerHeight - rect.height - 6);
+  form.style.left = `${Math.round(left)}px`;
+  form.style.top = `${Math.round(top)}px`;
+
+  const readMax = () => Math.max(1, Math.round(Number(maxInput.value) || 0));
+  const clampValue = () => {
+    const max = readMax();
+    valueInput.max = String(max);
+    valueInput.value = String(clamp(Math.round(Number(valueInput.value) || 0), 0, max));
+  };
+  maxInput.addEventListener("input", clampValue);
+  valueInput.addEventListener("input", clampValue);
+
+  form.addEventListener("click", clickEvent => {
+    const modeBtn = clickEvent.target.closest("[data-gauge-mode]");
+    if (modeBtn) {
+      mode = modeBtn.dataset.gaugeMode === BREAK_GAUGE_MODES.segmented ? BREAK_GAUGE_MODES.segmented : BREAK_GAUGE_MODES.smooth;
+      syncModeButtons();
+      return;
+    }
+    const action = clickEvent.target.closest("[data-gauge-action]")?.dataset.gaugeAction;
+    if (action === "increase" || action === "decrease") {
+      valueInput.value = String(Number(valueInput.value || 0) + (action === "increase" ? 1 : -1));
+      clampValue();
+    } else if (action === "remove") {
+      closeBreakGaugeEditor();
+      overlay?.clearBreakGauge(combatant);
+    }
+  });
+
+  form.addEventListener("submit", async submitEvent => {
+    submitEvent.preventDefault();
+    const max = readMax();
+    const value = clamp(Math.round(Number(valueInput.value) || 0), 0, max);
+    closeBreakGaugeEditor();
+    await overlay?.setBreakGauge(combatant, { max, value, mode });
+  });
+
+  const closeOnOutside = closeEvent => {
+    if (form.contains(closeEvent.target)) return;
+    closeBreakGaugeEditor();
+  };
+  const onKeyDown = keyEvent => {
+    if (keyEvent.key === "Escape") closeBreakGaugeEditor();
+  };
+  window.setTimeout(() => {
+    if (breakGaugeEditor?.element !== form) return;
+    document.addEventListener("pointerdown", closeOnOutside);
+    window.addEventListener("keydown", onKeyDown);
+  }, 0);
+
+  breakGaugeEditor = { element: form, closeOnOutside, onKeyDown };
+  maxInput.focus();
+  maxInput.select();
 }
 
 function renderDyingPips(dying) {
@@ -3434,12 +3706,13 @@ class TokenOverlayManager {
     for (const combatant of combat.combatants ?? []) {
       const delayed = overlay.isDelayed(combatant);
       const broken = Boolean(getGuardBreakState(combatant));
-      if (!delayed && !broken) continue;
+      const gauge = this._gaugeFor(combatant);
+      if (!delayed && !broken && !gauge) continue;
 
       const token = getCombatantTokenObject(combatant);
       if (!token || !token.w || !token.h) continue;
 
-      wanted.set(token.id, { token, delayed, broken });
+      wanted.set(token.id, { token, delayed, broken, gauge });
     }
 
     for (const tokenId of [...this._entries.keys()]) {
@@ -3447,11 +3720,24 @@ class TokenOverlayManager {
     }
 
     for (const [tokenId, state] of wanted) {
-      this._upsert(state.token, state.broken ? "broken" : "delayed");
+      const mode = state.broken ? "broken" : state.delayed ? "delayed" : "gauge";
+      this._upsert(state.token, mode, state.gauge);
     }
 
     if (this._entries.size > 0 && !this._ticking) this._startTick();
     else if (this._entries.size === 0) this._stopTick();
+  }
+
+  // Break gauge for a combatant, respecting player visibility so a hidden or
+  // mystery actor never leaks its gauge to non-GM clients.
+  _gaugeFor(combatant) {
+    const gauge = getBreakGaugeState(combatant);
+    if (!gauge) return null;
+    if (!game.user.isGM) {
+      const mode = overlay?.resolveVisibility?.(combatant)?.playerMode;
+      if (mode === VISIBILITY.hidden || mode === VISIBILITY.mystery) return null;
+    }
+    return gauge;
   }
 
   forceRedraw() {
@@ -3474,7 +3760,7 @@ class TokenOverlayManager {
     return fidelity === "balanced" ? "balanced" : "high";
   }
 
-  _upsert(token, mode) {
+  _upsert(token, mode, gauge = null) {
     let entry = this._entries.get(token.id);
 
     if (entry && entry.container.destroyed) {
@@ -3493,18 +3779,22 @@ class TokenOverlayManager {
 
     const shape = this._getShape();
     const fidelity = this._getFidelity();
+    const gaugeKey = gauge ? `${gauge.value}/${gauge.max}/${gauge.mode}` : "";
     if (
       entry.mode !== mode ||
       entry.w !== token.w ||
       entry.h !== token.h ||
       entry.shape !== shape ||
-      entry.fidelity !== fidelity
+      entry.fidelity !== fidelity ||
+      entry.gaugeKey !== gaugeKey
     ) {
       entry.mode = mode;
       entry.w = token.w;
       entry.h = token.h;
       entry.shape = shape;
       entry.fidelity = fidelity;
+      entry.gauge = gauge;
+      entry.gaugeKey = gaugeKey;
       this._redraw(entry);
     }
   }
@@ -3556,11 +3846,27 @@ class TokenOverlayManager {
     label.anchor.set(0.5, 0.5);
     container.addChild(label);
 
+    // Break gauge bar — drawn above the token, independent of status mode.
+    const gaugeGfx = new PIXI.Graphics();
+    container.addChild(gaugeGfx);
+    const gaugeText = new PIXI.Text("", {
+      fontFamily: '"Bahnschrift", "Segoe UI", Arial, sans-serif',
+      fontSize: 9,
+      fontWeight: "bold",
+      fill: "#ffe070",
+      letterSpacing: 0.6,
+      align: "center",
+      trim: true
+    });
+    gaugeText.anchor.set(0.5, 1);
+    container.addChild(gaugeText);
+
     token.addChild(container);
 
     return {
       container, glow, wash, frame, brackets, cracks, sweep, sweepGfx, pillBg, label,
-      mode: null, w: 0, h: 0, shape: null, fidelity: null,
+      gaugeGfx, gaugeText,
+      mode: null, w: 0, h: 0, shape: null, fidelity: null, gauge: null, gaugeKey: "",
       phase: Math.random() * Math.PI * 2,
       seed: Math.random() * 99999,
       // Geometry the tick loop needs without re-deriving each frame.
@@ -3590,10 +3896,92 @@ class TokenOverlayManager {
     ];
   }
 
+  // Draws the break gauge bar above the token's top edge, in the amber break
+  // palette. Smooth mode is a proportional fill with a bright leading edge;
+  // segmented mode is one lit pip per remaining point.
+  _drawGauge(entry) {
+    const { gaugeGfx, gaugeText, gauge, w, h } = entry;
+    const P = TOKEN_OVERLAY_PALETTE;
+    gaugeGfx.clear();
+
+    if (!gauge) {
+      gaugeText.text = "";
+      gaugeText.visible = false;
+      return;
+    }
+
+    const { value, max, ratio } = gauge;
+    const barW = w * 0.9;
+    const barH = clamp(Math.min(w, h) * 0.07, 4, 9);
+    const x = (w - barW) / 2;
+    const y = -clamp(Math.min(w, h) * 0.05, 4, 12) - barH;
+
+    gaugeGfx.beginFill(P.ink, 0.7);
+    gaugeGfx.drawRect(x - 1, y - 1, barW + 2, barH + 2);
+    gaugeGfx.endFill();
+    gaugeGfx.beginFill(0x1a0f02, 0.85);
+    gaugeGfx.drawRect(x, y, barW, barH);
+    gaugeGfx.endFill();
+
+    if (gauge.mode === BREAK_GAUGE_MODES.segmented) {
+      const segGap = Math.max(1, barW * 0.012);
+      const segW = Math.max((barW - segGap * (max - 1)) / max, 0.5);
+      for (let i = 0; i < max; i++) {
+        const sx = x + i * (segW + segGap);
+        const on = i < value;
+        gaugeGfx.beginFill(on ? P.broken : P.brokenDeep, on ? 0.95 : 0.18);
+        gaugeGfx.drawRect(sx, y, segW, barH);
+        gaugeGfx.endFill();
+        if (on) {
+          gaugeGfx.beginFill(P.brokenHot, 0.5);
+          gaugeGfx.drawRect(sx, y, segW, Math.max(1, barH * 0.3));
+          gaugeGfx.endFill();
+        }
+      }
+    } else {
+      const fillW = barW * clamp(ratio, 0, 1);
+      if (fillW > 0) {
+        gaugeGfx.beginFill(P.broken, 0.95);
+        gaugeGfx.drawRect(x, y, fillW, barH);
+        gaugeGfx.endFill();
+        gaugeGfx.beginFill(P.brokenHot, 0.55);
+        gaugeGfx.drawRect(x, y, fillW, Math.max(1, barH * 0.32));
+        gaugeGfx.endFill();
+        gaugeGfx.beginFill(P.white, 0.85);
+        gaugeGfx.drawRect(x + Math.max(0, fillW - 2), y, 2, barH);
+        gaugeGfx.endFill();
+      }
+    }
+
+    gaugeGfx.lineStyle({ width: 1, color: P.broken, alpha: 0.7 });
+    gaugeGfx.drawRect(x, y, barW, barH);
+    gaugeGfx.lineStyle(0);
+
+    gaugeText.style.fontSize = clamp(Math.round(Math.max(w, h) * 0.085), 8, 13);
+    gaugeText.text = `${value}/${max}`;
+    gaugeText.visible = true;
+    gaugeText.position.set(w / 2, y - 1);
+  }
+
   _redraw(entry) {
     const { glow, wash, frame, brackets, cracks, sweep, sweepGfx, pillBg, label,
             mode, w, h, shape, seed } = entry;
     const P = TOKEN_OVERLAY_PALETTE;
+
+    // The gauge bar is independent of the status frame; draw it first so it is
+    // present whether or not the token also shows a delay/break overlay.
+    this._drawGauge(entry);
+
+    // Gauge-only tokens (marked but neither delayed nor broken) skip the heavy
+    // status frame entirely — clear any leftover status graphics and bail.
+    if (mode !== "broken" && mode !== "delayed") {
+      glow.clear(); glow.filters = null;
+      wash.clear(); frame.clear(); brackets.clear(); cracks.clear();
+      sweepGfx.clear(); sweep.visible = false; sweep.alpha = 0;
+      pillBg.clear(); label.text = "";
+      return;
+    }
+
     const isBreak = mode === "broken";
     const isCircle = shape === "circle";
     const high = entry.fidelity !== "balanced";
@@ -4128,6 +4516,8 @@ class TokenOverlayManager {
     this._time += (typeof dt === "number" ? dt : 1) / 60;
     for (const entry of this._entries.values()) {
       if (entry.container.destroyed) continue;
+      // Gauge-only entries have no animated status frame to drive.
+      if (entry.mode !== "broken" && entry.mode !== "delayed") continue;
       const isBreak = entry.mode === "broken";
       const high = entry.fidelity !== "balanced";
 

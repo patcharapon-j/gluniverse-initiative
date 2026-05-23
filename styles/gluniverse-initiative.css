@@ -992,6 +992,99 @@
   opacity: 0.82;
 }
 
+/* ---- break gauge (card-embedded) ------------------------------------- */
+.gluni-break-gauge {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: "tag bar value";
+  align-items: center;
+  column-gap: 4px;
+  margin-top: 3px;
+}
+
+.gluni-break-gauge-tag {
+  grid-area: tag;
+  color: var(--gluni-ink);
+  background: linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break));
+  padding: 2px 3px 1px;
+  font-size: 6.5px;
+  font-weight: 950;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  clip-path: polygon(2px 0, 100% 0, 100% 100%, 0 100%, 0 2px);
+}
+
+.gluni-break-gauge-value {
+  grid-area: value;
+  color: var(--gluni-break-hot);
+  font-size: 8.5px;
+  font-weight: 950;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-shadow:
+    0 0 8px color-mix(in srgb, var(--gluni-break) 55%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+.gluni-break-gauge-value small {
+  font-size: 6.5px;
+  color: var(--gluni-text-dim);
+}
+
+.gluni-break-gauge-bar {
+  grid-area: bar;
+  position: relative;
+  height: 7px;
+  background: rgba(255, 177, 45, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 177, 45, 0.28);
+  clip-path: polygon(2px 0, 100% 0, 100% 100%, 0 100%, 0 2px);
+  overflow: hidden;
+}
+
+.gluni-break-gauge-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--gluni-break-deep), var(--gluni-break) 62%, var(--gluni-break-hot));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--gluni-break) 70%, transparent);
+}
+
+.gluni-break-gauge-fill::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--gluni-white);
+  box-shadow: 0 0 6px var(--gluni-break-hot);
+}
+
+.gluni-break-gauge-segs {
+  grid-area: bar;
+  display: flex;
+  gap: 2px;
+  height: 8px;
+}
+
+.gluni-break-gauge-seg {
+  flex: 1 1 0;
+  min-width: 1px;
+  background: rgba(255, 177, 45, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 177, 45, 0.22);
+  clip-path: polygon(2px 0, 100% 0, 100% 100%, 0 100%, 0 2px);
+}
+
+.gluni-break-gauge-seg--on {
+  background: linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break) 70%, var(--gluni-break-deep));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--gluni-break-hot) 60%, transparent),
+    0 0 6px color-mix(in srgb, var(--gluni-break) 55%, transparent);
+}
+
+.gluni-break-gauge--empty .gluni-break-gauge-value {
+  color: var(--gluni-break-deep);
+}
+
 .gluni-initiative--left .gluni-initiative-badge {
   right: auto;
   left: 8px;
@@ -1684,6 +1777,118 @@
   color: rgba(243, 251, 255, 0.88);
   background: rgba(3, 8, 12, 0.86);
   box-shadow: inset 0 0 0 1px var(--gluni-line);
+}
+
+/* ---- break gauge: context-menu entry + editor popover ---------------- */
+.gluni-context-gauge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 24px;
+  border: 0;
+  color: rgba(255, 224, 112, 0.92);
+  background: rgba(3, 8, 12, 0.86);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gluni-break) 32%, var(--gluni-line) 68%);
+  font: inherit;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px);
+}
+
+.gluni-context-gauge:hover {
+  color: var(--gluni-ink);
+  background: linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break));
+}
+
+.gluni-context-gauge--active {
+  color: var(--gluni-ink);
+  background: linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break));
+}
+
+.gluni-break-gauge-editor {
+  position: fixed;
+  z-index: 121;
+  display: grid;
+  gap: 7px;
+  width: 168px;
+  padding: 8px;
+  color: var(--gluni-white);
+  background: linear-gradient(135deg, rgba(18, 9, 2, 0.96), rgba(10, 7, 4, 0.94));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--gluni-break) 40%, var(--gluni-line) 60%),
+    0 10px 28px rgba(0, 0, 0, 0.42),
+    0 0 20px color-mix(in srgb, var(--gluni-break) 16%, transparent);
+  font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+
+.gluni-break-gauge-editor-title {
+  color: var(--gluni-break-hot);
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.gluni-break-gauge-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.gluni-break-gauge-modes button {
+  height: 24px;
+  border: 0;
+  color: rgba(243, 251, 255, 0.82);
+  background: rgba(3, 8, 12, 0.86);
+  box-shadow: inset 0 0 0 1px var(--gluni-line);
+  font: inherit;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px);
+}
+
+.gluni-break-gauge-modes button.active {
+  color: var(--gluni-ink);
+  background: linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break));
+}
+
+.gluni-break-gauge-editor-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.gluni-break-gauge-editor-buttons button {
+  flex: 1 1 0;
+  height: 26px;
+  border: 0;
+  font: inherit;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px);
+}
+
+.gluni-break-gauge-apply {
+  color: var(--gluni-ink);
+  background: linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break));
+}
+
+.gluni-break-gauge-remove {
+  color: rgba(243, 251, 255, 0.88);
+  background: rgba(3, 8, 12, 0.86);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gluni-red) 42%, var(--gluni-line) 58%);
+}
+
+.gluni-token-break-gauge.active {
+  color: var(--gluni-break-hot);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--gluni-break) 60%, transparent);
 }
 
 .gluni-round-separator {
