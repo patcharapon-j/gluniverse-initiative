@@ -13,6 +13,7 @@ const SETTINGS = {
 const FLAGS = {
   visibility: "visibility",
   manualDelayed: "manualDelayed",
+  guardBroken: "guardBroken",
   portraitFrame: "portraitFrame",
   adhoc: "adhoc",
   adhocActor: "adhocActor"
@@ -46,6 +47,8 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Controls.EndTurn": "End turn",
   "GLUNI.Controls.AdjustInitiative": "Adjust initiative",
   "GLUNI.Controls.Apply": "Apply",
+  "GLUNI.Controls.GuardBreak": "Guard break",
+  "GLUNI.Controls.ClearGuardBreak": "Clear guard break",
   "GLUNI.Controls.DecreaseInitiative": "Decrease initiative",
   "GLUNI.Controls.Hidden": "Hide",
   "GLUNI.Controls.IncreaseInitiative": "Increase initiative",
@@ -76,6 +79,7 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.AdHoc.Type.NPC": "NPC",
   "GLUNI.AdHoc.Visibility": "Visibility",
   "GLUNI.Delayed": "Delayed",
+  "GLUNI.GuardBreak": "Break",
   "GLUNI.Dying": "Dying",
   "GLUNI.Dying.Aria": "Dying {value} of {max}",
   "GLUNI.PortraitConfig.ActiveCard": "Active card",
@@ -349,8 +353,15 @@ class GLUniverseInitiativeOverlay {
     this.lastRootClassName = "";
     this.lastPositionStyle = null;
     this.adhocSkipTimer = null;
+    this.guardBreakClearTimer = null;
+    this.pendingGuardBreakImpactId = null;
     this.cardDrag = null;
     this.contextMenu = null;
+    this.pendingSlideInIds = new Set();
+    this.pendingDyingWipeIds = new Set();
+    this.lastDyingIds = new Set();
+    this.lastDelayedIds = new Set();
+    this.lastBrokenIds = new Set();
   }
 
   mount() {
@@ -371,6 +382,7 @@ class GLUniverseInitiativeOverlay {
       game.socket.on(SOCKET_NAME, data => {
         if (data?.type === "refresh") this.renderSoon();
         if (data?.type === "roundSplash") this.showRoundSplash(data.round);
+        if (data?.type === "guardBreakImpact") this.queueGuardBreakImpact(data);
         if (data?.type === "requestEndTurn") this.onSocketEndTurnRequest(data);
       });
     }
@@ -414,6 +426,7 @@ class GLUniverseInitiativeOverlay {
 
     if (game.user.isGM && (typeof changed?.turn === "number" || typeof changed?.round === "number")) {
       this.skipInactiveAdhocTurnSoon();
+      this.clearActiveGuardBreakSoon();
     }
 
     this.renderSoon();
@@ -439,6 +452,7 @@ class GLUniverseInitiativeOverlay {
 
     const settings = this.getRenderSettings();
     const view = this.buildViewModel(combat, settings);
+    this.detectStatusTransitions(view);
     const turnKey = view.normal.map(item => item.key ?? `${item.type}:${item.round}`).join("|");
     const isTurnChange = this.lastTurnKey && turnKey !== this.lastTurnKey;
     const previousRenderedRound = this.lastRenderedRound;
@@ -476,6 +490,9 @@ class GLUniverseInitiativeOverlay {
 
     if (shouldAnimateTurnChange) this.animateTurnChange(oldRects, { previousActiveKey, isDelayReturn, roundDelta });
     if (outgoingGhost) this.playOutgoingGhost(outgoingGhost);
+    this.playPendingGuardBreakImpact();
+    this.playPendingSlideIns();
+    this.playPendingDyingWipes();
     this.lastActiveId = view.activeId;
     this.lastActiveKey = view.activeKey;
     this.lastRenderedRound = combat.round ?? null;
@@ -620,6 +637,7 @@ class GLUniverseInitiativeOverlay {
       defeated: Boolean(combatant.defeated),
       disposition,
       adhoc,
+      guardBroken: !adhoc && Boolean(getGuardBreakState(combatant)),
       dying: mystery || adhoc ? null : getPF2eDyingState(combatant),
       name: mystery ? localize("GLUNI.Unknown") : adhoc?.name ?? combatant.name,
       initiative: combatant.initiative,
@@ -651,6 +669,7 @@ class GLUniverseInitiativeOverlay {
       card.delayed ? "gluni-card--delayed" : "",
       card.adhoc ? "gluni-card--adhoc" : "",
       card.adhoc ? `gluni-card--adhoc-${card.adhoc.type}` : "",
+      card.guardBroken ? "gluni-card--guard-broken" : "",
       card.dying ? "gluni-card--dying" : "",
       card.dying ? `gluni-card--dying-${card.dying.severity}` : "",
       card.mystery ? "gluni-card--mystery" : "",
@@ -693,9 +712,18 @@ class GLUniverseInitiativeOverlay {
             </div>
           `
           : ""}
+        ${card.guardBroken
+          ? `
+            <div class="gluni-card-guard-break-bg" aria-hidden="true"></div>
+            <div class="gluni-card-guard-break-repeat" aria-hidden="true">
+              ${renderGuardBreakRepeatText()}
+            </div>
+          `
+          : ""}
         <div class="gluni-card-content">
           <div class="gluni-card-kicker">
             ${card.active ? `<span class="gluni-active-tag">TURN</span>` : ""}
+            ${card.guardBroken ? `<span class="gluni-guard-break-tag">${localize("GLUNI.GuardBreak").toUpperCase()}</span>` : ""}
             ${card.dying ? `<span class="gluni-dying-tag">${localize("GLUNI.Dying").toUpperCase()} ${card.dying.value}</span>` : ""}
             ${card.adhoc ? `<span class="gluni-adhoc-tag">${escapeHTML(card.adhoc.label).toUpperCase()}</span>` : ""}
             ${card.adhoc?.oneShot ? `<span class="gluni-adhoc-tag gluni-adhoc-tag--oneshot">${localize("GLUNI.AdHoc.OneShot").toUpperCase()} ${formatRound(card.adhoc.round)}</span>` : ""}
@@ -793,6 +821,11 @@ class GLUniverseInitiativeOverlay {
         <button type="button" data-action="${card.delayed ? "return" : "delay"}" title="${card.delayed ? localize("GLUNI.Controls.Return") : localize("GLUNI.Controls.Delay")}" aria-label="${card.delayed ? localize("GLUNI.Controls.Return") : localize("GLUNI.Controls.Delay")}">
           <i class="fa-solid fa-hourglass-half" aria-hidden="true"></i>
         </button>
+        ${!card.adhoc ? `
+          <button class="${card.guardBroken ? "is-selected" : ""}" type="button" data-action="guardBreak" title="${card.guardBroken ? localize("GLUNI.Controls.ClearGuardBreak") : localize("GLUNI.Controls.GuardBreak")}" aria-label="${card.guardBroken ? localize("GLUNI.Controls.ClearGuardBreak") : localize("GLUNI.Controls.GuardBreak")}">
+            <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+          </button>
+        ` : ""}
         ${card.adhoc ? `
           <button type="button" data-action="deleteAdhoc" title="${localize("GLUNI.AdHoc.Delete")}" aria-label="${localize("GLUNI.AdHoc.Delete")}">
             <i class="fa-solid fa-trash" aria-hidden="true"></i>
@@ -1038,6 +1071,13 @@ class GLUniverseInitiativeOverlay {
     }
 
     if (action === "delay") {
+      const edge = game.settings.get(MODULE_ID, SETTINGS.edge) || "right";
+      const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(combatant.id)}"]`);
+      if (cardEl) {
+        await this.playStatusFlash(cardEl, localize("GLUNI.Delayed").toUpperCase(), "delay");
+        this.createStatusSlideGhost(cardEl, edge);
+      }
+      this.pendingSlideInIds.add(combatant.id);
       await combatant.setFlag(MODULE_ID, FLAGS.manualDelayed, true);
       if (this.combat?.combatant?.id === combatant.id) await this.combat.nextTurn();
       this.broadcastRefresh();
@@ -1051,6 +1091,12 @@ class GLUniverseInitiativeOverlay {
       await this.clearKnownPF2eDelayFlags(combatant);
       if (wasDelayed) await this.returnDelayedCombatantToTurn(combatant);
       this.broadcastRefresh();
+      return;
+    }
+
+    if (action === "guardBreak") {
+      if (getGuardBreakState(combatant)) await this.clearGuardBreak(combatant);
+      else await this.applyGuardBreak(combatant);
     }
   }
 
@@ -1336,6 +1382,114 @@ class GLUniverseInitiativeOverlay {
       combatant.unsetFlag("pf2e", "delayed"),
       combatant.unsetFlag("pf2e", "delay")
     ]);
+  }
+
+  async applyGuardBreak(combatant) {
+    const combat = this.combat;
+    if (!game.user.isGM || !combat?.started || !combatant || isAdhocCombatant(combatant)) return;
+
+    const activeId = combat.combatant?.id ?? null;
+    const wasActive = activeId === combatant.id;
+    const edge = game.settings.get(MODULE_ID, SETTINGS.edge) || "right";
+
+    const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(combatant.id)}"]`);
+    if (cardEl) {
+      await this.playStatusFlash(cardEl, localize("GLUNI.GuardBreak").toUpperCase(), "break");
+      this.createStatusSlideGhost(cardEl, edge);
+    }
+    this.pendingSlideInIds.add(combatant.id);
+
+    const payload = {
+      round: combat.round ?? 1,
+      anchorCombatantId: activeId,
+      appliedTurn: Number.isInteger(combat.turn) ? combat.turn : null,
+      appliedAt: Date.now()
+    };
+
+    await combatant.setFlag(MODULE_ID, FLAGS.guardBroken, payload);
+    await combatant.unsetFlag(MODULE_ID, FLAGS.manualDelayed);
+    await this.clearKnownPF2eDelayFlags(combatant);
+    await this.moveGuardBrokenCombatantBeforeActive(combatant, activeId);
+    this.queueGuardBreakImpact({ combatId: combat.id, combatantId: combatant.id });
+    this.broadcastGuardBreakImpact(combatant.id);
+
+    if (wasActive) await this.changeTurn(1);
+    else this.broadcastRefresh();
+  }
+
+  async clearGuardBreak(combatant) {
+    if (!game.user.isGM || !combatant || !getGuardBreakState(combatant)) return;
+    await combatant.unsetFlag(MODULE_ID, FLAGS.guardBroken);
+    this.broadcastRefresh();
+  }
+
+  async moveGuardBrokenCombatantBeforeActive(combatant, activeId) {
+    const combat = this.combat;
+    const current = combat?.combatant;
+    if (!combat?.started || !current || !combatant) return;
+
+    const turns = Array.from(combat.turns ?? []);
+    const currentIndex = turns.findIndex(turn => turn.id === current.id);
+    if (currentIndex < 0) return;
+
+    const before = currentIndex > 0 ? turns[currentIndex - 1] : null;
+    const targetInitiative = chooseInitiativeBetween({
+      before: before?.initiative,
+      after: current.initiative,
+      existing: getUsedInitiatives(combat, combatant.id)
+    });
+
+    await this.applyCombatantInitiative(combatant, targetInitiative);
+    if (activeId) await this.restoreActiveTurn(activeId);
+  }
+
+  clearActiveGuardBreakSoon() {
+    window.clearTimeout(this.guardBreakClearTimer);
+    this.guardBreakClearTimer = window.setTimeout(() => this.clearActiveGuardBreak(), 50);
+  }
+
+  async clearActiveGuardBreak() {
+    const combat = this.combat;
+    const combatant = combat?.combatant;
+    if (!game.user.isGM || !combat?.started || !combatant || !this.isPrimaryActiveGM()) return;
+
+    const state = getGuardBreakState(combatant);
+    if (!state) return;
+    if (state.anchorCombatantId === combatant.id && state.round === (combat.round ?? 1)) return;
+
+    await combatant.unsetFlag(MODULE_ID, FLAGS.guardBroken);
+    this.broadcastRefresh();
+  }
+
+  queueGuardBreakImpact(data) {
+    if (!data?.combatantId) return;
+    if (data.combatId && this.combat?.id !== data.combatId) return;
+    this.pendingGuardBreakImpactId = data.combatantId;
+    this.renderSoon();
+  }
+
+  playPendingGuardBreakImpact() {
+    const combatantId = this.pendingGuardBreakImpactId;
+    if (!combatantId || !this.root) return;
+    this.pendingGuardBreakImpactId = null;
+
+    window.requestAnimationFrame(() => {
+      const card = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(combatantId)}"]`);
+      if (!card) return;
+      card.classList.remove("gluni-card--guard-break-impact");
+      void card.offsetWidth;
+      card.classList.add("gluni-card--guard-break-impact");
+      window.setTimeout(() => card.classList.remove("gluni-card--guard-break-impact"), 760);
+    });
+  }
+
+  broadcastGuardBreakImpact(combatantId) {
+    if (!game.socket || !combatantId) return;
+    game.socket.emit(SOCKET_NAME, {
+      type: "guardBreakImpact",
+      combatId: this.combat?.id,
+      combatantId
+    });
   }
 
   async setVisibility(combatant, mode) {
@@ -1681,6 +1835,92 @@ class GLUniverseInitiativeOverlay {
     this.renderSoon();
     if (game.socket) game.socket.emit(SOCKET_NAME, { type: "refresh" });
   }
+
+  playStatusFlash(card, text, colorClass) {
+    return new Promise(resolve => {
+      const flash = document.createElement("div");
+      flash.className = `gluni-status-flash gluni-status-flash--${colorClass}`;
+      flash.innerHTML = `<span>${escapeHTML(text)}</span>`;
+      card.appendChild(flash);
+      window.requestAnimationFrame(() => flash.classList.add("gluni-status-flash--go"));
+      window.setTimeout(() => {
+        flash.remove();
+        resolve();
+      }, 560);
+    });
+  }
+
+  playInlineStatusFlash(card, text, colorClass) {
+    const flash = document.createElement("div");
+    flash.className = `gluni-status-flash gluni-status-flash--${colorClass}`;
+    flash.innerHTML = `<span>${escapeHTML(text)}</span>`;
+    card.appendChild(flash);
+    window.requestAnimationFrame(() => flash.classList.add("gluni-status-flash--go"));
+    window.setTimeout(() => flash.remove(), 620);
+  }
+
+  createStatusSlideGhost(card, edge) {
+    const rect = card.getBoundingClientRect();
+    const ghost = card.cloneNode(true);
+    ghost.querySelector(".gluni-card-controls")?.remove();
+    ghost.querySelector(".gluni-card-sheen")?.remove();
+    ghost.querySelector(".gluni-status-flash")?.remove();
+    ghost.classList.add("gluni-status-slide-ghost");
+    ghost.style.position = "fixed";
+    ghost.style.left = `${Math.round(rect.left)}px`;
+    ghost.style.top = `${Math.round(rect.top)}px`;
+    ghost.style.width = `${Math.round(rect.width)}px`;
+    ghost.style.height = `${Math.round(rect.height)}px`;
+    ghost.style.zIndex = "71";
+    ghost.style.margin = "0";
+    document.body.appendChild(ghost);
+    window.requestAnimationFrame(() => {
+      ghost.classList.add(edge === "left" ? "gluni-status-slide-ghost--go-left" : "gluni-status-slide-ghost--go-right");
+    });
+    window.setTimeout(() => ghost.remove(), 320);
+  }
+
+  playPendingSlideIns() {
+    if (!this.pendingSlideInIds.size || !this.root) return;
+    for (const id of this.pendingSlideInIds) {
+      const card = this.root.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
+      if (!card) continue;
+      card.classList.add("gluni-card--slide-in");
+      window.setTimeout(() => card.classList.remove("gluni-card--slide-in"), 400);
+    }
+    this.pendingSlideInIds.clear();
+  }
+
+  playPendingDyingWipes() {
+    if (!this.pendingDyingWipeIds.size || !this.root) return;
+    for (const id of this.pendingDyingWipeIds) {
+      const card = this.root.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
+      if (!card || !card.classList.contains("gluni-card--dying")) continue;
+      card.classList.add("gluni-card--dying-entering");
+      this.playInlineStatusFlash(card, localize("GLUNI.Dying").toUpperCase(), "dying");
+      window.setTimeout(() => card.classList.remove("gluni-card--dying-entering"), 640);
+    }
+    this.pendingDyingWipeIds.clear();
+  }
+
+  detectStatusTransitions(view) {
+    const currentDying = new Set();
+    const currentDelayed = new Set();
+    const currentBroken = new Set();
+    const allCards = [...view.normal, ...view.delayed];
+    for (const item of allCards) {
+      if (item.type !== "combatant") continue;
+      if (item.dying) currentDying.add(item.id);
+      if (item.delayed) currentDelayed.add(item.id);
+      if (item.guardBroken) currentBroken.add(item.id);
+    }
+    for (const id of currentDying) {
+      if (!this.lastDyingIds.has(id)) this.pendingDyingWipeIds.add(id);
+    }
+    this.lastDyingIds = currentDying;
+    this.lastDelayedIds = currentDelayed;
+    this.lastBrokenIds = currentBroken;
+  }
 }
 
 function getPortrait(combatant) {
@@ -1855,6 +2095,23 @@ function renderDyingRepeatText(dying) {
       ${line}
     </div>
   `).join("");
+}
+
+function renderGuardBreakRepeatText() {
+  const text = localize("GLUNI.GuardBreak").toUpperCase();
+  const line = Array.from({ length: 6 }, () => `<span>${escapeHTML(text)}</span>`).join("");
+  return Array.from({ length: 5 }, (_, index) => `
+    <div class="gluni-card-guard-break-repeat-line${index % 2 ? " gluni-card-guard-break-repeat-line--alt" : ""}">
+      ${line}
+    </div>
+  `).join("");
+}
+
+function getGuardBreakState(combatant) {
+  const value = combatant?.getFlag?.(MODULE_ID, FLAGS.guardBroken);
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  return {};
 }
 
 function renderDyingPips(dying) {
@@ -2582,4 +2839,10 @@ function escapeAttr(value) {
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;");
+}
+
+function escapeCSSIdentifier(value) {
+  const raw = String(value ?? "");
+  if (globalThis.CSS?.escape) return CSS.escape(raw);
+  return raw.replace(/[^a-zA-Z0-9_-]/g, match => `\\${match}`);
 }

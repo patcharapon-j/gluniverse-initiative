@@ -18,6 +18,8 @@
   "GLUNI.Controls.Auto": "Auto",
   "GLUNI.Controls.AdjustInitiative": "Adjust initiative",
   "GLUNI.Controls.Apply": "Apply",
+  "GLUNI.Controls.GuardBreak": "Guard break",
+  "GLUNI.Controls.ClearGuardBreak": "Clear guard break",
   "GLUNI.Controls.DecreaseInitiative": "Decrease initiative",
   "GLUNI.Controls.Hidden": "Hide",
   "GLUNI.Controls.IncreaseInitiative": "Increase initiative",
@@ -66,6 +68,7 @@
   "GLUNI.Round": "Round",
   "GLUNI.Unknown": "Unknown",
   "GLUNI.Delayed": "Delayed",
+  "GLUNI.GuardBreak": "Break",
   "GLUNI.Dying": "Dying",
   "GLUNI.Dying.Aria": "Dying {value} of {max}"
 }
