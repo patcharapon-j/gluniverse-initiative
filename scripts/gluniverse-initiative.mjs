@@ -26,10 +26,29 @@ const VISIBILITY = {
 };
 
 const LOCALIZATION_FALLBACKS = Object.freeze({
+  "GLUNI.Settings.AnimationIntensity.Default": "Default",
+  "GLUNI.Settings.AnimationIntensity.Cinematic": "Cinematic",
+  "GLUNI.Settings.AnimationIntensity.Hint": "Controls how dramatic turn and round animations feel.",
+  "GLUNI.Settings.AnimationIntensity.Name": "Animation intensity",
+  "GLUNI.Settings.AnimationIntensity.Reduced": "Reduced",
+  "GLUNI.Settings.Edge.Hint": "Choose which screen edge the initiative rail anchors to.",
+  "GLUNI.Settings.Edge.Left": "Left",
+  "GLUNI.Settings.Edge.Name": "Tracker edge",
+  "GLUNI.Settings.Edge.Right": "Right",
+  "GLUNI.Settings.Enabled.Hint": "Show the GLUniverse Initiative overlay for this user while combat is active.",
+  "GLUNI.Settings.Enabled.Name": "Show cinematic initiative overlay",
+  "GLUNI.Settings.ShowDefeated.Hint": "When disabled, defeated combatants are omitted from the cinematic overlay.",
+  "GLUNI.Settings.ShowDefeated.Name": "Show defeated combatants",
+  "GLUNI.Settings.VisibleCount.Hint": "Number of normal initiative combatants to show from the current turn forward.",
+  "GLUNI.Settings.VisibleCount.Name": "Visible combatants",
   "GLUNI.Controls.Auto": "Auto",
   "GLUNI.Controls.Delay": "Delay",
   "GLUNI.Controls.EndTurn": "End turn",
+  "GLUNI.Controls.AdjustInitiative": "Adjust initiative",
+  "GLUNI.Controls.Apply": "Apply",
+  "GLUNI.Controls.DecreaseInitiative": "Decrease initiative",
   "GLUNI.Controls.Hidden": "Hide",
+  "GLUNI.Controls.IncreaseInitiative": "Increase initiative",
   "GLUNI.Controls.Mystery": "Mystery",
   "GLUNI.Controls.NextTurn": "Next turn",
   "GLUNI.Controls.PreviousTurn": "Previous turn",
@@ -57,6 +76,8 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.AdHoc.Type.NPC": "NPC",
   "GLUNI.AdHoc.Visibility": "Visibility",
   "GLUNI.Delayed": "Delayed",
+  "GLUNI.Dying": "Dying",
+  "GLUNI.Dying.Aria": "Dying {value} of {max}",
   "GLUNI.PortraitConfig.ActiveCard": "Active card",
   "GLUNI.PortraitConfig.Button": "Frame",
   "GLUNI.PortraitConfig.Expanded": "Expanded",
@@ -161,7 +182,7 @@ const COMBATANT_RENDER_UPDATE_KEYS = new Set([
   "token",
   "tokenId"
 ]);
-const ACTOR_RENDER_UPDATE_KEYS = new Set(["flags", "img", "name", "prototypeToken"]);
+const ACTOR_RENDER_UPDATE_KEYS = new Set(["flags", "img", "items", "name", "prototypeToken", "system"]);
 
 const FALLBACK_PORTRAIT = "icons/svg/mystery-man.svg";
 const PORTRAIT_MIN_PIXELS = Object.freeze({
@@ -205,6 +226,9 @@ Hooks.on("updateActor", (actor, changed) => {
     overlay?.renderSoon();
   }
 });
+Hooks.on("createItem", item => overlay?.onActorItemChange(item?.parent));
+Hooks.on("deleteItem", item => overlay?.onActorItemChange(item?.parent));
+Hooks.on("updateItem", item => overlay?.onActorItemChange(item?.parent));
 Hooks.on("getApplicationHeaderButtons", (app, buttons) => addPortraitHeaderButton(app, buttons));
 Hooks.on("getApplicationV1HeaderButtons", (app, buttons) => addPortraitHeaderButton(app, buttons));
 Hooks.on("getActorSheetHeaderButtons", (app, buttons) => addPortraitHeaderButton(app, buttons));
@@ -219,8 +243,8 @@ function registerSettings() {
   const rerender = () => overlay?.renderSoon();
 
   game.settings.register(MODULE_ID, SETTINGS.enabled, {
-    name: "GLUNI.Settings.Enabled.Name",
-    hint: "GLUNI.Settings.Enabled.Hint",
+    name: localize("GLUNI.Settings.Enabled.Name"),
+    hint: localize("GLUNI.Settings.Enabled.Hint"),
     scope: "client",
     config: true,
     type: Boolean,
@@ -229,22 +253,22 @@ function registerSettings() {
   });
 
   game.settings.register(MODULE_ID, SETTINGS.edge, {
-    name: "GLUNI.Settings.Edge.Name",
-    hint: "GLUNI.Settings.Edge.Hint",
+    name: localize("GLUNI.Settings.Edge.Name"),
+    hint: localize("GLUNI.Settings.Edge.Hint"),
     scope: "world",
     config: true,
     type: String,
     choices: {
-      left: "Left",
-      right: "Right"
+      left: localize("GLUNI.Settings.Edge.Left"),
+      right: localize("GLUNI.Settings.Edge.Right")
     },
     default: "right",
     onChange: rerender
   });
 
   game.settings.register(MODULE_ID, SETTINGS.visibleCount, {
-    name: "GLUNI.Settings.VisibleCount.Name",
-    hint: "GLUNI.Settings.VisibleCount.Hint",
+    name: localize("GLUNI.Settings.VisibleCount.Name"),
+    hint: localize("GLUNI.Settings.VisibleCount.Hint"),
     scope: "world",
     config: true,
     type: Number,
@@ -258,23 +282,23 @@ function registerSettings() {
   });
 
   game.settings.register(MODULE_ID, SETTINGS.animationIntensity, {
-    name: "GLUNI.Settings.AnimationIntensity.Name",
-    hint: "GLUNI.Settings.AnimationIntensity.Hint",
+    name: localize("GLUNI.Settings.AnimationIntensity.Name"),
+    hint: localize("GLUNI.Settings.AnimationIntensity.Hint"),
     scope: "world",
     config: true,
     type: String,
     choices: {
-      reduced: "Reduced",
-      default: "Default",
-      cinematic: "Cinematic"
+      reduced: localize("GLUNI.Settings.AnimationIntensity.Reduced"),
+      default: localize("GLUNI.Settings.AnimationIntensity.Default"),
+      cinematic: localize("GLUNI.Settings.AnimationIntensity.Cinematic")
     },
     default: "default",
     onChange: rerender
   });
 
   game.settings.register(MODULE_ID, SETTINGS.showDefeated, {
-    name: "GLUNI.Settings.ShowDefeated.Name",
-    hint: "GLUNI.Settings.ShowDefeated.Hint",
+    name: localize("GLUNI.Settings.ShowDefeated.Name"),
+    hint: localize("GLUNI.Settings.ShowDefeated.Hint"),
     scope: "world",
     config: true,
     type: Boolean,
@@ -306,7 +330,7 @@ function isRelevantActorUpdate(changed) {
   const keys = Object.keys(changed);
   if (!keys.length) return true;
   if (!keys.some(key => ACTOR_RENDER_UPDATE_KEYS.has(key))) return false;
-  if (changed.name !== undefined || changed.img !== undefined || changed.prototypeToken !== undefined) return true;
+  if (changed.name !== undefined || changed.img !== undefined || changed.prototypeToken !== undefined || changed.system !== undefined || changed.items !== undefined) return true;
   return Boolean(changed.flags?.[MODULE_ID] || foundry.utils.hasProperty(changed, `flags.${MODULE_ID}.${FLAGS.portraitFrame}`));
 }
 
@@ -325,6 +349,8 @@ class GLUniverseInitiativeOverlay {
     this.lastRootClassName = "";
     this.lastPositionStyle = null;
     this.adhocSkipTimer = null;
+    this.cardDrag = null;
+    this.contextMenu = null;
   }
 
   mount() {
@@ -336,6 +362,7 @@ class GLUniverseInitiativeOverlay {
     document.body.appendChild(this.root);
 
     this.root.addEventListener("click", event => this.onClick(event));
+    this.root.addEventListener("contextmenu", event => this.onContextMenu(event));
     this.root.addEventListener("pointerdown", event => this.onPointerDown(event));
     this.root.addEventListener("mouseover", event => this.onCardHover(event, true));
     this.root.addEventListener("mouseout", event => this.onCardHover(event, false));
@@ -364,6 +391,10 @@ class GLUniverseInitiativeOverlay {
       const combatant = Array.isArray(entry) ? entry[1] : entry;
       return combatant?.actor?.id === actor.id || combatant?.actorId === actor.id;
     });
+  }
+
+  onActorItemChange(actor) {
+    if (this.hasCombatActor(actor)) this.renderSoon();
   }
 
   renderSoon() {
@@ -396,6 +427,7 @@ class GLUniverseInitiativeOverlay {
     const hasActiveCombat = Boolean(combat?.started && combat.combatants?.size);
 
     if (!this.enabled || !hasActiveCombat) {
+      this.closeInitiativeContextMenu();
       this.root.className = "gluni-initiative gluni-initiative--hidden";
       if (this.lastMarkup) {
         this.root.innerHTML = "";
@@ -423,8 +455,9 @@ class GLUniverseInitiativeOverlay {
     ].filter(Boolean).join(" ");
     const markup = this.renderMarkup(combat, view, settings);
     const markupChanged = markup !== this.lastMarkup;
-    const oldRects = isTurnChange && markupChanged ? this.captureItemRects() : new Map();
-    const outgoingGhost = isTurnChange && !isDelayReturn && markupChanged ? this.createOutgoingGhost(settings.edge) : null;
+    const shouldAnimateTurnChange = isTurnChange && markupChanged && settings.intensity !== "reduced";
+    const oldRects = shouldAnimateTurnChange ? this.captureItemRects() : new Map();
+    const outgoingGhost = shouldAnimateTurnChange && !isDelayReturn ? this.createOutgoingGhost(settings.edge) : null;
     this.lastTurnKey = turnKey;
 
     if (rootClassName !== this.lastRootClassName) {
@@ -435,12 +468,13 @@ class GLUniverseInitiativeOverlay {
     this.applyPosition(settings.edge);
 
     if (markupChanged) {
+      this.closeInitiativeContextMenu();
       this.root.innerHTML = markup;
       this.lastMarkup = markup;
       this.positionFloatingControls();
     }
 
-    if (isTurnChange && markupChanged) this.animateTurnChange(oldRects, { previousActiveKey, isDelayReturn, roundDelta });
+    if (shouldAnimateTurnChange) this.animateTurnChange(oldRects, { previousActiveKey, isDelayReturn, roundDelta });
     if (outgoingGhost) this.playOutgoingGhost(outgoingGhost);
     this.lastActiveId = view.activeId;
     this.lastActiveKey = view.activeKey;
@@ -580,11 +614,13 @@ class GLUniverseInitiativeOverlay {
       key: options.key ?? `combatant:${combatant.id}`,
       active: options.active,
       delayed: options.delayed,
+      roundOffset: Number(options.roundOffset) || 0,
       mystery,
       gmVisibilityMode: visibility.gmMode,
       defeated: Boolean(combatant.defeated),
       disposition,
       adhoc,
+      dying: mystery || adhoc ? null : getPF2eDyingState(combatant),
       name: mystery ? localize("GLUNI.Unknown") : adhoc?.name ?? combatant.name,
       initiative: combatant.initiative,
       portrait,
@@ -615,6 +651,8 @@ class GLUniverseInitiativeOverlay {
       card.delayed ? "gluni-card--delayed" : "",
       card.adhoc ? "gluni-card--adhoc" : "",
       card.adhoc ? `gluni-card--adhoc-${card.adhoc.type}` : "",
+      card.dying ? "gluni-card--dying" : "",
+      card.dying ? `gluni-card--dying-${card.dying.severity}` : "",
       card.mystery ? "gluni-card--mystery" : "",
       card.defeated ? "gluni-card--defeated" : "",
       `gluni-card--${card.disposition}`,
@@ -623,7 +661,7 @@ class GLUniverseInitiativeOverlay {
     const style = renderCombatantStyle(card);
 
     return `
-      <article class="${classes}" data-gluni-key="${escapeAttr(card.key)}" data-combatant-id="${card.id}"${style}>
+      <article class="${classes}" data-gluni-key="${escapeAttr(card.key)}" data-combatant-id="${card.id}" data-round-offset="${card.roundOffset}"${style}>
         <div class="gluni-card-accent" aria-hidden="true"></div>
         <div class="gluni-card-bracket" aria-hidden="true"></div>
         ${game.user.isGM ? this.renderGMVisibilityMarker(card) : ""}
@@ -639,16 +677,34 @@ class GLUniverseInitiativeOverlay {
                 ? `<div class="gluni-card-mystery-mark" aria-hidden="true">?</div>`
                 : `<img class="gluni-card-portrait" src="${escapeAttr(card.portrait)}" alt="" loading="lazy" decoding="async">`}
             </div>`}
+        ${card.delayed
+          ? `
+            <div class="gluni-card-delayed-bg" aria-hidden="true"></div>
+            <div class="gluni-card-delayed-repeat" aria-hidden="true">
+              ${renderDelayedRepeatText(card.name)}
+            </div>
+          `
+          : ""}
+        ${card.dying
+          ? `
+            <div class="gluni-card-dying-bg" aria-hidden="true"></div>
+            <div class="gluni-card-dying-repeat" aria-hidden="true">
+              ${renderDyingRepeatText(card.dying)}
+            </div>
+          `
+          : ""}
         <div class="gluni-card-content">
           <div class="gluni-card-kicker">
             ${card.active ? `<span class="gluni-active-tag">TURN</span>` : ""}
+            ${card.dying ? `<span class="gluni-dying-tag">${localize("GLUNI.Dying").toUpperCase()} ${card.dying.value}</span>` : ""}
             ${card.adhoc ? `<span class="gluni-adhoc-tag">${escapeHTML(card.adhoc.label).toUpperCase()}</span>` : ""}
             ${card.adhoc?.oneShot ? `<span class="gluni-adhoc-tag gluni-adhoc-tag--oneshot">${localize("GLUNI.AdHoc.OneShot").toUpperCase()} ${formatRound(card.adhoc.round)}</span>` : ""}
             ${card.delayed ? `<span class="gluni-delayed-tag">${localize("GLUNI.Delayed").toUpperCase()}</span>` : ""}
           </div>
           <h3>${escapeHTML(card.name)}</h3>
-          <span class="gluni-initiative-badge">${formatInitiative(card.initiative)}</span>
+          ${card.dying ? renderDyingPips(card.dying) : ""}
         </div>
+        <span class="gluni-initiative-badge">${formatInitiative(card.initiative)}</span>
         ${card.active ? `<div class="gluni-card-sheen" aria-hidden="true"></div>` : ""}
         ${game.user.isGM ? this.renderGMControls(card) : ""}
       </article>
@@ -777,6 +833,7 @@ class GLUniverseInitiativeOverlay {
     const items = Array.from(this.root.querySelectorAll("[data-gluni-key]"));
     const previousActiveKey = options.previousActiveKey ?? null;
     const roundDelta = Number(options.roundDelta) || 0;
+    const flipItems = [];
 
     for (const item of items) {
       const isActive = item.classList.contains("gluni-card--active");
@@ -812,7 +869,14 @@ class GLUniverseInitiativeOverlay {
       item.style.setProperty("--gluni-flip-y", `${Math.round(dy)}px`);
       item.style.setProperty("--gluni-flip-scale-x", scaleX.toFixed(4));
       item.style.setProperty("--gluni-flip-scale-y", scaleY.toFixed(4));
-      item.getBoundingClientRect();
+      flipItems.push(item);
+    }
+
+    if (!flipItems.length) return;
+
+    this.root.getBoundingClientRect();
+
+    for (const item of flipItems) {
       item.classList.remove("gluni-item--preflip");
       item.classList.add("gluni-item--flipping");
 
@@ -988,6 +1052,21 @@ class GLUniverseInitiativeOverlay {
       if (wasDelayed) await this.returnDelayedCombatantToTurn(combatant);
       this.broadcastRefresh();
     }
+  }
+
+  onContextMenu(event) {
+    if (!game.user.isGM) return;
+
+    const card = event.target.closest(".gluni-card[data-combatant-id]");
+    if (!card || !this.root.contains(card)) return;
+    if (event.target.closest("button, input, select, textarea, .gluni-card-controls")) return;
+
+    const combatant = this.combat?.combatants?.get(card.dataset.combatantId);
+    if (!combatant) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.openInitiativeContextMenu(combatant, event);
   }
 
   openAdhocDialog() {
@@ -1229,10 +1308,16 @@ class GLUniverseInitiativeOverlay {
     const current = combat?.combatant;
     if (!combat?.started || !current || current.id === combatant.id) return;
 
-    const currentInitiative = Number(current.initiative);
-    if (!Number.isFinite(currentInitiative)) return;
+    const turns = Array.from(combat.turns ?? []);
+    const currentIndex = turns.findIndex(turn => turn.id === current.id);
+    if (currentIndex < 0) return;
 
-    const targetInitiative = currentInitiative + 0.01;
+    const before = currentIndex > 0 ? turns[currentIndex - 1] : null;
+    const targetInitiative = chooseInitiativeBetween({
+      before: before?.initiative,
+      after: current.initiative,
+      existing: getUsedInitiatives(combat, combatant.id)
+    });
 
     if (typeof combat.setInitiative === "function") {
       await combat.setInitiative(combatant.id, targetInitiative);
@@ -1262,8 +1347,20 @@ class GLUniverseInitiativeOverlay {
   onPointerDown(event) {
     if (!game.user.isGM) return;
     const handle = event.target.closest(".gluni-drag-handle");
-    if (!handle || !this.root.contains(handle)) return;
+    if (handle && this.root.contains(handle)) {
+      this.startTrackerDrag(event);
+      return;
+    }
 
+    if (event.button !== 0) return;
+    if (event.target.closest("button, input, select, textarea, .gluni-card-controls")) return;
+
+    const card = event.target.closest(".gluni-rail .gluni-card[data-combatant-id]");
+    if (!card || !this.root.contains(card)) return;
+    this.startCardDrag(event, card);
+  }
+
+  startTrackerDrag(event) {
     event.preventDefault();
     const rect = this.root.getBoundingClientRect();
 
@@ -1277,6 +1374,34 @@ class GLUniverseInitiativeOverlay {
     this.root.classList.add("gluni-initiative--dragging");
     window.addEventListener("pointermove", this.onPointerMove);
     window.addEventListener("pointerup", this.onPointerUp, { once: true });
+  }
+
+  startCardDrag(event, card) {
+    const combatant = this.combat?.combatants?.get(card.dataset.combatantId);
+    if (!combatant) return;
+    const railCards = Array.from(this.root?.querySelectorAll(".gluni-rail .gluni-card[data-combatant-id]") ?? []);
+    const originalIndex = railCards.indexOf(card);
+
+    event.preventDefault();
+    this.closeInitiativeContextMenu();
+    card.setPointerCapture?.(event.pointerId);
+
+    this.cardDrag = {
+      combatantId: combatant.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+      originalBeforeId: railCards[originalIndex - 1]?.dataset.combatantId ?? null,
+      originalAfterId: railCards[originalIndex + 1]?.dataset.combatantId ?? null,
+      card
+    };
+
+    this.root.classList.add("gluni-initiative--card-dragging");
+    card.classList.add("gluni-card--dragging");
+    window.addEventListener("pointermove", this.onCardPointerMove);
+    window.addEventListener("pointerup", this.onCardPointerUp, { once: true });
+    window.addEventListener("pointercancel", this.onCardPointerCancel, { once: true });
   }
 
   onPointerMove = event => {
@@ -1304,6 +1429,187 @@ class GLUniverseInitiativeOverlay {
     });
     this.broadcastRefresh();
   };
+
+  onCardPointerMove = event => {
+    if (!this.cardDrag) return;
+
+    const distance = Math.hypot(event.clientX - this.cardDrag.startX, event.clientY - this.cardDrag.startY);
+    if (distance > 4) this.cardDrag.moved = true;
+    if (!this.cardDrag.moved) return;
+
+    this.cardDrag.card.style.setProperty("--gluni-card-drag-y", `${Math.round(event.clientY - this.cardDrag.startY)}px`);
+    this.updateCardDropMarker(event.clientY);
+  };
+
+  onCardPointerUp = async event => {
+    const drag = this.cardDrag;
+    if (!drag) return;
+
+    const target = drag.moved ? this.getCardDropTarget(event.clientY) : null;
+    this.finishCardDrag();
+
+    if (!target) return;
+    if (target.beforeId === drag.originalBeforeId && target.afterId === drag.originalAfterId) return;
+
+    const combatant = this.combat?.combatants?.get(drag.combatantId);
+    if (!combatant) return;
+
+    await this.moveCombatantBetween(combatant, target.beforeId, target.afterId);
+  };
+
+  onCardPointerCancel = () => {
+    this.finishCardDrag();
+  };
+
+  finishCardDrag() {
+    if (!this.cardDrag) return;
+
+    window.removeEventListener("pointermove", this.onCardPointerMove);
+    this.clearCardDropMarkers();
+    this.cardDrag.card.classList.remove("gluni-card--dragging");
+    this.cardDrag.card.style.removeProperty("--gluni-card-drag-y");
+    this.root.classList.remove("gluni-initiative--card-dragging");
+    this.cardDrag = null;
+  }
+
+  updateCardDropMarker(clientY) {
+    this.clearCardDropMarkers();
+    const target = this.getCardDropTarget(clientY);
+    if (!target?.marker) return;
+    target.marker.classList.add(target.position === "before" ? "gluni-card--drop-before" : "gluni-card--drop-after");
+  }
+
+  clearCardDropMarkers() {
+    for (const card of this.root?.querySelectorAll(".gluni-card--drop-before, .gluni-card--drop-after") ?? []) {
+      card.classList.remove("gluni-card--drop-before", "gluni-card--drop-after");
+    }
+  }
+
+  getCardDropTarget(clientY) {
+    const draggedId = this.cardDrag?.combatantId;
+    const cards = Array.from(this.root?.querySelectorAll(".gluni-rail .gluni-card[data-combatant-id]") ?? [])
+      .filter(card => card.dataset.combatantId !== draggedId);
+    if (!cards.length) return null;
+
+    let insertIndex = cards.findIndex(card => clientY < card.getBoundingClientRect().top + card.getBoundingClientRect().height / 2);
+    if (insertIndex < 0) insertIndex = cards.length;
+
+    const beforeCard = cards[insertIndex - 1] ?? null;
+    const afterCard = cards[insertIndex] ?? null;
+    const marker = afterCard ?? beforeCard;
+    const position = afterCard ? "before" : "after";
+
+    return {
+      beforeId: beforeCard?.dataset.combatantId ?? null,
+      afterId: afterCard?.dataset.combatantId ?? null,
+      marker,
+      position
+    };
+  }
+
+  async moveCombatantBetween(combatant, beforeId, afterId) {
+    const combat = this.combat;
+    if (!combat?.started || !combatant) return;
+
+    const before = beforeId ? combat.combatants?.get(beforeId) : null;
+    const after = afterId ? combat.combatants?.get(afterId) : null;
+    if (!before && !after) return;
+
+    const activeId = combat.combatant?.id ?? null;
+    const initiative = chooseInitiativeBetween({
+      before: before?.initiative,
+      after: after?.initiative,
+      existing: getUsedInitiatives(combat, combatant.id)
+    });
+
+    await this.applyCombatantInitiative(combatant, initiative);
+    await this.restoreActiveTurn(activeId);
+    this.broadcastRefresh();
+  }
+
+  async restoreActiveTurn(activeId) {
+    if (!activeId) return;
+    const activeIndex = Array.from(this.combat?.turns ?? []).findIndex(turn => turn.id === activeId);
+    if (activeIndex >= 0 && this.combat?.turn !== activeIndex) await this.combat.update({ turn: activeIndex });
+  }
+
+  openInitiativeContextMenu(combatant, event) {
+    this.closeInitiativeContextMenu();
+
+    const currentInitiative = Number(combatant.initiative);
+    const menu = document.createElement("form");
+    menu.className = "gluni-context-menu";
+    menu.innerHTML = `
+      <label class="gluni-context-field">
+        <span>${localize("GLUNI.Controls.AdjustInitiative")}</span>
+        <input type="number" name="initiative" step="0.1" value="${escapeAttr(Number.isFinite(currentInitiative) ? formatInitiative(currentInitiative) : "")}" autofocus>
+      </label>
+      <div class="gluni-context-actions">
+        <button type="button" data-context-action="decrease" title="${localize("GLUNI.Controls.DecreaseInitiative")}" aria-label="${localize("GLUNI.Controls.DecreaseInitiative")}">
+          <i class="fa-solid fa-minus" aria-hidden="true"></i>
+        </button>
+        <button type="submit" data-context-action="apply">${localize("GLUNI.Controls.Apply").toUpperCase()}</button>
+        <button type="button" data-context-action="increase" title="${localize("GLUNI.Controls.IncreaseInitiative")}" aria-label="${localize("GLUNI.Controls.IncreaseInitiative")}">
+          <i class="fa-solid fa-plus" aria-hidden="true"></i>
+        </button>
+      </div>
+    `;
+
+    document.body.appendChild(menu);
+    const menuRect = menu.getBoundingClientRect();
+    const left = clamp(event.clientX, 6, window.innerWidth - menuRect.width - 6);
+    const top = clamp(event.clientY, 6, window.innerHeight - menuRect.height - 6);
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.top = `${Math.round(top)}px`;
+
+    const input = menu.querySelector("input[name='initiative']");
+    const applyValue = async value => {
+      const activeId = this.combat?.combatant?.id ?? null;
+      const initiative = makeUniqueInitiative(value, getUsedInitiatives(this.combat, combatant.id));
+      await this.applyCombatantInitiative(combatant, initiative);
+      await this.restoreActiveTurn(activeId);
+      this.closeInitiativeContextMenu();
+      this.broadcastRefresh();
+    };
+
+    menu.addEventListener("submit", async submitEvent => {
+      submitEvent.preventDefault();
+      const value = Number(input?.value);
+      if (Number.isFinite(value)) await applyValue(value);
+    });
+
+    menu.addEventListener("click", async clickEvent => {
+      const action = clickEvent.target.closest("[data-context-action]")?.dataset.contextAction;
+      if (action !== "increase" && action !== "decrease") return;
+      clickEvent.preventDefault();
+      const base = Number(input?.value);
+      const next = (Number.isFinite(base) ? base : currentInitiative || 0) + (action === "increase" ? 1 : -1);
+      await applyValue(next);
+    });
+
+    const closeOnOutside = closeEvent => {
+      if (menu.contains(closeEvent.target)) return;
+      this.closeInitiativeContextMenu();
+    };
+    window.setTimeout(() => {
+      if (this.contextMenu?.element !== menu) return;
+      document.addEventListener("pointerdown", closeOnOutside);
+      document.addEventListener("contextmenu", closeOnOutside);
+    }, 0);
+
+    this.contextMenu = { element: menu, closeOnOutside };
+    input?.focus();
+    input?.select();
+  }
+
+  closeInitiativeContextMenu() {
+    if (this.contextMenu?.closeOnOutside) {
+      document.removeEventListener("pointerdown", this.contextMenu.closeOnOutside);
+      document.removeEventListener("contextmenu", this.contextMenu.closeOnOutside);
+    }
+    this.contextMenu?.element?.remove();
+    this.contextMenu = null;
+  }
 
   applyPosition(edge) {
     const position = game.settings.get(MODULE_ID, SETTINGS.position) ?? {};
@@ -1390,6 +1696,177 @@ function renderCombatantStyle(card) {
     styleParts.push(`--gluni-portrait-quality-cap: ${card.portraitScaleCap.toFixed(3)};`);
   }
   return styleParts.length ? ` style="${escapeAttr(styleParts.join(" "))}"` : "";
+}
+
+function getUsedInitiatives(combat, exceptId = null) {
+  return Array.from(combat?.combatants ?? [])
+    .map(entry => Array.isArray(entry) ? entry[1] : entry)
+    .filter(combatant => combatant?.id !== exceptId)
+    .map(combatant => Number(combatant.initiative))
+    .filter(Number.isFinite);
+}
+
+function chooseInitiativeBetween({ before, after, existing = [] } = {}) {
+  const beforeValue = normalizeInitiativeNumber(before);
+  const afterValue = normalizeInitiativeNumber(after);
+  const used = new Set(Array.from(existing).map(value => normalizeInitiativeNumber(value)).filter(Number.isFinite));
+
+  if (Number.isFinite(beforeValue) && Number.isFinite(afterValue) && beforeValue > afterValue) {
+    const wholeHigh = Math.ceil(beforeValue) - 1;
+    const wholeLow = Math.floor(afterValue) + 1;
+    for (let value = wholeHigh; value >= wholeLow; value -= 1) {
+      if (value < beforeValue && value > afterValue && !used.has(value)) return value;
+    }
+
+    return makeUniqueInitiative((beforeValue + afterValue) / 2, used, { min: afterValue, max: beforeValue });
+  }
+
+  if (Number.isFinite(afterValue)) {
+    const whole = Math.floor(afterValue) + 1;
+    if (whole > afterValue && !used.has(whole)) return whole;
+    return makeUniqueInitiative(afterValue + 1, used, { min: afterValue });
+  }
+
+  if (Number.isFinite(beforeValue)) {
+    const whole = Math.ceil(beforeValue) - 1;
+    if (whole < beforeValue && !used.has(whole)) return whole;
+    return makeUniqueInitiative(beforeValue - 1, used, { max: beforeValue });
+  }
+
+  return makeUniqueInitiative(10, used);
+}
+
+function makeUniqueInitiative(value, existing = [], bounds = {}) {
+  const used = existing instanceof Set
+    ? existing
+    : new Set(Array.from(existing).map(entry => normalizeInitiativeNumber(entry)).filter(Number.isFinite));
+  const base = normalizeInitiativeNumber(value);
+  const fallback = Number.isFinite(base) ? base : 10;
+  const min = normalizeInitiativeNumber(bounds.min);
+  const max = normalizeInitiativeNumber(bounds.max);
+  const fits = candidate => {
+    if (!Number.isFinite(candidate)) return false;
+    if (Number.isFinite(min) && candidate <= min) return false;
+    if (Number.isFinite(max) && candidate >= max) return false;
+    return !used.has(candidate);
+  };
+
+  if (fits(fallback)) return fallback;
+
+  for (let step = 1; step <= 100; step += 1) {
+    const offset = step / 10;
+    for (const direction of [1, -1]) {
+      const candidate = normalizeInitiativeNumber(fallback + direction * offset);
+      if (fits(candidate)) return candidate;
+    }
+  }
+
+  for (let step = 1; step <= 1000; step += 1) {
+    const offset = step / 10;
+    for (const direction of [1, -1]) {
+      const candidate = normalizeInitiativeNumber(fallback + direction * offset);
+      if (Number.isFinite(candidate) && !used.has(candidate)) return candidate;
+    }
+  }
+
+  return normalizeInitiativeNumber(fallback + 0.1);
+}
+
+function normalizeInitiativeNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return NaN;
+  return Math.round(number * 10) / 10;
+}
+
+function getPF2eDyingState(combatant) {
+  if (game.system?.id !== "pf2e") return null;
+
+  const actor = combatant?.actor;
+  if (!actor || actor.type !== "character") return null;
+
+  const dyingValue = getActorAttributeValue(actor, "dying") ?? getConditionValue(actor, "dying");
+  const value = Math.max(0, Math.round(Number(dyingValue) || 0));
+  if (value <= 0) return null;
+
+  const doomed = Math.max(0, Math.round(Number(getActorAttributeValue(actor, "doomed") ?? getConditionValue(actor, "doomed") ?? 0) || 0));
+  const rawMax = getActorAttributeValue(actor, "dying", "max");
+  const hasDiehard = hasActorItem(actor, "diehard");
+  const baseMax = Number.isFinite(rawMax) ? rawMax : hasDiehard ? 5 : 4;
+  const max = clamp(Math.max(1, Math.round(baseMax - doomed)), 1, 9);
+  const ratio = clamp(value / max, 0, 1.5);
+  const severity = ratio >= 1 ? "critical" : ratio >= 0.67 ? "high" : "low";
+
+  return { value, max, doomed, hasDiehard, severity };
+}
+
+function getActorAttributeValue(actor, attribute, property = "value") {
+  const direct = actor?.system?.attributes?.[attribute]?.[property];
+  if (Number.isFinite(Number(direct))) return Number(direct);
+
+  const nested = actor?.system?.attributes?.[attribute]?.[property]?.value;
+  if (Number.isFinite(Number(nested))) return Number(nested);
+
+  return null;
+}
+
+function getConditionValue(actor, slug) {
+  const condition = getActorItems(actor).find(item => item?.type === "condition" && getItemSlug(item) === slug);
+  if (!condition) return null;
+
+  const candidates = [
+    condition.system?.value?.value,
+    condition.system?.badge?.value,
+    condition.system?.value,
+    condition.value
+  ];
+
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value)) return value;
+  }
+
+  return 1;
+}
+
+function hasActorItem(actor, slug) {
+  return getActorItems(actor).some(item => getItemSlug(item) === slug);
+}
+
+function getActorItems(actor) {
+  const items = actor?.items?.contents ?? actor?.items ?? [];
+  return Array.from(items)
+    .map(entry => Array.isArray(entry) ? entry[1] : entry)
+    .filter(Boolean);
+}
+
+function getItemSlug(item) {
+  return String(item?.slug ?? item?.system?.slug ?? item?.flags?.core?.sourceId ?? item?.name ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^.*\./, "")
+    .replace(/\s+/g, "-");
+}
+
+function renderDyingRepeatText(dying) {
+  const text = `${localize("GLUNI.Dying").toUpperCase()} ${dying.value}/${dying.max}`;
+  const line = Array.from({ length: 5 }, () => `<span>${escapeHTML(text)}</span>`).join("");
+  return Array.from({ length: 6 }, (_, index) => `
+    <div class="gluni-card-dying-repeat-line${index % 2 ? " gluni-card-dying-repeat-line--alt" : ""}">
+      ${line}
+    </div>
+  `).join("");
+}
+
+function renderDyingPips(dying) {
+  const max = clamp(Math.round(Number(dying.max) || 4), 1, 9);
+  const value = clamp(Math.round(Number(dying.value) || 0), 0, max);
+  const label = formatLocalized("GLUNI.Dying.Aria", { value, max });
+  const pips = Array.from({ length: max }, (_unused, index) => {
+    const filled = index < value;
+    return `<span class="gluni-dying-pip${filled ? " gluni-dying-pip--filled" : ""}" aria-hidden="true"></span>`;
+  }).join("");
+
+  return `<div class="gluni-dying-pips" role="img" aria-label="${escapeAttr(label)}">${pips}</div>`;
 }
 
 function getPortraitScaleCap(path) {
@@ -1574,8 +2051,8 @@ function renderPortraitConfigPanel(mode, label, values, portrait, actorName) {
         <div class="gluni-card-content">
           <div class="gluni-card-kicker">${mode === "expanded" ? `<span class="gluni-active-tag">TURN</span>` : ""}</div>
           <h3>${escapeHTML(actorName)}</h3>
-          <span class="gluni-initiative-badge">18</span>
         </div>
+        <span class="gluni-initiative-badge">18</span>
       </article>
       ${renderPortraitControl(mode, "x", localize("GLUNI.PortraitConfig.PositionX"), values.x, PORTRAIT_FRAME_LIMITS.x.min, PORTRAIT_FRAME_LIMITS.x.max, 1)}
       ${renderPortraitControl(mode, "y", localize("GLUNI.PortraitConfig.PositionY"), values.y, PORTRAIT_FRAME_LIMITS.y.min, PORTRAIT_FRAME_LIMITS.y.max, 1)}
@@ -1851,6 +2328,16 @@ function renderAdhocRepeatText(name) {
   `).join("");
 }
 
+function renderDelayedRepeatText(name) {
+  const text = `${localize("GLUNI.Delayed").toUpperCase()} / ${escapeHTML(name)}`;
+  const line = Array.from({ length: 4 }, () => `<span>${text}</span>`).join("");
+  return Array.from({ length: 4 }, (_, index) => `
+    <div class="gluni-card-delayed-repeat-line${index % 2 ? " gluni-card-delayed-repeat-line--alt" : ""}">
+      ${line}
+    </div>
+  `).join("");
+}
+
 function getAdhocData(combatant) {
   const value = combatant?.getFlag?.(MODULE_ID, FLAGS.adhoc);
   if (!value || typeof value !== "object") return null;
@@ -2057,7 +2544,9 @@ function formatInitiative(initiative) {
   if (initiative === null || initiative === undefined) return "--";
   const value = Number(initiative);
   if (!Number.isFinite(value)) return String(initiative);
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  const rounded = normalizeInitiativeNumber(value);
+  if (Number.isInteger(rounded)) return String(rounded);
+  return rounded.toFixed(1);
 }
 
 function localize(key) {
