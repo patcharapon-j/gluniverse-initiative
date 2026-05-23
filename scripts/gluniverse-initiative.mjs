@@ -262,9 +262,11 @@ Hooks.once("ready", () => {
 });
 
 Hooks.on("createCombat", () => overlay?.renderSoon());
+Hooks.on("preDeleteCombat", combat => overlay?.removeAllPF2eGuardBreakEffects(combat));
 Hooks.on("deleteCombat", () => overlay?.renderSoon());
 Hooks.on("updateCombat", (combat, changed) => overlay?.onCombatUpdate(combat, changed));
 Hooks.on("createCombatant", () => overlay?.renderSoon());
+Hooks.on("preDeleteCombatant", combatant => overlay?.removePF2eGuardBreakEffect(combatant));
 Hooks.on("deleteCombatant", () => overlay?.renderSoon());
 Hooks.on("updateCombatant", (_combatant, changed) => {
   if (isRelevantCombatantUpdate(changed)) overlay?.renderSoon();
@@ -1828,6 +1830,12 @@ class GLUniverseInitiativeOverlay {
     } catch (error) {
       console.warn(`${MODULE_ID} | Failed to remove PF2e break effect`, error);
     }
+  }
+
+  async removeAllPF2eGuardBreakEffects(combat) {
+    if (game.system?.id !== "pf2e" || !game.user.isGM || !combat) return;
+    const combatants = Array.from(combat.combatants ?? []);
+    await Promise.allSettled(combatants.map(combatant => this.removePF2eGuardBreakEffect(combatant)));
   }
 
   async applyGuardBreak(combatant) {
