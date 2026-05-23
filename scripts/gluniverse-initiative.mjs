@@ -7,7 +7,8 @@ const SETTINGS = {
   visibleCount: "visibleCount",
   animationIntensity: "animationIntensity",
   showDefeated: "showDefeated",
-  position: "position"
+  position: "position",
+  tokenOverlayShape: "tokenOverlayShape"
 };
 
 const FLAGS = {
@@ -40,6 +41,10 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.Enabled.Name": "Show cinematic initiative overlay",
   "GLUNI.Settings.ShowDefeated.Hint": "When disabled, defeated combatants are omitted from the cinematic overlay.",
   "GLUNI.Settings.ShowDefeated.Name": "Show defeated combatants",
+  "GLUNI.Settings.TokenOverlayShape.Circle": "Circle",
+  "GLUNI.Settings.TokenOverlayShape.Hint": "Shape of the status overlay drawn on tokens with delay or guard break.",
+  "GLUNI.Settings.TokenOverlayShape.Name": "Token overlay shape",
+  "GLUNI.Settings.TokenOverlayShape.Square": "Square",
   "GLUNI.Settings.VisibleCount.Hint": "Number of normal initiative combatants to show from the current turn forward.",
   "GLUNI.Settings.VisibleCount.Name": "Visible combatants",
   "GLUNI.Controls.Auto": "Auto",
@@ -205,6 +210,7 @@ const PORTRAIT_FRAME_LIMITS = Object.freeze({
 });
 
 let overlay;
+let tokenOverlays;
 const portraitQualityCache = new Map();
 
 Hooks.once("init", () => {
@@ -215,6 +221,7 @@ Hooks.once("ready", () => {
   overlay = new GLUniverseInitiativeOverlay();
   overlay.mount();
   overlay.render();
+  tokenOverlays = new TokenOverlayManager();
 });
 
 Hooks.on("createCombat", () => overlay?.renderSoon());
@@ -242,6 +249,7 @@ Hooks.on("renderApplicationV2", (app, html) => injectPortraitTitlebarButton(app,
 Hooks.on("combatRound", (_combat, updateData) => {
   if (typeof updateData?.round === "number") overlay?.showRoundSplash(updateData.round);
 });
+Hooks.on("canvasReady", () => tokenOverlays?.refresh());
 
 function registerSettings() {
   const rerender = () => overlay?.renderSoon();
@@ -308,6 +316,20 @@ function registerSettings() {
     type: Boolean,
     default: false,
     onChange: rerender
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.tokenOverlayShape, {
+    name: localize("GLUNI.Settings.TokenOverlayShape.Name"),
+    hint: localize("GLUNI.Settings.TokenOverlayShape.Hint"),
+    scope: "world",
+    config: true,
+    type: String,
+    choices: {
+      circle: localize("GLUNI.Settings.TokenOverlayShape.Circle"),
+      square: localize("GLUNI.Settings.TokenOverlayShape.Square")
+    },
+    default: "circle",
+    onChange: () => tokenOverlays?.forceRedraw()
   });
 
   game.settings.register(MODULE_ID, SETTINGS.position, {
@@ -447,6 +469,7 @@ class GLUniverseInitiativeOverlay {
         this.lastMarkup = "";
       }
       this.lastRootClassName = this.root.className;
+      tokenOverlays?.refresh();
       return;
     }
 
@@ -497,6 +520,7 @@ class GLUniverseInitiativeOverlay {
     this.lastActiveKey = view.activeKey;
     this.lastRenderedRound = combat.round ?? null;
     if (isDelayReturn) this.pendingDelayReturnId = null;
+    tokenOverlays?.refresh();
   }
 
   getRenderSettings() {
@@ -2752,6 +2776,492 @@ function clonePortraitFrameDefaults() {
     normal: { ...PORTRAIT_FRAME_DEFAULTS.normal },
     expanded: { ...PORTRAIT_FRAME_DEFAULTS.expanded }
   };
+}
+
+class TokenOverlayManager {
+  constructor() {
+    this._entries = new Map();
+    this._ticking = false;
+    this._tickFn = this._onTick.bind(this);
+    this._time = 0;
+  }
+
+  refresh() {
+    if (!canvas?.ready || !globalThis.PIXI) {
+      this._clearAll();
+      return;
+    }
+
+    const combat = game.combat;
+    if (!combat?.started || !overlay?.enabled) {
+      this._clearAll();
+      return;
+    }
+
+    const wanted = new Map();
+    for (const combatant of combat.combatants ?? []) {
+      const delayed = overlay.isDelayed(combatant);
+      const broken = Boolean(getGuardBreakState(combatant));
+      if (!delayed && !broken) continue;
+
+      const token = getCombatantTokenObject(combatant);
+      if (!token || !token.w || !token.h) continue;
+
+      wanted.set(token.id, { token, delayed, broken });
+    }
+
+    for (const tokenId of [...this._entries.keys()]) {
+      if (!wanted.has(tokenId)) this._removeEntry(tokenId);
+    }
+
+    for (const [tokenId, state] of wanted) {
+      this._upsert(state.token, state.broken ? "broken" : "delayed");
+    }
+
+    if (this._entries.size > 0 && !this._ticking) this._startTick();
+    else if (this._entries.size === 0) this._stopTick();
+  }
+
+  forceRedraw() {
+    for (const entry of this._entries.values()) {
+      entry.mode = null;
+    }
+    this.refresh();
+  }
+
+  _getShape() {
+    try { return game.settings.get(MODULE_ID, SETTINGS.tokenOverlayShape) || "circle"; }
+    catch { return "circle"; }
+  }
+
+  _upsert(token, mode) {
+    let entry = this._entries.get(token.id);
+
+    if (entry && entry.container.destroyed) {
+      this._entries.delete(token.id);
+      entry = null;
+    }
+
+    if (!entry) {
+      entry = this._createEntry(token);
+      this._entries.set(token.id, entry);
+    }
+
+    if (entry.container.parent !== token) {
+      try { token.addChild(entry.container); } catch { return; }
+    }
+
+    const shape = this._getShape();
+    if (entry.mode !== mode || entry.w !== token.w || entry.h !== token.h || entry.shape !== shape) {
+      entry.mode = mode;
+      entry.w = token.w;
+      entry.h = token.h;
+      entry.shape = shape;
+      this._redraw(entry);
+    }
+  }
+
+  _createEntry(token) {
+    const container = new PIXI.Container();
+    container.eventMode = "none";
+    container.interactiveChildren = false;
+
+    const wash = new PIXI.Graphics();
+    container.addChild(wash);
+
+    const border = new PIXI.Graphics();
+    container.addChild(border);
+
+    const cracks = new PIXI.Graphics();
+    container.addChild(cracks);
+
+    const pillBg = new PIXI.Graphics();
+    container.addChild(pillBg);
+
+    const label = new PIXI.Text("", {
+      fontFamily: '"Bahnschrift", "Segoe UI", Arial, sans-serif',
+      fontSize: 10,
+      fontWeight: "bold",
+      fill: "#02070b",
+      letterSpacing: 1.2,
+      align: "center",
+      trim: true
+    });
+    label.anchor.set(0.5, 0.5);
+    container.addChild(label);
+
+    token.addChild(container);
+
+    return {
+      container, wash, border, cracks, pillBg, label,
+      mode: null, w: 0, h: 0, shape: null,
+      phase: Math.random() * Math.PI * 2,
+      seed: Math.random() * 99999
+    };
+  }
+
+  _redraw(entry) {
+    const { wash, border, cracks, pillBg, label, mode, w, h, shape, seed } = entry;
+    const isBreak = mode === "broken";
+    const isCircle = shape === "circle";
+    const cx = w / 2, cy = h / 2;
+    const r = Math.min(w, h) / 2;
+    const rng = this._seededRng(seed);
+
+    wash.clear();
+
+    if (isCircle) {
+      if (isBreak) {
+        wash.beginFill(0xffb12d, 0.06);
+        wash.drawCircle(cx, cy, r - 2);
+        wash.endFill();
+        wash.beginFill(0xff6f1a, 0.04);
+        wash.drawCircle(cx + r * 0.18, cy - r * 0.12, r * 0.5);
+        wash.endFill();
+        wash.beginFill(0xffe070, 0.035);
+        wash.drawCircle(cx - r * 0.22, cy + r * 0.18, r * 0.4);
+        wash.endFill();
+      } else {
+        wash.beginFill(0x4aa3ff, 0.05);
+        wash.drawCircle(cx, cy, r - 2);
+        wash.endFill();
+        wash.beginFill(0x9ad8ff, 0.035);
+        wash.drawCircle(cx + r * 0.25, cy - r * 0.15, r * 0.45);
+        wash.endFill();
+      }
+      wash.lineStyle({ width: r * 0.4, color: 0x02070b, alpha: 0.12, alignment: 0 });
+      wash.drawCircle(cx, cy, r - 1);
+      wash.lineStyle(0);
+    } else {
+      const washColor = isBreak ? 0xffb12d : 0x4aa3ff;
+      wash.beginFill(washColor, isBreak ? 0.06 : 0.05);
+      wash.drawRoundedRect(2, 2, w - 4, h - 4, 2);
+      wash.endFill();
+      wash.lineStyle({ width: Math.min(w, h) * 0.2, color: 0x02070b, alpha: 0.1, alignment: 0 });
+      wash.drawRoundedRect(0, 0, w, h, 2);
+      wash.lineStyle(0);
+    }
+
+    if (!isBreak) this._drawDelayPattern(wash, cx, cy, r, w, h, isCircle, rng);
+
+    border.clear();
+    if (isCircle) {
+      if (isBreak) {
+        border.lineStyle({ width: 16, color: 0xffb12d, alpha: 0.06, alignment: 0 });
+        border.drawCircle(cx, cy, r + 4);
+        border.lineStyle({ width: 7, color: 0xffe070, alpha: 0.15, alignment: 0 });
+        border.drawCircle(cx, cy, r + 1);
+        border.lineStyle({ width: 2.5, color: 0xffb12d, alpha: 0.82, alignment: 0.5 });
+        border.drawCircle(cx, cy, r);
+        border.lineStyle({ width: 1, color: 0xffe070, alpha: 0.26, alignment: 1 });
+        border.drawCircle(cx, cy, r - 1.5);
+      } else {
+        border.lineStyle({ width: 14, color: 0x4aa3ff, alpha: 0.05, alignment: 0 });
+        border.drawCircle(cx, cy, r + 3);
+        border.lineStyle({ width: 6, color: 0x9ad8ff, alpha: 0.12, alignment: 0 });
+        border.drawCircle(cx, cy, r + 1);
+        border.lineStyle({ width: 2, color: 0x4aa3ff, alpha: 0.72, alignment: 0.5 });
+        border.drawCircle(cx, cy, r);
+        border.lineStyle({ width: 0.8, color: 0x9ad8ff, alpha: 0.2, alignment: 1 });
+        border.drawCircle(cx, cy, r - 1.2);
+      }
+    } else {
+      if (isBreak) {
+        border.lineStyle({ width: 16, color: 0xffb12d, alpha: 0.06, alignment: 0 });
+        border.drawRoundedRect(-4, -4, w + 8, h + 8, 6);
+        border.lineStyle({ width: 7, color: 0xffe070, alpha: 0.15, alignment: 0 });
+        border.drawRoundedRect(-1, -1, w + 2, h + 2, 4);
+        border.lineStyle({ width: 2.5, color: 0xffb12d, alpha: 0.82, alignment: 0.5 });
+        border.drawRoundedRect(0, 0, w, h, 3);
+        border.lineStyle({ width: 1, color: 0xffe070, alpha: 0.26, alignment: 1 });
+        border.drawRoundedRect(1.5, 1.5, w - 3, h - 3, 2);
+      } else {
+        border.lineStyle({ width: 14, color: 0x4aa3ff, alpha: 0.05, alignment: 0 });
+        border.drawRoundedRect(-3, -3, w + 6, h + 6, 5);
+        border.lineStyle({ width: 6, color: 0x9ad8ff, alpha: 0.12, alignment: 0 });
+        border.drawRoundedRect(-1, -1, w + 2, h + 2, 3);
+        border.lineStyle({ width: 2, color: 0x4aa3ff, alpha: 0.72, alignment: 0.5 });
+        border.drawRoundedRect(0, 0, w, h, 2);
+        border.lineStyle({ width: 0.8, color: 0x9ad8ff, alpha: 0.2, alignment: 1 });
+        border.drawRoundedRect(1.2, 1.2, w - 2.4, h - 2.4, 1.5);
+      }
+    }
+
+    cracks.clear();
+    if (isBreak) this._drawBreakCracks(cracks, cx, cy, r, rng);
+
+    const baseSize = Math.max(w, h);
+    const fontSize = clamp(Math.round(baseSize * 0.095), 8, 13);
+    label.style.fontSize = fontSize;
+    label.style.fontWeight = "bold";
+    label.style.letterSpacing = fontSize > 10 ? 1.5 : 1;
+    label.text = isBreak ? "BREAK" : "DELAYED";
+    label.style.fill = isBreak ? "#231300" : "#4aa3ff";
+
+    const padX = fontSize * 0.55;
+    const padY = fontSize * 0.3;
+    const pillW = label.width + padX * 2;
+    const pillH = label.height + padY * 2;
+    const pillX = (w - pillW) / 2;
+    const pillY = h - pillH - Math.max(3, baseSize * 0.03);
+
+    pillBg.clear();
+    if (isBreak) {
+      pillBg.lineStyle({ width: 4, color: 0xffb12d, alpha: 0.22 });
+      pillBg.drawRoundedRect(pillX - 1, pillY - 1, pillW + 2, pillH + 2, (pillH + 2) / 2);
+      pillBg.lineStyle(0);
+      pillBg.beginFill(0x000000, 0.4);
+      pillBg.drawRoundedRect(pillX, pillY + 1, pillW, pillH, pillH / 2);
+      pillBg.endFill();
+      pillBg.beginFill(0xffb12d, 0.94);
+      pillBg.drawRoundedRect(pillX, pillY, pillW, pillH, pillH / 2);
+      pillBg.endFill();
+      pillBg.lineStyle({ width: 0.7, color: 0xffffff, alpha: 0.38 });
+      pillBg.drawRoundedRect(pillX, pillY, pillW, pillH, pillH / 2);
+    } else {
+      pillBg.lineStyle(0);
+      pillBg.beginFill(0x000000, 0.32);
+      pillBg.drawRoundedRect(pillX, pillY + 1, pillW, pillH, pillH / 2);
+      pillBg.endFill();
+      pillBg.beginFill(0x02070b, 0.55);
+      pillBg.drawRoundedRect(pillX, pillY, pillW, pillH, pillH / 2);
+      pillBg.endFill();
+      pillBg.lineStyle({ width: 1.2, color: 0x4aa3ff, alpha: 0.8 });
+      pillBg.drawRoundedRect(pillX, pillY, pillW, pillH, pillH / 2);
+    }
+
+    label.position.set(w / 2, pillY + pillH / 2);
+  }
+
+  _drawDelayPattern(g, cx, cy, r, w, h, isCircle, rng) {
+    const insetR = r * 0.9;
+
+    this._drawHatchSet(g, cx, cy, insetR, w, h, isCircle, Math.PI / 6, 0x4aa3ff, 0.06, 0.7);
+    this._drawHatchSet(g, cx, cy, insetR, w, h, isCircle, 5 * Math.PI / 6, 0x9ad8ff, 0.04, 0.6);
+
+    const nodeCount = 3 + Math.floor(rng() * 2);
+    const bounds = isCircle ? r * 0.65 : Math.min(w, h) * 0.32;
+    const nodes = [];
+
+    for (let i = 0; i < nodeCount; i++) {
+      const a = rng() * Math.PI * 2;
+      const d = bounds * (0.3 + rng() * 0.7);
+      const nx = cx + Math.cos(a) * d;
+      const ny = cy + Math.sin(a) * d;
+      const sides = 4 + Math.floor(rng() * 2);
+      const nodeR = Math.max(w, h) * (0.04 + rng() * 0.04);
+
+      const pts = [];
+      for (let s = 0; s < sides; s++) {
+        const sa = (s / sides) * Math.PI * 2 + rng() * 0.5;
+        const sr = nodeR * (0.7 + rng() * 0.6);
+        pts.push(nx + Math.cos(sa) * sr, ny + Math.sin(sa) * sr);
+      }
+      g.lineStyle({ width: 0.7, color: 0x9ad8ff, alpha: 0.2 + rng() * 0.1 });
+      g.drawPolygon(pts);
+      nodes.push({ x: nx, y: ny });
+    }
+
+    for (let i = 1; i < nodes.length; i++) {
+      g.lineStyle({ width: 0.5, color: 0x4aa3ff, alpha: 0.14 });
+      g.moveTo(nodes[i - 1].x, nodes[i - 1].y);
+      g.lineTo(nodes[i].x, nodes[i].y);
+
+      if (rng() > 0.5) {
+        const mx = (nodes[i - 1].x + nodes[i].x) / 2 + (rng() - 0.5) * 6;
+        const my = (nodes[i - 1].y + nodes[i].y) / 2 + (rng() - 0.5) * 6;
+        const ta = rng() * Math.PI * 2;
+        const tl = Math.max(w, h) * 0.04;
+        g.lineStyle({ width: 0.4, color: 0x9ad8ff, alpha: 0.1 });
+        g.moveTo(mx, my);
+        g.lineTo(mx + Math.cos(ta) * tl, my + Math.sin(ta) * tl);
+      }
+    }
+  }
+
+  _drawHatchSet(g, cx, cy, insetR, w, h, isCircle, theta, color, alpha, lineW) {
+    const dirX = Math.cos(theta), dirY = Math.sin(theta);
+    const normX = -Math.sin(theta), normY = Math.cos(theta);
+    const maxD = isCircle ? insetR : Math.max(w, h);
+    const spacing = Math.max(10, maxD * 0.12);
+
+    g.lineStyle({ width: lineW, color, alpha });
+
+    for (let d = -maxD; d <= maxD; d += spacing) {
+      if (isCircle) {
+        const sqr = insetR * insetR - d * d;
+        if (sqr < 4) continue;
+        const half = Math.sqrt(sqr);
+        const lx = cx + normX * d, ly = cy + normY * d;
+        g.moveTo(lx - dirX * half, ly - dirY * half);
+        g.lineTo(lx + dirX * half, ly + dirY * half);
+      } else {
+        const lx = cx + normX * d, ly = cy + normY * d;
+        const ext = maxD * 1.5;
+        g.moveTo(lx - dirX * ext, ly - dirY * ext);
+        g.lineTo(lx + dirX * ext, ly + dirY * ext);
+      }
+    }
+  }
+
+  _drawBreakCracks(g, cx, cy, radius, rng) {
+    const impactX = cx + (rng() - 0.5) * radius * 0.3;
+    const impactY = cy + (rng() - 0.5) * radius * 0.3;
+
+    g.beginFill(0xffb12d, 0.1);
+    g.drawCircle(impactX, impactY, radius * 0.22);
+    g.endFill();
+    g.beginFill(0xffe070, 0.18);
+    g.drawCircle(impactX, impactY, radius * 0.1);
+    g.endFill();
+    g.beginFill(0xffffff, 0.14);
+    g.drawCircle(impactX, impactY, radius * 0.04);
+    g.endFill();
+
+    const armCount = 5 + Math.floor(rng() * 3);
+    const step = (Math.PI * 2) / armCount;
+    const colors = [0xffe070, 0xffb12d, 0xff6f1a, 0xffffff];
+    const arms = [];
+
+    for (let i = 0; i < armCount; i++) {
+      const angle = step * i + (rng() - 0.5) * step * 0.5;
+      const armLen = radius * (0.55 + rng() * 0.4);
+      const segs = 6 + Math.floor(rng() * 4);
+      const color = colors[Math.floor(rng() * colors.length)];
+      const path = this._buildCrackPath(impactX, impactY, angle, armLen, segs, rng);
+      arms.push({ path, color });
+
+      if (rng() > 0.35) {
+        const bi = Math.min(Math.floor(path.length * (0.3 + rng() * 0.35)), path.length - 1);
+        const bp = path[bi];
+        const ba = angle + (rng() > 0.5 ? 1 : -1) * (0.4 + rng() * 0.8);
+        const bl = armLen * (0.25 + rng() * 0.3);
+        const branchPath = this._buildCrackPath(bp.x, bp.y, ba, bl, 3 + Math.floor(rng() * 3), rng);
+        arms.push({ path: branchPath, color, branch: true });
+
+        if (rng() > 0.6 && branchPath.length > 1) {
+          const si = Math.min(Math.floor(branchPath.length * (0.5 + rng() * 0.3)), branchPath.length - 1);
+          const sp = branchPath[si];
+          const sa = ba + (rng() > 0.5 ? 1 : -1) * (0.5 + rng() * 0.6);
+          const subPath = this._buildCrackPath(sp.x, sp.y, sa, bl * 0.4, 2 + Math.floor(rng() * 2), rng);
+          arms.push({ path: subPath, color: 0xffe070, sub: true });
+        }
+      }
+    }
+
+    for (const arm of arms) {
+      const bw = arm.sub ? 4 : arm.branch ? 5.5 : 7;
+      const ba = arm.sub ? 0.06 : arm.branch ? 0.09 : 0.14;
+      this._renderCrackPath(g, arm.path, arm.color, ba, bw, 0.6);
+    }
+
+    for (const arm of arms) {
+      const sw = arm.sub ? 0.8 : arm.branch ? 1.2 : 1.8;
+      const sa = arm.sub ? 0.3 : arm.branch ? 0.42 : 0.58;
+      this._renderCrackPath(g, arm.path, arm.color, sa, sw, 0.85);
+    }
+  }
+
+  _buildCrackPath(sx, sy, baseAngle, length, segments, rng) {
+    const path = [{ x: sx, y: sy }];
+    let px = sx, py = sy, angle = baseAngle;
+    const segLen = length / segments;
+
+    for (let s = 0; s < segments; s++) {
+      angle += (rng() - 0.5) * 0.7;
+      const nx = px + Math.cos(angle) * segLen;
+      const ny = py + Math.sin(angle) * segLen;
+      const mx = (px + nx) / 2 + (rng() - 0.5) * segLen * 0.4;
+      const my = (py + ny) / 2 + (rng() - 0.5) * segLen * 0.4;
+      path.push({ x: mx, y: my, ctrl: true });
+      path.push({ x: nx, y: ny });
+      px = nx;
+      py = ny;
+    }
+    return path;
+  }
+
+  _renderCrackPath(g, path, color, alpha, startWidth, taper) {
+    if (path.length < 2) return;
+    const totalSegs = Math.floor((path.length - 1) / 2);
+    let idx = 0;
+
+    for (let s = 0; s < totalSegs; s++) {
+      const progress = s / Math.max(totalSegs, 1);
+      const lw = Math.max(startWidth * (1 - progress * taper), 0.3);
+      const la = alpha * (1 - progress * 0.45);
+
+      g.lineStyle({ width: lw, color, alpha: la });
+      g.moveTo(path[idx].x, path[idx].y);
+
+      if (idx + 2 < path.length && path[idx + 1].ctrl) {
+        g.quadraticCurveTo(path[idx + 1].x, path[idx + 1].y, path[idx + 2].x, path[idx + 2].y);
+        idx += 2;
+      } else {
+        g.lineTo(path[idx + 1].x, path[idx + 1].y);
+        idx += 1;
+      }
+    }
+  }
+
+  _seededRng(seed) {
+    let s = Math.floor(seed) | 0;
+    return () => {
+      s = (s * 1103515245 + 12345) & 0x7fffffff;
+      return (s >>> 16) / 32768;
+    };
+  }
+
+  _removeEntry(tokenId) {
+    const entry = this._entries.get(tokenId);
+    if (!entry) return;
+    if (!entry.container.destroyed) {
+      if (entry.container.parent) entry.container.parent.removeChild(entry.container);
+      entry.container.destroy({ children: true });
+    }
+    this._entries.delete(tokenId);
+  }
+
+  _clearAll() {
+    for (const tokenId of [...this._entries.keys()]) this._removeEntry(tokenId);
+    this._stopTick();
+  }
+
+  _startTick() {
+    if (this._ticking) return;
+    const ticker = canvas?.app?.ticker;
+    if (!ticker) return;
+    this._ticking = true;
+    ticker.add(this._tickFn);
+  }
+
+  _stopTick() {
+    if (!this._ticking) return;
+    this._ticking = false;
+    canvas?.app?.ticker?.remove(this._tickFn);
+  }
+
+  _onTick(dt) {
+    this._time += (typeof dt === "number" ? dt : 1) / 60;
+    for (const entry of this._entries.values()) {
+      if (entry.container.destroyed) continue;
+      const isBreak = entry.mode === "broken";
+
+      if (isBreak) {
+        const bt = 0.5 + 0.5 * Math.sin((this._time * 2 * Math.PI / 1.28) + entry.phase);
+        entry.border.alpha = 0.55 + 0.45 * bt;
+        const ct = 0.5 + 0.5 * Math.sin((this._time * 2 * Math.PI / 1.08) + entry.phase + 0.7);
+        entry.cracks.alpha = 0.55 + 0.45 * ct;
+      } else {
+        const t = 0.5 + 0.5 * Math.sin((this._time * 2 * Math.PI / 3.5) + entry.phase);
+        entry.border.alpha = 0.5 + 0.3 * t;
+      }
+    }
+  }
+
+  destroy() {
+    this._clearAll();
+  }
 }
 
 function getHTMLElement(value) {
