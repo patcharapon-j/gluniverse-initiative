@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        type: choice
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+      version:
+        description: "Explicit version (e.g. 1.2.3). Overrides the bump type when set."
+        type: string
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Determine new version
+        id: version
+        run: |
+          current="$(jq -r '.version' module.json)"
+          echo "Current version: $current"
+
+          explicit="${{ github.event.inputs.version }}"
+          if [ -n "$explicit" ]; then
+            new="$explicit"
+          else
+            IFS='.' read -r major minor patch <<< "$current"
+            case "${{ github.event.inputs.bump }}" in
+              major) major=$((major + 1)); minor=0; patch=0 ;;
+              minor) minor=$((minor + 1)); patch=0 ;;
+              patch) patch=$((patch + 1)) ;;
+            esac
+            new="${major}.${minor}.${patch}"
+          fi
+
+          if ! echo "$new" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid version '$new'. Expected MAJOR.MINOR.PATCH."
+            exit 1
+          fi
+
+          if git rev-parse "v$new" >/dev/null 2>&1; then
+            echo "::error::Tag v$new already exists."
+            exit 1
+          fi
+
+          echo "New version: $new"
+          echo "version=$new" >> "$GITHUB_OUTPUT"
+
+      - name: Update module.json
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          repo_url="https://github.com/${GITHUB_REPOSITORY}"
+          manifest="${repo_url}/releases/latest/download/module.json"
+          download="${repo_url}/releases/download/v${VERSION}/gluniverse-initiative.zip"
+
+          jq --arg v "$VERSION" \
+             --arg m "$manifest" \
+             --arg d "$download" \
+             '.version = $v | .manifest = $m | .download = $d' \
+             module.json > module.json.tmp
+          mv module.json.tmp module.json
+
+          echo "Updated module.json:"
+          cat module.json
+
+      - name: Build release zip
+        run: |
+          zip -r gluniverse-initiative.zip \
+            module.json \
+            scripts \
+            styles \
+            lang \
+            README.md
+
+      - name: Commit version bump
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git add module.json
+          git commit -m "Release v${VERSION}"
+          git tag "v${VERSION}"
+          git push origin HEAD:${GITHUB_REF_NAME}
+          git push origin "v${VERSION}"
+
+      - name: Create GitHub release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
+            --generate-notes \
+            module.json \
+            gluniverse-initiative.zip
