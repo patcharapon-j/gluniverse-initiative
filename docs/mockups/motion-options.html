@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GLUni Initiative — Turn-Change Motion Options</title>
+<style>
+  :root {
+    --ink:        #02070b;
+    --cyan:       #5eeaff;
+    --white:      #f3fbff;
+    --violet:     #b497ff;
+    --magenta:    #ff66b3;
+    --line:       rgba(244, 252, 255, 0.10);
+    --line-strong:rgba(244, 252, 255, 0.55);
+    --text-dim:   rgba(243, 251, 255, 0.62);
+    --accent:     var(--cyan);
+    --ease-flip:  cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-active:cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background:
+      radial-gradient(circle at 28% 14%, rgba(94,234,255,0.05), transparent 52%),
+      radial-gradient(circle at 82% 88%, rgba(180,151,255,0.05), transparent 52%),
+      #060a0e;
+    color: var(--white);
+    font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", Consolas, monospace;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ---------------- control panel (top-left) ---------------- */
+  .controls {
+    position: fixed;
+    top: 36px; left: 36px;
+    z-index: 50;
+    width: 440px;
+    max-width: calc(100vw - 320px);
+  }
+  .controls h1 {
+    font-size: 16px;
+    font-weight: 950;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--cyan);
+    margin: 0 0 4px;
+  }
+  .controls .sub {
+    color: var(--text-dim);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin: 0 0 22px;
+  }
+  .preset-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .preset-btn {
+    flex: 1;
+    appearance: none;
+    cursor: pointer;
+    padding: 11px 8px 10px;
+    background: linear-gradient(180deg, #0a1218, #04080c);
+    color: var(--text-dim);
+    border: 0;
+    box-shadow: inset 0 0 0 1px var(--line);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 950;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+    transition: color 200ms var(--ease-flip), box-shadow 200ms var(--ease-flip), background 200ms var(--ease-flip);
+  }
+  .preset-btn:hover { color: var(--white); }
+  .preset-btn.is-selected {
+    color: var(--cyan);
+    background: linear-gradient(180deg, #0d1822, #04080c);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--cyan) 64%, var(--line) 36%),
+      0 0 22px rgba(94,234,255,0.16);
+  }
+
+  .next-btn {
+    appearance: none;
+    cursor: pointer;
+    width: 100%;
+    padding: 15px 16px;
+    margin-bottom: 16px;
+    background: linear-gradient(180deg, #0d1822, #04080c);
+    color: var(--cyan);
+    border: 0;
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--cyan) 50%, var(--line) 50%),
+      0 0 24px rgba(94,234,255,0.14);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 950;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+    transition: box-shadow 160ms var(--ease-flip), transform 120ms ease;
+  }
+  .next-btn:hover {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--cyan) 78%, var(--line) 22%),
+      0 0 34px rgba(94,234,255,0.26);
+  }
+  .next-btn:active { transform: translateY(1px); }
+  .next-btn:disabled { opacity: 0.4; cursor: default; }
+
+  .caption {
+    color: rgba(243,251,255,0.80);
+    font-size: 12px;
+    line-height: 1.7;
+    letter-spacing: 0.04em;
+  }
+  .caption b {
+    color: var(--cyan);
+    font-weight: 950;
+    letter-spacing: 0.14em;
+  }
+  .caption .dur {
+    color: var(--violet);
+    font-weight: 950;
+  }
+
+  /* ---------------- rail (docked right) ---------------- */
+  .rail-anchor {
+    position: fixed;
+    top: 50%;
+    right: 24px;
+    transform: translateY(-50%);
+    width: 200px;
+    z-index: 10;
+  }
+  .rail {
+    position: relative;
+    width: 200px;
+  }
+
+  /* ---------------- card ---------------- */
+  .card {
+    position: absolute;
+    top: 0; left: 0;
+    width: 188px;
+    min-height: 58px;
+    isolation: isolate;
+    display: grid;
+    align-items: end;
+    color: var(--white);
+    background: linear-gradient(180deg, #0a1218 0%, #04080c 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.06),
+      inset 0 -1px 0 rgba(0,0,0,0.6),
+      inset 1px 0 0 rgba(255,255,255,0.04),
+      inset 0 0 0 1px var(--line),
+      inset 0 0 28px rgba(0,0,0,0.4);
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+    /* reflow: FLIP-like vertical slide to new slot */
+    transition: top 400ms var(--ease-flip);
+    will-change: transform, top, opacity, filter;
+  }
+  /* edge specular */
+  .card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    background: linear-gradient(115deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0) 30%);
+    mix-blend-mode: screen;
+    opacity: 0.9;
+  }
+  .card-portrait-wrap {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    overflow: hidden;
+  }
+  .card-portrait-wrap::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 36%, rgba(0,0,0,0.18) 100%),
+      radial-gradient(120% 60% at 20% 0%, rgba(255,255,255,0.10), transparent 50%);
+    pointer-events: none;
+  }
+  .portrait-placeholder {
+    width: 100%; height: 100%;
+    background:
+      radial-gradient(circle at 50% 30%, #5e7a92 0%, #2c3e51 35%, #0a1118 80%),
+      linear-gradient(135deg, #16323f, #0a1820);
+  }
+  .card-veil {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    background: linear-gradient(95deg, rgba(2,5,8,0.95), rgba(2,5,8,0.48) 50%, rgba(2,5,8,0));
+    pointer-events: none;
+  }
+  .card-accent {
+    position: absolute;
+    top: 0; bottom: 0; left: 0;
+    z-index: 7;
+    width: 3px;
+    background: var(--accent);
+    box-shadow: 0 0 16px var(--accent);
+  }
+  .card-bracket {
+    position: absolute;
+    top: 6px; left: 8px;
+    z-index: 8;
+    width: 8px; height: 8px;
+    border-top: 1px solid var(--line-strong);
+    border-left: 1px solid var(--line-strong);
+  }
+  .card-content {
+    position: relative;
+    z-index: 8;
+    display: grid;
+    gap: 3px;
+    padding: 8px 42px 9px 12px;
+  }
+  .card-kicker { display: flex; gap: 4px; min-height: 10px; }
+  .active-tag {
+    display: none;
+    align-items: center;
+    height: 12px;
+    padding: 0 5px;
+    color: var(--ink);
+    background: var(--accent);
+    font-size: 7px;
+    font-weight: 950;
+    letter-spacing: 0.22em;
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 62%, transparent);
+    clip-path: polygon(2px 0, 100% 0, 100% 100%, 0 100%, 0 2px);
+  }
+  .card h3 {
+    margin: 0;
+    color: var(--white);
+    font-size: 12px;
+    font-weight: 950;
+    line-height: 1.04;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.9);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card-badge {
+    position: absolute;
+    right: 8px; bottom: 6px;
+    z-index: 9;
+    color: color-mix(in srgb, var(--accent) 78%, var(--white));
+    font-size: 22px;
+    font-weight: 950;
+    font-variant-numeric: tabular-nums;
+    line-height: 0.9;
+    text-shadow:
+      0 0 14px color-mix(in srgb, var(--accent) 42%, transparent),
+      0 2px 4px rgba(0,0,0,0.96);
+  }
+
+  /* ----- active card ----- */
+  .card.is-active {
+    width: 200px;
+    min-height: 124px;
+    overflow: visible;
+    background: linear-gradient(180deg, #0d1822 0%, #04080c 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(94,234,255,0.20),
+      inset 0 -1px 0 rgba(0,0,0,0.6),
+      inset 0 0 0 1px color-mix(in srgb, var(--cyan) 70%, var(--line) 30%),
+      inset 0 0 32px rgba(0,0,0,0.4),
+      0 18px 36px rgba(0,0,0,0.7),
+      0 0 32px color-mix(in srgb, var(--cyan) 34%, transparent);
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+  }
+  .card.is-active .card-accent { width: 4px; box-shadow: 0 0 24px var(--accent); }
+  .card.is-active .card-content { padding-right: 58px; }
+  .card.is-active .card-bracket { border-top-color: var(--accent); border-left-color: var(--accent); }
+  .card.is-active .active-tag { display: inline-flex; }
+  .card.is-active .card-badge { font-size: 34px; }
+  .card.is-active .card-veil {
+    top: auto; bottom: 0; height: 46px;
+    -webkit-mask-image: linear-gradient(to top, #000 0%, rgba(0,0,0,0.82) 48%, transparent 100%);
+            mask-image: linear-gradient(to top, #000 0%, rgba(0,0,0,0.82) 48%, transparent 100%);
+  }
+
+  /* accent-edge brightness flare (cinematic) */
+  .card .flare {
+    position: absolute;
+    top: 0; bottom: 0; left: 0;
+    z-index: 8;
+    width: 4px;
+    background: var(--white);
+    opacity: 0;
+    pointer-events: none;
+    box-shadow: 0 0 30px var(--cyan), 0 0 50px var(--cyan);
+  }
+
+  /* shockwave ring */
+  .ring {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    pointer-events: none;
+    border: 1px solid color-mix(in srgb, var(--cyan) 70%, transparent);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--cyan) 40%, transparent);
+    opacity: 0;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+  }
+
+  .hint {
+    position: fixed;
+    bottom: 22px; left: 36px;
+    z-index: 50;
+    color: var(--text-dim);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+
+  <div class="controls">
+    <h1>Turn-Change Motion</h1>
+    <p class="sub">select a preset · hit next turn · replay freely</p>
+    <div class="preset-row" id="presetRow">
+      <button class="preset-btn is-selected" data-preset="refined">Refined</button>
+      <button class="preset-btn" data-preset="weighted">Weighted</button>
+      <button class="preset-btn" data-preset="cinematic">Cinematic</button>
+    </div>
+    <button class="next-btn" id="nextBtn">&#9654;&nbsp; Next turn</button>
+    <p class="caption" id="caption"></p>
+  </div>
+
+  <div class="rail-anchor">
+    <div class="rail" id="rail"></div>
+  </div>
+
+  <div class="hint">mockup · motion comparison only</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- layout constants ----
+  var GAP = 5;
+  var H_IDLE = 58;
+  var H_ACTIVE = 124;
+
+  // ---- roster (cycled) ----
+  var ROSTER = [
+    { name: "OPERATIVE-07", init: 22 },
+    { name: "AITHNE VEY",   init: 18 },
+    { name: "RONIN K-9",    init: 15 },
+    { name: "WARDEN 0X",    init: 11 }
+  ];
+
+  var presetCfg = {
+    refined: {
+      label: "Refined",
+      total: 420,
+      caption: 'Outgoing card eases up &amp; fades &mdash; no blur, no pull-back. Incoming gently scales 1.0&rarr;1.02 and rises into place; badge counts up. A single faint hairline at most. Quiet and expensive. <span class="dur">~420ms</span>'
+    },
+    weighted: {
+      label: "Weighted",
+      total: 620,
+      caption: 'Small anticipation dip, then a blurred horizontal swipe-off. Brief gap, then incoming settles with a 1.05&rarr;1.0 scale ease and one expanding shockwave ring; badge counts up. Heft, but controlled &mdash; no jitter. <span class="dur">~620ms</span>'
+    },
+    cinematic: {
+      label: "Cinematic",
+      total: 820,
+      caption: 'Full sequence: pull-back &rarr; blurred swipe-off &rarr; gap &rarr; impact slam with scale overshoot + a vertical impact dip, shockwave ring, accent-edge flare and badge count-up. Dramatic but intentional. <span class="dur">~820ms</span>'
+    }
+  };
+
+  var rail = document.getElementById("rail");
+  var caption = document.getElementById("caption");
+  var nextBtn = document.getElementById("nextBtn");
+  var presetRow = document.getElementById("presetRow");
+
+  var preset = "refined";
+  var busy = false;
+  var order = [0, 1, 2, 3];   // indices into ROSTER, top -> bottom; [0] is active
+  var cards = [];             // DOM, parallel to ROSTER index
+
+  // ---- easing ----
+  function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+  // ---- build a card element ----
+  function buildCard(data) {
+    var el = document.createElement("article");
+    el.className = "card";
+    el.innerHTML =
+      '<div class="card-accent"></div>' +
+      '<div class="flare"></div>' +
+      '<div class="card-bracket"></div>' +
+      '<div class="card-portrait-wrap"><div class="portrait-placeholder"></div></div>' +
+      '<div class="card-veil"></div>' +
+      '<div class="card-content">' +
+        '<div class="card-kicker"><span class="active-tag">TURN</span></div>' +
+        '<h3></h3>' +
+      '</div>' +
+      '<span class="card-badge"></span>';
+    el.querySelector("h3").textContent = data.name;
+    el.querySelector(".card-badge").textContent = data.init;
+    el._data = data;
+    el._badge = el.querySelector(".card-badge");
+    el._ring = null;
+    return el;
+  }
+
+  // ---- compute the top offset for a slot index (0-based, in current order) ----
+  function slotTop(slotIndex) {
+    // slot 0 is active (taller). slots below it stack after H_ACTIVE.
+    if (slotIndex === 0) return 0;
+    return H_ACTIVE + GAP + (slotIndex - 1) * (H_IDLE + GAP);
+  }
+
+  // ---- render (apply slot positions + active state) without entry animation ----
+  function layout() {
+    for (var s = 0; s < order.length; s++) {
+      var idx = order[s];
+      var el = cards[idx];
+      el.style.top = slotTop(s) + "px";
+      el.style.zIndex = (order.length - s) + (s === 0 ? 20 : 0);
+      if (s === 0) {
+        el.classList.add("is-active");
+      } else {
+        el.classList.remove("is-active");
+      }
+    }
+  }
+
+  function init() {
+    rail.innerHTML = "";
+    cards = ROSTER.map(function (d) {
+      var el = buildCard(d);
+      rail.appendChild(el);
+      return el;
+    });
+    // freeze transition during first paint
+    cards.forEach(function (c) { c.style.transition = "none"; });
+    layout();
+    // restore transitions
+    requestAnimationFrame(function () {
+      cards.forEach(function (c) { c.style.transition = ""; });
+    });
+    selectPreset("refined");
+  }
+
+  function selectPreset(p) {
+    preset = p;
+    var btns = presetRow.querySelectorAll(".preset-btn");
+    btns.forEach(function (b) {
+      b.classList.toggle("is-selected", b.dataset.preset === p);
+    });
+    caption.innerHTML = presetCfg[p].caption;
+  }
+
+  // ---- badge count-up tween ----
+  function countUp(el, from, to, dur) {
+    var start = performance.now();
+    function frame(now) {
+      var t = Math.min(1, (now - start) / dur);
+      var v = Math.round(from + (to - from) * easeOutCubic(t));
+      el.textContent = v;
+      if (t < 1) requestAnimationFrame(frame);
+      else el.textContent = to;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ---- shockwave ring on a card ----
+  function shockwave(el, opts) {
+    opts = opts || {};
+    var ring = document.createElement("div");
+    ring.className = "ring";
+    el.appendChild(ring);
+    var dur = opts.dur || 520;
+    var scaleTo = opts.scale || 1.5;
+    ring.animate(
+      [
+        { transform: "scale(0.92)", opacity: opts.opacity || 0.55 },
+        { transform: "scale(" + scaleTo + ")", opacity: 0 }
+      ],
+      { duration: dur, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "forwards" }
+    ).onfinish = function () { ring.remove(); };
+  }
+
+  // ---- accent-edge brightness flare ----
+  function edgeFlare(el, dur) {
+    var f = el.querySelector(".flare");
+    f.animate(
+      [
+        { opacity: 0 },
+        { opacity: 0.9, offset: 0.2 },
+        { opacity: 0 }
+      ],
+      { duration: dur || 360, easing: "ease-out" }
+    );
+  }
+
+  // ============================================================
+  //  ANIMATION PRESETS
+  //  Each returns a Promise that resolves when fully settled.
+  //  outEl  = the card leaving the active slot (it will become last)
+  //  inEl   = the card entering the active slot
+  //  reflow = function that re-runs layout() so all cards FLIP to new slots
+  // ============================================================
+
+  function animRefined(outEl, inEl, reflow) {
+    return new Promise(function (resolve) {
+      // OUT: ease up + fade, no blur, no pull-back
+      outEl.style.zIndex = 30;
+      outEl.animate(
+        [
+          { transform: "translateY(0px)", opacity: 1 },
+          { transform: "translateY(-10px)", opacity: 0 }
+        ],
+        { duration: 220, easing: "cubic-bezier(0.4,0,0.2,1)", fill: "forwards" }
+      );
+
+      // reflow the rail (FLIP) almost immediately
+      setTimeout(reflow, 90);
+
+      // IN: smooth scale 1.0 -> 1.02 + rise + fade, ease-out
+      setTimeout(function () {
+        inEl.style.transformOrigin = "50% 50%";
+        inEl.animate(
+          [
+            { transform: "translateY(8px) scale(1.0)", opacity: 0.0 },
+            { transform: "translateY(0px) scale(1.02)", opacity: 1 }
+          ],
+          { duration: 300, easing: "cubic-bezier(0.22,1,0.36,1)", fill: "none" }
+        );
+        // at most a single very faint hairline
+        shockwave(inEl, { dur: 380, scale: 1.18, opacity: 0.16 });
+        countUp(inEl._badge, 0, inEl._data.init, 300);
+      }, 120);
+
+      setTimeout(resolve, 420);
+    });
+  }
+
+  function animWeighted(outEl, inEl, reflow) {
+    return new Promise(function (resolve) {
+      outEl.style.zIndex = 30;
+      // OUT: anticipation dip toward rail (~4px right) then blurred swipe off (~80px)
+      outEl.animate(
+        [
+          { transform: "translateX(0px)", filter: "blur(0px)", opacity: 1, offset: 0 },
+          { transform: "translateX(4px)", filter: "blur(0px)", opacity: 1, offset: 0.22 },
+          { transform: "translateX(80px)", filter: "blur(6px)", opacity: 0, offset: 1 }
+        ],
+        { duration: 300, easing: "cubic-bezier(0.5,0,0.75,0)", fill: "forwards" }
+      );
+
+      setTimeout(reflow, 200);
+
+      // ~60ms gap after swipe, then incoming settle
+      setTimeout(function () {
+        inEl.style.transformOrigin = "50% 60%";
+        inEl.animate(
+          [
+            { transform: "scale(1.05)", opacity: 0.4 },
+            { transform: "scale(1.0)", opacity: 1 }
+          ],
+          { duration: 300, easing: "cubic-bezier(0.22,1,0.36,1)", fill: "none" }
+        );
+        shockwave(inEl, { dur: 480, scale: 1.42, opacity: 0.4 });
+        countUp(inEl._badge, 0, inEl._data.init, 320);
+      }, 360);
+
+      setTimeout(resolve, 620);
+    });
+  }
+
+  function animCinematic(outEl, inEl, reflow) {
+    return new Promise(function (resolve) {
+      outEl.style.zIndex = 30;
+      // OUT: anticipation pull-back then blurred horizontal swipe-off
+      outEl.animate(
+        [
+          { transform: "translateX(0px)", filter: "blur(0px)", opacity: 1, offset: 0 },
+          { transform: "translateX(7px)", filter: "blur(0px)", opacity: 1, offset: 0.26 },
+          { transform: "translateX(-110px)", filter: "blur(9px)", opacity: 0, offset: 1 }
+        ],
+        { duration: 360, easing: "cubic-bezier(0.55,0,0.65,0)", fill: "forwards" }
+      );
+
+      setTimeout(reflow, 250);
+
+      // ~60ms gap, then IMPACT SLAM: scale overshoot + vertical impact dip (settling)
+      setTimeout(function () {
+        inEl.style.transformOrigin = "50% 65%";
+        inEl.animate(
+          [
+            { transform: "translateY(-6px) scale(1.06)", opacity: 0.35, offset: 0 },
+            { transform: "translateY(5px)  scale(1.005)", opacity: 1,    offset: 0.42 },
+            { transform: "translateY(-2px) scale(1.0)",   opacity: 1,    offset: 0.7 },
+            { transform: "translateY(0px)  scale(1.0)",   opacity: 1,    offset: 1 }
+          ],
+          { duration: 420, easing: "cubic-bezier(0.22,1,0.36,1)", fill: "none" }
+        );
+        shockwave(inEl, { dur: 560, scale: 1.6, opacity: 0.55 });
+        edgeFlare(inEl, 420);
+        countUp(inEl._badge, 0, inEl._data.init, 380);
+      }, 420);
+
+      setTimeout(resolve, 820);
+    });
+  }
+
+  var ANIMS = {
+    refined: animRefined,
+    weighted: animWeighted,
+    cinematic: animCinematic
+  };
+
+  // ---- advance one turn ----
+  function nextTurn() {
+    if (busy) return;
+    busy = true;
+    nextBtn.disabled = true;
+
+    var outIdx = order[0];
+    var inIdx = order[1];
+    var outEl = cards[outIdx];
+    var inEl = cards[inIdx];
+
+    // reset incoming badge so count-up reads
+    inEl._badge.textContent = "0";
+
+    // reflow: rotate order so old active goes to the bottom
+    function reflow() {
+      order = order.slice(1).concat(order[0]);
+      // outgoing card was animated with WAAPI transform; clear so FLIP top-transition owns it.
+      outEl.getAnimations().forEach(function (a) {
+        try { a.commitStyles(); } catch (e) {}
+        a.cancel();
+      });
+      outEl.style.transform = "";
+      outEl.style.filter = "";
+      outEl.style.opacity = "";
+      outEl.style.transformOrigin = "";
+      layout();
+    }
+
+    var run = ANIMS[preset];
+    run(outEl, inEl, reflow).then(function () {
+      // settle: clear any lingering inline transforms on the new active card
+      inEl.getAnimations().forEach(function (a) { a.cancel(); });
+      inEl.style.transform = "";
+      inEl.style.filter = "";
+      inEl.style.opacity = "";
+      inEl.style.transformOrigin = "";
+      inEl._badge.textContent = inEl._data.init;
+      busy = false;
+      nextBtn.disabled = false;
+    });
+  }
+
+  // ---- wire up controls ----
+  presetRow.addEventListener("click", function (e) {
+    var btn = e.target.closest(".preset-btn");
+    if (!btn || busy) return;
+    selectPreset(btn.dataset.preset);
+  });
+  nextBtn.addEventListener("click", nextTurn);
+
+  init();
+})();
+</script>
+</body>
+</html>

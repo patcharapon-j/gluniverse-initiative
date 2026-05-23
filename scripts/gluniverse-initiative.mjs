@@ -9,7 +9,20 @@ const SETTINGS = {
   showDefeated: "showDefeated",
   position: "position",
   uiScale: "uiScale",
-  tokenOverlayShape: "tokenOverlayShape"
+  tokenOverlayShape: "tokenOverlayShape",
+  visualFidelity: "visualFidelity"
+};
+
+const TOKEN_OVERLAY_PALETTE = {
+  delayed: 0x4aa3ff,
+  delayedHi: 0x9ad8ff,
+  broken: 0xffb12d,
+  brokenHot: 0xffe070,
+  brokenDeep: 0xff6f1a,
+  ink: 0x02070b,
+  white: 0xf3fbff,
+  violet: 0xb497ff,
+  magenta: 0xff66b3
 };
 
 const FLAGS = {
@@ -48,6 +61,10 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.TokenOverlayShape.Square": "Square",
   "GLUNI.Settings.UIScale.Hint": "Scale the initiative tracker for only this user.",
   "GLUNI.Settings.UIScale.Name": "UI scale",
+  "GLUNI.Settings.VisualFidelity.Name": "Visual fidelity",
+  "GLUNI.Settings.VisualFidelity.Hint": "Higher fidelity uses real frosted glass and motion blur for the most premium look. Step down to Balanced for lighter GPU load while staying premium.",
+  "GLUNI.Settings.VisualFidelity.High": "High (best looking)",
+  "GLUNI.Settings.VisualFidelity.Balanced": "Balanced (lighter)",
   "GLUNI.Settings.VisibleCount.Hint": "Number of normal initiative combatants to show from the current turn forward.",
   "GLUNI.Settings.VisibleCount.Name": "Visible combatants",
   "GLUNI.Controls.Auto": "Auto",
@@ -57,6 +74,9 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Controls.Apply": "Apply",
   "GLUNI.Controls.GuardBreak": "Guard break",
   "GLUNI.Controls.ClearGuardBreak": "Clear guard break",
+  "GLUNI.Controls.TokenGuardBreak": "Toggle break on token",
+  "GLUNI.Controls.TokenGuardBreak.NoCombat": "Start combat before marking break.",
+  "GLUNI.Controls.TokenGuardBreak.NoCombatant": "This token is not in the active combat.",
   "GLUNI.Controls.DecreaseInitiative": "Decrease initiative",
   "GLUNI.Controls.Hidden": "Hide",
   "GLUNI.Controls.IncreaseInitiative": "Increase initiative",
@@ -105,6 +125,7 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.PortraitConfig.Scale": "Zoom",
   "GLUNI.PortraitConfig.Title": "{name} Initiative Portrait",
   "GLUNI.Round": "Round",
+  "GLUNI.Splash.Break": "GUARD BREAK",
   "GLUNI.Splash.Cycle": "INITIATIVE - CYCLE {round}",
   "GLUNI.Unknown": "Unknown"
 });
@@ -138,6 +159,11 @@ const ADHOC_LIFECYCLE = Object.freeze({
   oneShot: "oneShot"
 });
 const ADHOC_LIFECYCLE_MODES = new Set(Object.values(ADHOC_LIFECYCLE));
+const STATUS_ANIMATION = Object.freeze({
+  delay: Object.freeze({ label: "GLUNI.Delayed", colorClass: "delay", motion: "slide" }),
+  guardBreak: Object.freeze({ label: "GLUNI.GuardBreak", colorClass: "break", motion: "slide" }),
+  dying: Object.freeze({ label: "GLUNI.Dying", colorClass: "dying", motion: "dying" })
+});
 const ADHOC_ICON_CHOICES = Object.freeze([
   "fa-solid fa-bolt",
   "fa-solid fa-burst",
@@ -249,6 +275,7 @@ Hooks.on("getActorSheetHeaderButtons", (app, buttons) => addPortraitHeaderButton
 Hooks.on("getHeaderControlsApplicationV2", (app, controls) => addPortraitHeaderControl(app, controls));
 Hooks.on("renderApplicationV1", (app, html) => injectPortraitTitlebarButton(app, html));
 Hooks.on("renderApplicationV2", (app, html) => injectPortraitTitlebarButton(app, html));
+Hooks.on("renderTokenHUD", (hud, html, data) => addGuardBreakTokenHudButton(hud, html, data));
 Hooks.on("combatRound", (_combat, updateData) => {
   if (typeof updateData?.round === "number") overlay?.showRoundSplash(updateData.round);
 });
@@ -292,7 +319,7 @@ function registerSettings() {
       max: 12,
       step: 1
     },
-    default: 5,
+    default: 6,
     onChange: rerender
   });
 
@@ -307,7 +334,7 @@ function registerSettings() {
       default: localize("GLUNI.Settings.AnimationIntensity.Default"),
       cinematic: localize("GLUNI.Settings.AnimationIntensity.Cinematic")
     },
-    default: "default",
+    default: "cinematic",
     onChange: rerender
   });
 
@@ -350,6 +377,23 @@ function registerSettings() {
     onChange: () => tokenOverlays?.forceRedraw()
   });
 
+  game.settings.register(MODULE_ID, SETTINGS.visualFidelity, {
+    name: localize("GLUNI.Settings.VisualFidelity.Name"),
+    hint: localize("GLUNI.Settings.VisualFidelity.Hint"),
+    scope: "client",
+    config: true,
+    type: String,
+    choices: {
+      high: localize("GLUNI.Settings.VisualFidelity.High"),
+      balanced: localize("GLUNI.Settings.VisualFidelity.Balanced")
+    },
+    default: "high",
+    onChange: () => {
+      overlay?.renderSoon();
+      tokenOverlays?.forceRedraw();
+    }
+  });
+
   game.settings.register(MODULE_ID, SETTINGS.position, {
     scope: "client",
     config: false,
@@ -360,6 +404,14 @@ function registerSettings() {
     },
     onChange: rerender
   });
+}
+
+function getVisualFidelity() {
+  try {
+    return game.settings.get(MODULE_ID, SETTINGS.visualFidelity) || "high";
+  } catch {
+    return "high";
+  }
 }
 
 function isRelevantCombatantUpdate(changed) {
@@ -378,6 +430,108 @@ function isRelevantActorUpdate(changed) {
   return Boolean(changed.flags?.[MODULE_ID] || foundry.utils.hasProperty(changed, `flags.${MODULE_ID}.${FLAGS.portraitFrame}`));
 }
 
+function addGuardBreakTokenHudButton(hud, html, data) {
+  if (!game.user.isGM) return;
+
+  const element = getHTMLElement(html);
+  const token = hud?.object ?? canvas?.scene?.tokens?.get(data?._id ?? "")?.object ?? null;
+  if (!element || !token?.document) return;
+  if (element.querySelector(".gluni-token-guard-break")) return;
+
+  const combatant = getCombatantForToken(game.combat, token);
+  const isBroken = Boolean(combatant && getGuardBreakState(combatant));
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `control-icon gluni-token-guard-break${isBroken ? " active" : ""}`;
+  button.title = localize(isBroken ? "GLUNI.Controls.ClearGuardBreak" : "GLUNI.Controls.GuardBreak");
+  button.ariaLabel = localize("GLUNI.Controls.TokenGuardBreak");
+  button.dataset.tooltip = localize("GLUNI.Controls.TokenGuardBreak");
+  button.innerHTML = '<i class="fa-solid fa-shield-halved" aria-hidden="true"></i>';
+  button.addEventListener("click", async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (button.disabled) return;
+
+    button.disabled = true;
+    try {
+      await toggleTokenHudGuardBreak(token, button);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  const column = element.querySelector(".col.right") ?? element.querySelector(".right") ?? element;
+  column.append(button);
+}
+
+async function toggleTokenHudGuardBreak(token, button) {
+  const combat = game.combat ?? null;
+  if (!combat?.started) {
+    ui.notifications?.warn(localize("GLUNI.Controls.TokenGuardBreak.NoCombat"));
+    return;
+  }
+
+  const combatant = getCombatantForToken(combat, token);
+  if (!combatant || isAdhocCombatant(combatant)) {
+    ui.notifications?.warn(localize("GLUNI.Controls.TokenGuardBreak.NoCombatant"));
+    return;
+  }
+
+  const wasBroken = Boolean(getGuardBreakState(combatant));
+  if (wasBroken) await overlay?.clearGuardBreak(combatant);
+  else await overlay?.applyGuardBreak(combatant);
+
+  const isBroken = !wasBroken;
+  button?.classList.toggle("active", isBroken);
+  if (button) button.title = localize(isBroken ? "GLUNI.Controls.ClearGuardBreak" : "GLUNI.Controls.GuardBreak");
+}
+
+function getCombatantForToken(combat, token, combatants = getCombatantList(combat)) {
+  const direct = token?.document?.combatant ?? token?.combatant ?? null;
+  if (direct?.id && combat?.combatants?.get?.(direct.id)) return direct;
+
+  const document = token?.document ?? token;
+  const tokenId = document?.id ?? token?.id ?? null;
+  const sceneId = document?.parent?.id ?? document?.scene?.id ?? canvas?.scene?.id ?? null;
+  const actorId = token?.actor?.id ?? document?.actor?.id ?? document?.actorId ?? null;
+
+  if (tokenId) {
+    const exact = combatants.find(combatant => {
+      const combatantTokenId = combatant.token?.id ?? combatant.tokenId ?? null;
+      if (combatantTokenId !== tokenId) return false;
+
+      const combatantSceneId = getCombatantSceneId(combatant);
+      return !sceneId || !combatantSceneId || combatantSceneId === sceneId;
+    });
+    if (exact) return exact;
+  }
+
+  if (!actorId) return null;
+
+  const actorMatches = combatants.filter(combatant => {
+    const combatantActorId = combatant.actor?.id ?? combatant.actorId ?? null;
+    return combatantActorId === actorId;
+  });
+  if (actorMatches.length === 1) return actorMatches[0];
+
+  const sceneMatches = actorMatches.filter(combatant => {
+    const combatantSceneId = getCombatantSceneId(combatant);
+    return !sceneId || !combatantSceneId || combatantSceneId === sceneId;
+  });
+  return sceneMatches.length === 1 ? sceneMatches[0] : null;
+}
+
+function getCombatantList(combat) {
+  return Array.from(combat?.combatants?.contents ?? combat?.combatants ?? [])
+    .map(entry => Array.isArray(entry) ? entry[1] : entry)
+    .filter(Boolean);
+}
+
+function getCombatantSceneId(combatant) {
+  return combatant?.scene?.id ?? combatant?.sceneId ?? combatant?.token?.parent?.id ?? combatant?.token?.scene?.id ?? null;
+}
+
 class GLUniverseInitiativeOverlay {
   constructor() {
     this.root = null;
@@ -388,6 +542,7 @@ class GLUniverseInitiativeOverlay {
     this.lastTurnKey = "";
     this.lastActiveId = null;
     this.lastActiveKey = null;
+    this.lastActiveInitiative = null;
     this.pendingDelayReturnId = null;
     this.lastMarkup = "";
     this.lastRootClassName = "";
@@ -399,9 +554,12 @@ class GLUniverseInitiativeOverlay {
     this.contextMenu = null;
     this.pendingSlideInIds = new Set();
     this.pendingDyingWipeIds = new Set();
+    this.pendingStatusFlashes = new Map();
     this.lastDyingIds = new Set();
     this.lastDelayedIds = new Set();
     this.lastBrokenIds = new Set();
+    this.recentStatusAnimations = new Map();
+    this.statusSnapshotInitialized = false;
     this.handledEndTurnRequests = new Set();
   }
 
@@ -424,6 +582,8 @@ class GLUniverseInitiativeOverlay {
         if (data?.type === "refresh") this.renderSoon();
         if (data?.type === "roundSplash") this.showRoundSplash(data.round);
         if (data?.type === "guardBreakImpact") this.queueGuardBreakImpact(data);
+        if (data?.type === "breakSplash") this.showBreakSplash(data.name);
+        if (data?.type === "statusAnimation") this.queueStatusAnimation(data);
         if (data?.type === "requestEndTurn") this.onSocketEndTurnRequest(data);
       });
     }
@@ -500,11 +660,14 @@ class GLUniverseInitiativeOverlay {
     const previousRenderedRound = this.lastRenderedRound;
     const roundDelta = Number.isFinite(previousRenderedRound) ? Math.max(0, (combat.round ?? 1) - previousRenderedRound) : 0;
     const previousActiveKey = this.lastActiveKey;
+    const previousActiveInitiative = this.lastActiveInitiative ?? null;
     const isDelayReturn = Boolean(this.pendingDelayReturnId && view.activeId === this.pendingDelayReturnId);
+    const fidelity = getVisualFidelity();
     const rootClassName = [
       "gluni-initiative",
       `gluni-initiative--${settings.edge}`,
       `gluni-initiative--${settings.intensity}`,
+      `gluni-fidelity--${getVisualFidelity()}`,
       settings.isGM ? "gluni-initiative--gm" : "gluni-initiative--player",
       isTurnChange ? "gluni-initiative--turn-change" : "",
       isDelayReturn ? "gluni-initiative--delay-return" : ""
@@ -513,7 +676,6 @@ class GLUniverseInitiativeOverlay {
     const markupChanged = markup !== this.lastMarkup;
     const shouldAnimateTurnChange = isTurnChange && markupChanged && settings.intensity !== "reduced";
     const oldRects = shouldAnimateTurnChange ? this.captureItemRects() : new Map();
-    const outgoingGhost = shouldAnimateTurnChange && !isDelayReturn ? this.createOutgoingGhost(settings.edge) : null;
     this.lastTurnKey = turnKey;
 
     if (rootClassName !== this.lastRootClassName) {
@@ -531,13 +693,23 @@ class GLUniverseInitiativeOverlay {
       this.positionFloatingControls();
     }
 
-    if (shouldAnimateTurnChange) this.animateTurnChange(oldRects, { previousActiveKey, isDelayReturn, roundDelta });
-    if (outgoingGhost) this.playOutgoingGhost(outgoingGhost);
+    if (shouldAnimateTurnChange) {
+      this.animateTurnChange(oldRects, {
+        previousActiveKey,
+        isDelayReturn,
+        roundDelta,
+        intensity: settings.intensity,
+        edge: settings.edge,
+        fidelity,
+        previousActiveInitiative
+      });
+    }
     this.playPendingGuardBreakImpact();
     this.playPendingSlideIns();
     this.playPendingDyingWipes();
     this.lastActiveId = view.activeId;
     this.lastActiveKey = view.activeKey;
+    this.lastActiveInitiative = this.getActiveInitiative(view);
     this.lastRenderedRound = combat.round ?? null;
     if (isDelayReturn) this.pendingDelayReturnId = null;
     tokenOverlays?.refresh();
@@ -728,6 +900,7 @@ class GLUniverseInitiativeOverlay {
     return `
       <article class="${classes}" data-gluni-key="${escapeAttr(card.key)}" data-combatant-id="${card.id}" data-round-offset="${card.roundOffset}"${style}>
         <div class="gluni-card-accent" aria-hidden="true"></div>
+        <div class="gluni-card-spec" aria-hidden="true"></div>
         <div class="gluni-card-bracket" aria-hidden="true"></div>
         ${game.user.isGM ? this.renderGMVisibilityMarker(card) : ""}
         ${card.adhoc && !card.mystery
@@ -741,6 +914,7 @@ class GLUniverseInitiativeOverlay {
               ${card.mystery
                 ? `<div class="gluni-card-mystery-mark" aria-hidden="true">?</div>`
                 : `<img class="gluni-card-portrait" src="${escapeAttr(card.portrait)}" alt="" loading="lazy" decoding="async">`}
+              <div class="gluni-card-glass" aria-hidden="true"></div>
             </div>`}
         ${card.delayed
           ? `
@@ -779,7 +953,7 @@ class GLUniverseInitiativeOverlay {
           ${card.dying ? renderDyingPips(card.dying) : ""}
         </div>
         <span class="gluni-initiative-badge">${formatInitiative(card.initiative)}</span>
-        ${card.active ? `<div class="gluni-card-sheen" aria-hidden="true"></div>` : ""}
+        ${card.active ? `<div class="gluni-card-holo" aria-hidden="true"></div><div class="gluni-card-sheen" aria-hidden="true"></div>` : ""}
         ${game.user.isGM ? this.renderGMControls(card) : ""}
       </article>
     `;
@@ -912,12 +1086,13 @@ class GLUniverseInitiativeOverlay {
     const items = Array.from(this.root.querySelectorAll("[data-gluni-key]"));
     const previousActiveKey = options.previousActiveKey ?? null;
     const roundDelta = Number(options.roundDelta) || 0;
+    const intensity = options.intensity ?? "default";
     const flipItems = [];
+    let newActive = null;
 
     for (const item of items) {
       const isActive = item.classList.contains("gluni-card--active");
-      const wasActive = item.dataset.gluniKey === previousActiveKey;
-      if (wasActive && !isActive && !options.isDelayReturn) continue;
+      if (isActive) newActive = item;
 
       const oldRect = this.getContinuityRect(oldRects, item.dataset.gluniKey, roundDelta);
       if (!oldRect) {
@@ -936,11 +1111,6 @@ class GLUniverseInitiativeOverlay {
       const moved = Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5;
       const resized = Math.abs(scaleX - 1) >= 0.01 || Math.abs(scaleY - 1) >= 0.01;
 
-      if (isActive && item.dataset.gluniKey !== previousActiveKey) {
-        item.classList.add("gluni-card--active-entering");
-        window.setTimeout(() => item.classList.remove("gluni-card--active-entering"), 680);
-      }
-
       if (!moved && !resized) continue;
 
       item.classList.add("gluni-item--preflip");
@@ -951,22 +1121,33 @@ class GLUniverseInitiativeOverlay {
       flipItems.push(item);
     }
 
-    if (!flipItems.length) return;
+    if (flipItems.length) {
+      this.root.getBoundingClientRect();
 
-    this.root.getBoundingClientRect();
+      for (const item of flipItems) {
+        item.classList.remove("gluni-item--preflip");
+        item.classList.add("gluni-item--flipping");
 
-    for (const item of flipItems) {
-      item.classList.remove("gluni-item--preflip");
-      item.classList.add("gluni-item--flipping");
+        window.requestAnimationFrame(() => {
+          item.style.setProperty("--gluni-flip-x", "0px");
+          item.style.setProperty("--gluni-flip-y", "0px");
+          item.style.setProperty("--gluni-flip-scale-x", "1");
+          item.style.setProperty("--gluni-flip-scale-y", "1");
+        });
 
-      window.requestAnimationFrame(() => {
-        item.style.setProperty("--gluni-flip-x", "0px");
-        item.style.setProperty("--gluni-flip-y", "0px");
-        item.style.setProperty("--gluni-flip-scale-x", "1");
-        item.style.setProperty("--gluni-flip-scale-y", "1");
-      });
+        window.setTimeout(() => item.classList.remove("gluni-item--flipping"), 680);
+      }
+    }
 
-      window.setTimeout(() => item.classList.remove("gluni-item--flipping"), 680);
+    // ---- Magic-move hand-off: the card morphs from its small rail size into the active
+    // size purely via the FLIP transform above. No slam, shake, shockwave, or swipe — just
+    // a smooth count-up of the initiative badge to finish the beat. ----
+    if (newActive) {
+      const badge = newActive.querySelector(".gluni-initiative-badge");
+      if (badge) {
+        const animate = intensity !== "reduced" && !options.isDelayReturn;
+        this.animateBadgeCountUp(badge, options.previousActiveInitiative, badge.textContent, !animate);
+      }
     }
   }
 
@@ -989,27 +1170,165 @@ class GLUniverseInitiativeOverlay {
     return null;
   }
 
-  createOutgoingGhost(edge) {
+  createOutgoingGhost(edge, fidelity = "high") {
     const activeCard = this.root?.querySelector(".gluni-card--active");
     if (!activeCard) return null;
 
     const rect = activeCard.getBoundingClientRect();
-    const ghost = activeCard.cloneNode(true);
-    ghost.querySelector(".gluni-card-controls")?.remove();
-    ghost.querySelector(".gluni-card-sheen")?.remove();
-    ghost.classList.add("gluni-card-ghost", `gluni-card-ghost--${edge}`);
-    ghost.style.left = `${Math.round(rect.left)}px`;
-    ghost.style.top = `${Math.round(rect.top)}px`;
-    ghost.style.width = `${Math.round(rect.width)}px`;
-    ghost.style.height = `${Math.round(rect.height)}px`;
-    ghost.style.clipPath = "polygon(0 -42px, calc(100% - 14px) -42px, 100% calc(-42px + 14px), 100% 100%, 0 100%)";
-    document.body.appendChild(ghost);
-    return ghost;
+    const makeClone = () => {
+      const clone = activeCard.cloneNode(true);
+      clone.querySelector(".gluni-card-controls")?.remove();
+      clone.querySelector(".gluni-card-sheen")?.remove();
+      clone.querySelector(".gluni-card-shockwave")?.remove();
+      clone.classList.remove("gluni-card--impact", "gluni-card--impact-settle");
+      clone.classList.add("gluni-card-ghost", `gluni-card-ghost--${edge}`);
+      clone.style.left = `${Math.round(rect.left)}px`;
+      clone.style.top = `${Math.round(rect.top)}px`;
+      clone.style.width = `${Math.round(rect.width)}px`;
+      clone.style.height = `${Math.round(rect.height)}px`;
+      clone.style.clipPath = "polygon(0 -42px, calc(100% - 14px) -42px, 100% calc(-42px + 14px), 100% 100%, 0 100%)";
+      document.body.appendChild(clone);
+      return clone;
+    };
+
+    const ghost = makeClone();
+    let trail = null;
+    // On BALANCED fidelity, real motion-blur is disabled; use a lagged trail clone to fake the streak.
+    if (fidelity === "balanced") {
+      trail = makeClone();
+      trail.classList.add("gluni-card-ghost--trail");
+    }
+
+    return { ghost, trail, edge };
   }
 
-  playOutgoingGhost(ghost) {
-    window.requestAnimationFrame(() => ghost.classList.add("gluni-card-ghost--leave"));
-    window.setTimeout(() => ghost.remove(), 540);
+  playOutgoingGhost(payload, options = {}) {
+    if (!payload) return;
+    const ghost = payload.ghost ?? payload;
+    const trail = payload.trail ?? null;
+    const edge = payload.edge ?? (ghost.classList.contains("gluni-card-ghost--left") ? "left" : "right");
+    const intensity = options.intensity ?? "default";
+    const reduced = intensity === "reduced";
+    const removeAt = intensity === "cinematic" ? 900 : (reduced ? 360 : 560);
+
+    const startStrike = el => {
+      if (!el) return;
+      el.classList.remove("gluni-card-ghost--anticipate");
+      el.classList.add("gluni-card-ghost--leave");
+    };
+
+    if (reduced) {
+      startStrike(ghost);
+    } else {
+      // anticipation: pull back toward the rail, then strike off.
+      ghost.classList.add("gluni-card-ghost--anticipate");
+      window.requestAnimationFrame(() => {
+        window.setTimeout(() => startStrike(ghost), 80);
+      });
+    }
+
+    if (trail) {
+      // trailing clone lags ~70ms behind to fake the motion streak on balanced fidelity.
+      window.setTimeout(() => startStrike(trail), reduced ? 0 : 150);
+      window.setTimeout(() => trail.remove(), removeAt + 80);
+    }
+
+    window.setTimeout(() => ghost.remove(), removeAt);
+  }
+
+  getActiveInitiative(view) {
+    try {
+      const active = view?.normal?.find(item => item.type === "combatant" && item.active);
+      return active ? formatInitiative(active.initiative) : null;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  // Orchestrates the gap -> impact -> settle beats on the NEW active card only.
+  playActiveHandoff(activeEl, options = {}) {
+    if (!activeEl) return;
+    const intensity = options.intensity ?? "default";
+    const cinematic = intensity === "cinematic";
+    const gap = cinematic ? 60 : 30;
+    const badge = activeEl.querySelector(".gluni-initiative-badge");
+    const fromInit = options.previousActiveInitiative ?? null;
+    const toInit = badge ? badge.textContent : null;
+
+    // Hold badge at the previous value until the reveal, then count up.
+    if (badge && fromInit != null && fromInit !== toInit) {
+      badge.textContent = fromInit;
+    }
+
+    // GAP, then IMPACT slam.
+    window.setTimeout(() => {
+      if (!activeEl.isConnected) return;
+      activeEl.classList.add("gluni-card--impact");
+      window.setTimeout(() => activeEl.classList.remove("gluni-card--impact"), 240);
+
+      // SETTLE: shake + shockwave + flare + badge count-up, fired at impact landing.
+      const settleAt = 140; // shortly into the slam, as it lands
+      window.setTimeout(() => {
+        if (!activeEl.isConnected) return;
+        activeEl.classList.add("gluni-card--impact-settle");
+        window.setTimeout(() => activeEl.classList.remove("gluni-card--impact-settle"), 340);
+        if (cinematic) this.createShockwave(activeEl);
+        if (badge) {
+          this.animateBadgeCountUp(badge, fromInit, toInit, intensity === "reduced");
+        }
+      }, settleAt);
+    }, gap);
+  }
+
+  createShockwave(activeEl) {
+    if (!activeEl || !activeEl.isConnected) return;
+    try {
+      const ring = document.createElement("div");
+      ring.className = "gluni-card-shockwave";
+      ring.setAttribute("aria-hidden", "true");
+      // Size to the visible card body (exclude the -42px notch overhang).
+      ring.style.left = "0";
+      ring.style.right = "0";
+      ring.style.top = "0";
+      ring.style.bottom = "0";
+      activeEl.appendChild(ring);
+      window.setTimeout(() => ring.remove(), 520);
+    } catch (_e) {
+      // never throw from a cosmetic beat
+    }
+  }
+
+  // rAF tween of an integer-ish badge from `from` to `to`. `instant` jumps immediately.
+  animateBadgeCountUp(badge, from, to, instant = false) {
+    if (!badge) return;
+    const target = String(to ?? badge.textContent ?? "");
+    const startNum = Number(from);
+    const endNum = Number(target);
+
+    if (instant || !Number.isFinite(startNum) || !Number.isFinite(endNum) || startNum === endNum) {
+      badge.textContent = target;
+      return;
+    }
+
+    // Preserve formatting (decimals) by tracking whether target had a fractional part.
+    const decimals = target.includes(".") ? 1 : 0;
+    const duration = 360;
+    const startTime = (typeof performance !== "undefined" ? performance.now() : Date.now());
+
+    const step = now => {
+      if (!badge.isConnected) return;
+      const t = Math.min(1, (now - startTime) / duration);
+      const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      const value = startNum + (endNum - startNum) * eased;
+      badge.textContent = decimals ? value.toFixed(1) : String(Math.round(value));
+      if (t < 1) {
+        window.requestAnimationFrame(step);
+      } else {
+        badge.textContent = target; // snap to exact final string
+      }
+    };
+
+    window.requestAnimationFrame(step);
   }
 
   resolveVisibility(combatant) {
@@ -1120,10 +1439,10 @@ class GLUniverseInitiativeOverlay {
       const edge = game.settings.get(MODULE_ID, SETTINGS.edge) || "right";
       const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(combatant.id)}"]`);
       if (cardEl) {
-        await this.playStatusFlash(cardEl, localize("GLUNI.Delayed").toUpperCase(), "delay");
-        this.createStatusSlideGhost(cardEl, edge);
+        this.createStatusFlashGhost(cardEl, localize("GLUNI.Delayed").toUpperCase(), "delay", edge);
       }
       this.pendingSlideInIds.add(combatant.id);
+      this.statusAnimationRecentlyQueued(combatant.id, "delay");
       await combatant.setFlag(MODULE_ID, FLAGS.manualDelayed, true);
       if (this.combat?.combatant?.id === combatant.id) await this.combat.nextTurn();
       this.broadcastRefresh();
@@ -1468,10 +1787,11 @@ class GLUniverseInitiativeOverlay {
 
     const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(combatant.id)}"]`);
     if (cardEl) {
-      await this.playStatusFlash(cardEl, localize("GLUNI.GuardBreak").toUpperCase(), "break");
-      this.createStatusSlideGhost(cardEl, edge);
+      this.createStatusFlashGhost(cardEl, localize("GLUNI.GuardBreak").toUpperCase(), "break", edge);
     }
     this.pendingSlideInIds.add(combatant.id);
+    this.statusAnimationRecentlyQueued(combatant.id, "guardBreak");
+    this.showBreakSplash(combatant.name);
 
     const payload = {
       round: combat.round ?? 1,
@@ -1553,6 +1873,7 @@ class GLUniverseInitiativeOverlay {
       card.classList.remove("gluni-card--guard-break-impact");
       void card.offsetWidth;
       card.classList.add("gluni-card--guard-break-impact");
+      this.pulseTagEnter(card, ".gluni-guard-break-tag");
       window.setTimeout(() => card.classList.remove("gluni-card--guard-break-impact"), 760);
     });
   }
@@ -1564,6 +1885,107 @@ class GLUniverseInitiativeOverlay {
       combatId: this.combat?.id,
       combatantId
     });
+  }
+
+  showBreakSplash(name) {
+    if (!this.enabled || !name) return;
+
+    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default";
+    const fidelity = getVisualFidelity();
+    const breakText = localize("GLUNI.GuardBreak").toUpperCase();
+    const letterSpans = Array.from(breakText).map(letter =>
+      letter === " " ? `<span class="d"> </span>` : `<span class="d">${escapeHTML(letter)}</span>`
+    ).join("");
+
+    const splash = document.createElement("div");
+    splash.className = `gluni-break-splash gluni-break-splash--${intensity} gluni-fidelity--${fidelity}`;
+    splash.innerHTML = `
+      <div class="gluni-break-splash-burst" aria-hidden="true"></div>
+      <div class="gluni-break-splash-rule" aria-hidden="true"></div>
+      <div class="gluni-break-splash-inner">
+        <div class="gluni-break-deck" aria-hidden="true"></div>
+        <div class="gluni-break-splash-label">
+          <span class="tick" aria-hidden="true"></span>
+          <span>${localize("GLUNI.Splash.Break").toUpperCase()}</span>
+        </div>
+        <div class="gluni-break-splash-text">${letterSpans}</div>
+        <div class="gluni-break-splash-name"><span>${escapeHTML(name)}</span></div>
+      </div>
+    `;
+    document.body.appendChild(splash);
+
+    window.requestAnimationFrame(() => splash.classList.add("gluni-break-splash--show"));
+    // Short screen-shake on impact (skipped on reduced tier via the class gate in CSS).
+    if (intensity !== "reduced") {
+      window.requestAnimationFrame(() => {
+        splash.classList.add("gluni-break-splash--shake");
+        window.setTimeout(() => splash.classList.remove("gluni-break-splash--shake"), intensity === "cinematic" ? 520 : 420);
+      });
+    }
+    window.setTimeout(() => splash.classList.add("gluni-break-splash--leave"), this.getBreakSplashHold());
+    window.setTimeout(() => splash.remove(), this.getBreakSplashDuration());
+  }
+
+  getBreakSplashHold() {
+    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
+    if (intensity === "reduced") return 440;
+    if (intensity === "cinematic") return 1600;
+    return 1200;
+  }
+
+  getBreakSplashDuration() {
+    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
+    if (intensity === "reduced") return 960;
+    if (intensity === "cinematic") return 2400;
+    return 1860;
+  }
+
+  broadcastBreakSplash(name) {
+    if (!game.socket || !name) return;
+    game.socket.emit(SOCKET_NAME, { type: "breakSplash", name });
+  }
+
+  queueStatusAnimation(data) {
+    if (!data?.combatantId || data.senderId === game.user.id) return;
+    if (data.combatId && this.combat?.id !== data.combatId) return;
+
+    const status = STATUS_ANIMATION[data.kind];
+    if (!status) return;
+    if (this.statusAnimationRecentlyQueued(data.combatantId, data.kind)) return;
+
+    if (status.motion === "slide") {
+      this.pendingSlideInIds.add(data.combatantId);
+      this.pendingStatusFlashes.set(data.combatantId, data.kind);
+    } else if (status.motion === "dying") {
+      this.pendingDyingWipeIds.add(data.combatantId);
+    }
+
+    this.renderSoon();
+  }
+
+  broadcastStatusAnimation(combatantId, kind) {
+    if (!game.socket || !combatantId || !STATUS_ANIMATION[kind]) return;
+    game.socket.emit(SOCKET_NAME, {
+      type: "statusAnimation",
+      combatId: this.combat?.id,
+      combatantId,
+      kind,
+      senderId: game.user.id
+    });
+  }
+
+  statusAnimationRecentlyQueued(combatantId, kind) {
+    const now = Date.now();
+    for (const [key, timestamp] of this.recentStatusAnimations) {
+      if (now - timestamp > 1500) this.recentStatusAnimations.delete(key);
+    }
+
+    const key = `${combatantId}:${kind}`;
+    const lastQueuedAt = this.recentStatusAnimations.get(key) ?? 0;
+    if (now - lastQueuedAt < 1200) return true;
+
+    this.recentStatusAnimations.set(key, now);
+    return false;
   }
 
   async setVisibility(combatant, mode) {
@@ -1870,15 +2292,17 @@ class GLUniverseInitiativeOverlay {
     this.lastSplashRound = round;
 
     const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default";
+    const fidelity = getVisualFidelity();
     const formatted = formatRound(round);
     const digitSpans = Array.from(formatted).map(digit => `<span class="d">${digit}</span>`).join("");
     const subString = formatLocalized("GLUNI.Splash.Cycle", { round: formatted });
 
     const splash = document.createElement("div");
-    splash.className = `gluni-round-splash gluni-round-splash--${intensity}`;
+    splash.className = `gluni-round-splash gluni-round-splash--${intensity} gluni-fidelity--${fidelity}`;
     splash.innerHTML = `
       <div class="gluni-round-rule" aria-hidden="true"></div>
       <div class="gluni-round-splash-inner">
+        <div class="gluni-round-deck" aria-hidden="true"></div>
         <div class="gluni-round-label">
           <span class="tick" aria-hidden="true"></span>
           <span>${localize("GLUNI.Round").toUpperCase()}</span>
@@ -1936,6 +2360,16 @@ class GLUniverseInitiativeOverlay {
     window.setTimeout(() => flash.remove(), 620);
   }
 
+  // One-shot "stamp" entrance for a status tag chip when its status is first applied.
+  pulseTagEnter(card, selector) {
+    const tag = card?.querySelector?.(selector);
+    if (!tag) return;
+    tag.classList.remove("gluni-tag--enter");
+    void tag.offsetWidth;
+    tag.classList.add("gluni-tag--enter");
+    window.setTimeout(() => tag.classList.remove("gluni-tag--enter"), 480);
+  }
+
   createStatusSlideGhost(card, edge) {
     const rect = card.getBoundingClientRect();
     const ghost = card.cloneNode(true);
@@ -1957,11 +2391,50 @@ class GLUniverseInitiativeOverlay {
     window.setTimeout(() => ghost.remove(), 320);
   }
 
+  createStatusFlashGhost(card, text, colorClass, edge) {
+    const rect = card.getBoundingClientRect();
+    const ghost = card.cloneNode(true);
+    ghost.querySelector(".gluni-card-controls")?.remove();
+    ghost.querySelector(".gluni-card-sheen")?.remove();
+    ghost.querySelector(".gluni-status-flash")?.remove();
+    ghost.classList.add("gluni-status-slide-ghost");
+    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default";
+    if (intensity !== "default") ghost.classList.add(`gluni-status-slide-ghost--${intensity}`);
+    ghost.style.position = "fixed";
+    ghost.style.left = `${Math.round(rect.left)}px`;
+    ghost.style.top = `${Math.round(rect.top)}px`;
+    ghost.style.width = `${Math.round(rect.width)}px`;
+    ghost.style.height = `${Math.round(rect.height)}px`;
+    ghost.style.zIndex = "71";
+    ghost.style.margin = "0";
+    const flash = document.createElement("div");
+    flash.className = `gluni-status-flash gluni-status-flash--${colorClass}`;
+    flash.innerHTML = `<span>${escapeHTML(text)}</span>`;
+    ghost.appendChild(flash);
+    document.body.appendChild(ghost);
+    window.requestAnimationFrame(() => flash.classList.add("gluni-status-flash--go"));
+    const flashDuration = intensity === "cinematic" ? 680 : intensity === "reduced" ? 420 : 560;
+    const slideDuration = intensity === "cinematic" ? 420 : intensity === "reduced" ? 240 : 320;
+    window.setTimeout(() => {
+      flash.remove();
+      ghost.classList.add(edge === "left" ? "gluni-status-slide-ghost--go-left" : "gluni-status-slide-ghost--go-right");
+      window.setTimeout(() => ghost.remove(), slideDuration);
+    }, flashDuration);
+  }
+
   playPendingSlideIns() {
     if (!this.pendingSlideInIds.size || !this.root) return;
     for (const id of this.pendingSlideInIds) {
       const card = this.root.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
-      if (!card) continue;
+      if (!card) {
+        this.pendingStatusFlashes.delete(id);
+        continue;
+      }
+      const statusKind = this.pendingStatusFlashes.get(id);
+      const status = STATUS_ANIMATION[statusKind];
+      if (status) this.playInlineStatusFlash(card, localize(status.label).toUpperCase(), status.colorClass);
+      if (statusKind === "delay") this.pulseTagEnter(card, ".gluni-delayed-tag");
+      this.pendingStatusFlashes.delete(id);
       card.classList.add("gluni-card--slide-in");
       window.setTimeout(() => card.classList.remove("gluni-card--slide-in"), 400);
     }
@@ -1975,12 +2448,14 @@ class GLUniverseInitiativeOverlay {
       if (!card || !card.classList.contains("gluni-card--dying")) continue;
       card.classList.add("gluni-card--dying-entering");
       this.playInlineStatusFlash(card, localize("GLUNI.Dying").toUpperCase(), "dying");
+      this.pulseTagEnter(card, ".gluni-dying-tag");
       window.setTimeout(() => card.classList.remove("gluni-card--dying-entering"), 640);
     }
     this.pendingDyingWipeIds.clear();
   }
 
   detectStatusTransitions(view) {
+    const hadSnapshot = this.statusSnapshotInitialized;
     const currentDying = new Set();
     const currentDelayed = new Set();
     const currentBroken = new Set();
@@ -1992,11 +2467,43 @@ class GLUniverseInitiativeOverlay {
       if (item.guardBroken) currentBroken.add(item.id);
     }
     for (const id of currentDying) {
-      if (!this.lastDyingIds.has(id)) this.pendingDyingWipeIds.add(id);
+      if (this.lastDyingIds.has(id)) continue;
+
+      const queuedLocally = !this.statusAnimationRecentlyQueued(id, "dying");
+      if (queuedLocally) this.pendingDyingWipeIds.add(id);
+      if (queuedLocally && hadSnapshot && game.user.isGM && this.isPrimaryActiveGM()) {
+        this.broadcastStatusAnimation(id, "dying");
+      }
+    }
+    const edge = game.settings.get(MODULE_ID, SETTINGS.edge) || "right";
+    for (const id of currentDelayed) {
+      if (this.lastDelayedIds.has(id)) continue;
+      if (!this.statusAnimationRecentlyQueued(id, "delay")) {
+        const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
+        if (cardEl) {
+          this.createStatusFlashGhost(cardEl, localize("GLUNI.Delayed").toUpperCase(), "delay", edge);
+        }
+        this.pendingSlideInIds.add(id);
+      }
+    }
+    for (const id of currentBroken) {
+      if (this.lastBrokenIds.has(id)) continue;
+      if (!this.statusAnimationRecentlyQueued(id, "guardBreak")) {
+        const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
+        if (cardEl) {
+          this.createStatusFlashGhost(cardEl, localize("GLUNI.GuardBreak").toUpperCase(), "break", edge);
+        }
+        this.pendingSlideInIds.add(id);
+        if (hadSnapshot) {
+          const combatant = this.combat?.combatants?.get(id);
+          if (combatant) this.showBreakSplash(combatant.name);
+        }
+      }
     }
     this.lastDyingIds = currentDying;
     this.lastDelayedIds = currentDelayed;
     this.lastBrokenIds = currentBroken;
+    this.statusSnapshotInitialized = true;
   }
 }
 
@@ -2878,6 +3385,8 @@ class TokenOverlayManager {
   forceRedraw() {
     for (const entry of this._entries.values()) {
       entry.mode = null;
+      entry.shape = null;
+      entry.fidelity = null;
     }
     this.refresh();
   }
@@ -2885,6 +3394,12 @@ class TokenOverlayManager {
   _getShape() {
     try { return game.settings.get(MODULE_ID, SETTINGS.tokenOverlayShape) || "circle"; }
     catch { return "circle"; }
+  }
+
+  _getFidelity() {
+    let fidelity = "high";
+    try { fidelity = game.settings.get(MODULE_ID, "visualFidelity") || "high"; } catch {}
+    return fidelity === "balanced" ? "balanced" : "high";
   }
 
   _upsert(token, mode) {
@@ -2905,11 +3420,19 @@ class TokenOverlayManager {
     }
 
     const shape = this._getShape();
-    if (entry.mode !== mode || entry.w !== token.w || entry.h !== token.h || entry.shape !== shape) {
+    const fidelity = this._getFidelity();
+    if (
+      entry.mode !== mode ||
+      entry.w !== token.w ||
+      entry.h !== token.h ||
+      entry.shape !== shape ||
+      entry.fidelity !== fidelity
+    ) {
       entry.mode = mode;
       entry.w = token.w;
       entry.h = token.h;
       entry.shape = shape;
+      entry.fidelity = fidelity;
       this._redraw(entry);
     }
   }
@@ -2919,14 +3442,32 @@ class TokenOverlayManager {
     container.eventMode = "none";
     container.interactiveChildren = false;
 
+    // Soft outer glow (own layer so it can carry a BlurFilter on "high").
+    const glow = new PIXI.Graphics();
+    container.addChild(glow);
+
     const wash = new PIXI.Graphics();
     container.addChild(wash);
 
-    const border = new PIXI.Graphics();
-    container.addChild(border);
+    // Static tactical frame (angled-corner ring + inner hairline).
+    const frame = new PIXI.Graphics();
+    container.addChild(frame);
+
+    // L-shaped corner brackets.
+    const brackets = new PIXI.Graphics();
+    container.addChild(brackets);
 
     const cracks = new PIXI.Graphics();
     container.addChild(cracks);
+
+    // Animated holo edge sweep (BREAK only). Pre-drawn once; the tick loop
+    // only rotates / fades it. Lives in its own container so rotation pivots
+    // around the token centre without touching other layers.
+    const sweep = new PIXI.Container();
+    sweep.visible = false;
+    const sweepGfx = new PIXI.Graphics();
+    sweep.addChild(sweepGfx);
+    container.addChild(sweep);
 
     const pillBg = new PIXI.Graphics();
     container.addChild(pillBg);
@@ -2946,151 +3487,365 @@ class TokenOverlayManager {
     token.addChild(container);
 
     return {
-      container, wash, border, cracks, pillBg, label,
-      mode: null, w: 0, h: 0, shape: null,
+      container, glow, wash, frame, brackets, cracks, sweep, sweepGfx, pillBg, label,
+      mode: null, w: 0, h: 0, shape: null, fidelity: null,
       phase: Math.random() * Math.PI * 2,
-      seed: Math.random() * 99999
+      seed: Math.random() * 99999,
+      // Geometry the tick loop needs without re-deriving each frame.
+      cx: 0, cy: 0, sweepR: 0
     };
   }
 
+  // ---- frame geometry helpers -------------------------------------------
+
+  // Notch size for the angled corners, echoing the rail card clip-path.
+  _notch(w, h) {
+    return clamp(Math.min(w, h) * 0.16, 5, 16);
+  }
+
+  // Returns the angled-corner outline points for a square frame inset by `pad`.
+  // Top-left and bottom-right corners are notched (mirrors the card silhouette).
+  _framePoints(w, h, pad) {
+    const n = this._notch(w, h);
+    const x0 = pad, y0 = pad, x1 = w - pad, y1 = h - pad;
+    return [
+      x0 + n, y0,
+      x1, y0,
+      x1, y1 - n,
+      x1 - n, y1,
+      x0, y1,
+      x0, y0 + n
+    ];
+  }
+
   _redraw(entry) {
-    const { wash, border, cracks, pillBg, label, mode, w, h, shape, seed } = entry;
+    const { glow, wash, frame, brackets, cracks, sweep, sweepGfx, pillBg, label,
+            mode, w, h, shape, seed } = entry;
+    const P = TOKEN_OVERLAY_PALETTE;
     const isBreak = mode === "broken";
     const isCircle = shape === "circle";
+    const high = entry.fidelity !== "balanced";
     const cx = w / 2, cy = h / 2;
     const r = Math.min(w, h) / 2;
     const rng = this._seededRng(seed);
 
-    wash.clear();
+    entry.cx = cx;
+    entry.cy = cy;
 
+    const accent = isBreak ? P.broken : P.delayed;
+    const hi = isBreak ? P.brokenHot : P.delayedHi;
+
+    // ---- wash (interior fill + subtle interior shading) -------------------
+    wash.clear();
     if (isCircle) {
       if (isBreak) {
-        wash.beginFill(0xffb12d, 0.06);
-        wash.drawCircle(cx, cy, r - 2);
-        wash.endFill();
-        wash.beginFill(0xff6f1a, 0.04);
-        wash.drawCircle(cx + r * 0.18, cy - r * 0.12, r * 0.5);
-        wash.endFill();
-        wash.beginFill(0xffe070, 0.035);
-        wash.drawCircle(cx - r * 0.22, cy + r * 0.18, r * 0.4);
-        wash.endFill();
+        wash.beginFill(P.broken, 0.06); wash.drawCircle(cx, cy, r - 2); wash.endFill();
+        wash.beginFill(P.brokenDeep, 0.04); wash.drawCircle(cx + r * 0.18, cy - r * 0.12, r * 0.5); wash.endFill();
+        wash.beginFill(P.brokenHot, 0.035); wash.drawCircle(cx - r * 0.22, cy + r * 0.18, r * 0.4); wash.endFill();
       } else {
-        wash.beginFill(0x4aa3ff, 0.05);
-        wash.drawCircle(cx, cy, r - 2);
-        wash.endFill();
-        wash.beginFill(0x9ad8ff, 0.035);
-        wash.drawCircle(cx + r * 0.25, cy - r * 0.15, r * 0.45);
-        wash.endFill();
+        wash.beginFill(P.delayed, 0.05); wash.drawCircle(cx, cy, r - 2); wash.endFill();
+        wash.beginFill(P.delayedHi, 0.035); wash.drawCircle(cx + r * 0.25, cy - r * 0.15, r * 0.45); wash.endFill();
       }
-      wash.lineStyle({ width: r * 0.4, color: 0x02070b, alpha: 0.12, alignment: 0 });
+      wash.lineStyle({ width: r * 0.4, color: P.ink, alpha: 0.12, alignment: 0 });
       wash.drawCircle(cx, cy, r - 1);
       wash.lineStyle(0);
     } else {
-      const washColor = isBreak ? 0xffb12d : 0x4aa3ff;
-      wash.beginFill(washColor, isBreak ? 0.06 : 0.05);
-      wash.drawRoundedRect(2, 2, w - 4, h - 4, 2);
+      const pts = this._framePoints(w, h, 2);
+      wash.beginFill(accent, isBreak ? 0.06 : 0.05);
+      wash.drawPolygon(pts);
       wash.endFill();
-      wash.lineStyle({ width: Math.min(w, h) * 0.2, color: 0x02070b, alpha: 0.1, alignment: 0 });
-      wash.drawRoundedRect(0, 0, w, h, 2);
+      if (isBreak) {
+        wash.beginFill(P.brokenDeep, 0.04); wash.drawCircle(cx + w * 0.16, cy - h * 0.12, r * 0.5); wash.endFill();
+      } else {
+        wash.beginFill(P.delayedHi, 0.03); wash.drawCircle(cx + w * 0.18, cy - h * 0.12, r * 0.45); wash.endFill();
+      }
+      wash.lineStyle({ width: Math.min(w, h) * 0.18, color: P.ink, alpha: 0.1, alignment: 0 });
+      wash.drawPolygon(this._framePoints(w, h, 1));
       wash.lineStyle(0);
     }
 
     if (!isBreak) this._drawDelayPattern(wash, cx, cy, r, w, h, isCircle, rng);
 
-    border.clear();
-    if (isCircle) {
-      if (isBreak) {
-        border.lineStyle({ width: 16, color: 0xffb12d, alpha: 0.06, alignment: 0 });
-        border.drawCircle(cx, cy, r + 4);
-        border.lineStyle({ width: 7, color: 0xffe070, alpha: 0.15, alignment: 0 });
-        border.drawCircle(cx, cy, r + 1);
-        border.lineStyle({ width: 2.5, color: 0xffb12d, alpha: 0.82, alignment: 0.5 });
-        border.drawCircle(cx, cy, r);
-        border.lineStyle({ width: 1, color: 0xffe070, alpha: 0.26, alignment: 1 });
-        border.drawCircle(cx, cy, r - 1.5);
-      } else {
-        border.lineStyle({ width: 14, color: 0x4aa3ff, alpha: 0.05, alignment: 0 });
-        border.drawCircle(cx, cy, r + 3);
-        border.lineStyle({ width: 6, color: 0x9ad8ff, alpha: 0.12, alignment: 0 });
-        border.drawCircle(cx, cy, r + 1);
-        border.lineStyle({ width: 2, color: 0x4aa3ff, alpha: 0.72, alignment: 0.5 });
-        border.drawCircle(cx, cy, r);
-        border.lineStyle({ width: 0.8, color: 0x9ad8ff, alpha: 0.2, alignment: 1 });
-        border.drawCircle(cx, cy, r - 1.2);
-      }
-    } else {
-      if (isBreak) {
-        border.lineStyle({ width: 16, color: 0xffb12d, alpha: 0.06, alignment: 0 });
-        border.drawRoundedRect(-4, -4, w + 8, h + 8, 6);
-        border.lineStyle({ width: 7, color: 0xffe070, alpha: 0.15, alignment: 0 });
-        border.drawRoundedRect(-1, -1, w + 2, h + 2, 4);
-        border.lineStyle({ width: 2.5, color: 0xffb12d, alpha: 0.82, alignment: 0.5 });
-        border.drawRoundedRect(0, 0, w, h, 3);
-        border.lineStyle({ width: 1, color: 0xffe070, alpha: 0.26, alignment: 1 });
-        border.drawRoundedRect(1.5, 1.5, w - 3, h - 3, 2);
-      } else {
-        border.lineStyle({ width: 14, color: 0x4aa3ff, alpha: 0.05, alignment: 0 });
-        border.drawRoundedRect(-3, -3, w + 6, h + 6, 5);
-        border.lineStyle({ width: 6, color: 0x9ad8ff, alpha: 0.12, alignment: 0 });
-        border.drawRoundedRect(-1, -1, w + 2, h + 2, 3);
-        border.lineStyle({ width: 2, color: 0x4aa3ff, alpha: 0.72, alignment: 0.5 });
-        border.drawRoundedRect(0, 0, w, h, 2);
-        border.lineStyle({ width: 0.8, color: 0x9ad8ff, alpha: 0.2, alignment: 1 });
-        border.drawRoundedRect(1.2, 1.2, w - 2.4, h - 2.4, 1.5);
-      }
+    // ---- soft outer glow (high only; balanced skips the blur layers) ------
+    glow.clear();
+    glow.filters = null;
+    if (high) {
+      const gAlpha = isBreak ? 0.20 : 0.13;
+      const expand = isBreak ? 4 : 3;
+      glow.lineStyle({ width: isBreak ? 8 : 6, color: hi, alpha: gAlpha, alignment: 0 });
+      if (isCircle) glow.drawCircle(cx, cy, r + expand);
+      // Negative pad expands the frame polygon outward by `expand` on all sides.
+      else glow.drawPolygon(this._framePoints(w, h, -expand));
+      try {
+        const blur = new PIXI.BlurFilter(isBreak ? 6 : 4);
+        blur.quality = 2;
+        glow.filters = [blur];
+      } catch {}
     }
 
+    // ---- tactical frame: accent stroke + inner hairline -------------------
+    frame.clear();
+    if (isCircle) {
+      if (!high) {
+        frame.lineStyle({ width: isBreak ? 4 : 3, color: hi, alpha: isBreak ? 0.10 : 0.07, alignment: 0 });
+        frame.drawCircle(cx, cy, r + 1);
+      }
+      frame.lineStyle({ width: isBreak ? 2.5 : 2, color: accent, alpha: isBreak ? 0.82 : 0.72, alignment: 0.5 });
+      frame.drawCircle(cx, cy, r);
+      frame.lineStyle({ width: isBreak ? 1 : 0.8, color: hi, alpha: isBreak ? 0.26 : 0.2, alignment: 1 });
+      frame.drawCircle(cx, cy, r - (isBreak ? 1.5 : 1.2));
+    } else {
+      if (!high) {
+        frame.lineStyle({ width: isBreak ? 4 : 3, color: hi, alpha: isBreak ? 0.10 : 0.07, alignment: 0 });
+        frame.drawPolygon(this._framePoints(w, h, isBreak ? -1 : 0));
+      }
+      frame.lineStyle({ width: isBreak ? 2.5 : 2, color: accent, alpha: isBreak ? 0.82 : 0.72, alignment: 0.5 });
+      frame.drawPolygon(this._framePoints(w, h, 1));
+      frame.lineStyle({ width: isBreak ? 1 : 0.8, color: hi, alpha: isBreak ? 0.26 : 0.2, alignment: 1 });
+      frame.drawPolygon(this._framePoints(w, h, 2.5));
+    }
+
+    // ---- corner brackets (L-marks at the frame corners) -------------------
+    this._drawBrackets(brackets, w, h, r, cx, cy, isCircle, accent, isBreak ? 0.9 : 0.78);
+
+    // ---- break cracks -----------------------------------------------------
     cracks.clear();
     if (isBreak) this._drawBreakCracks(cracks, cx, cy, r, rng);
 
+    // ---- holo edge sweep (BREAK only) -------------------------------------
+    sweepGfx.clear();
+    sweep.visible = false;
+    sweep.alpha = 0;
+    if (isBreak) {
+      this._buildSweep(entry, sweepGfx, w, h, r, isCircle, high);
+      sweep.position.set(cx, cy);
+      sweepGfx.position.set(-cx, -cy); // keep gfx in token-space; pivot at centre
+      sweep.visible = true;
+    }
+
+    // ---- tag chip (clipped-corner) + label --------------------------------
     const baseSize = Math.max(w, h);
     const fontSize = clamp(Math.round(baseSize * 0.095), 8, 13);
     label.style.fontSize = fontSize;
     label.style.fontWeight = "bold";
     label.style.letterSpacing = fontSize > 10 ? 1.5 : 1;
     label.text = isBreak ? "BREAK" : "DELAYED";
-    label.style.fill = isBreak ? "#231300" : "#4aa3ff";
+    label.style.fill = isBreak ? "#02070b" : "#4aa3ff";
 
-    const padX = fontSize * 0.55;
-    const padY = fontSize * 0.3;
-    const pillW = label.width + padX * 2;
-    const pillH = label.height + padY * 2;
-    const pillX = (w - pillW) / 2;
-    const pillY = h - pillH - Math.max(3, baseSize * 0.03);
+    const padX = fontSize * 0.6;
+    const padY = fontSize * 0.32;
+    const chipW = label.width + padX * 2;
+    const chipH = label.height + padY * 2;
+    const chipX = (w - chipW) / 2;
+    const chipY = h - chipH - Math.max(3, baseSize * 0.03);
+    const chipNotch = clamp(chipH * 0.42, 3, 7);
 
     pillBg.clear();
     if (isBreak) {
-      pillBg.lineStyle({ width: 4, color: 0xffb12d, alpha: 0.22 });
-      pillBg.drawRoundedRect(pillX - 1, pillY - 1, pillW + 2, pillH + 2, (pillH + 2) / 2);
-      pillBg.lineStyle(0);
+      // Solid amber chip with near-black text — clipped top-left / bottom-right.
+      if (high) {
+        pillBg.lineStyle({ width: 3, color: P.broken, alpha: 0.22 });
+        pillBg.drawPolygon(this._chipPoints(chipX - 1, chipY - 1, chipW + 2, chipH + 2, chipNotch));
+        pillBg.lineStyle(0);
+      }
       pillBg.beginFill(0x000000, 0.4);
-      pillBg.drawRoundedRect(pillX, pillY + 1, pillW, pillH, pillH / 2);
+      pillBg.drawPolygon(this._chipPoints(chipX, chipY + 1, chipW, chipH, chipNotch));
       pillBg.endFill();
-      pillBg.beginFill(0xffb12d, 0.94);
-      pillBg.drawRoundedRect(pillX, pillY, pillW, pillH, pillH / 2);
+      pillBg.beginFill(P.broken, 0.95);
+      pillBg.drawPolygon(this._chipPoints(chipX, chipY, chipW, chipH, chipNotch));
       pillBg.endFill();
-      pillBg.lineStyle({ width: 0.7, color: 0xffffff, alpha: 0.38 });
-      pillBg.drawRoundedRect(pillX, pillY, pillW, pillH, pillH / 2);
+      pillBg.lineStyle({ width: 0.8, color: P.brokenHot, alpha: 0.55 });
+      pillBg.drawPolygon(this._chipPoints(chipX, chipY, chipW, chipH, chipNotch));
     } else {
+      // Outlined blue chip with blue text.
       pillBg.lineStyle(0);
       pillBg.beginFill(0x000000, 0.32);
-      pillBg.drawRoundedRect(pillX, pillY + 1, pillW, pillH, pillH / 2);
+      pillBg.drawPolygon(this._chipPoints(chipX, chipY + 1, chipW, chipH, chipNotch));
       pillBg.endFill();
-      pillBg.beginFill(0x02070b, 0.55);
-      pillBg.drawRoundedRect(pillX, pillY, pillW, pillH, pillH / 2);
+      pillBg.beginFill(P.ink, 0.6);
+      pillBg.drawPolygon(this._chipPoints(chipX, chipY, chipW, chipH, chipNotch));
       pillBg.endFill();
-      pillBg.lineStyle({ width: 1.2, color: 0x4aa3ff, alpha: 0.8 });
-      pillBg.drawRoundedRect(pillX, pillY, pillW, pillH, pillH / 2);
+      pillBg.lineStyle({ width: 1.2, color: P.delayed, alpha: 0.82 });
+      pillBg.drawPolygon(this._chipPoints(chipX, chipY, chipW, chipH, chipNotch));
     }
 
-    label.position.set(w / 2, pillY + pillH / 2);
+    label.position.set(w / 2, chipY + chipH / 2);
+  }
+
+  // Clipped-corner chip outline (top-left + bottom-right notched, matching the
+  // rail tag chips).
+  _chipPoints(x, y, cw, ch, n) {
+    return [
+      x + n, y,
+      x + cw, y,
+      x + cw, y + ch - n,
+      x + cw - n, y + ch,
+      x, y + ch,
+      x, y + n
+    ];
+  }
+
+  _drawBrackets(g, w, h, r, cx, cy, isCircle, color, alpha) {
+    g.clear();
+    const len = clamp(Math.min(w, h) * 0.16, 6, 18);
+    const lw = 1.6;
+    g.lineStyle({ width: lw, color, alpha });
+
+    if (isCircle) {
+      // Four short tangential ticks at the diagonal NE/NW/SE/SW positions.
+      const off = r + 1;
+      const diag = Math.SQRT1_2;
+      const corners = [
+        { dx: -diag, dy: -diag }, // NW
+        { dx: diag, dy: -diag },  // NE
+        { dx: diag, dy: diag },   // SE
+        { dx: -diag, dy: diag }   // SW
+      ];
+      for (const c of corners) {
+        const px = cx + c.dx * off;
+        const py = cy + c.dy * off;
+        // tangent direction (perpendicular to radius)
+        const tx = -c.dy, ty = c.dx;
+        // two short arms forming an L (along tangent + inward radial)
+        g.moveTo(px - tx * len * 0.5, py - ty * len * 0.5);
+        g.lineTo(px + tx * len * 0.5, py + ty * len * 0.5);
+        g.moveTo(px, py);
+        g.lineTo(px - c.dx * len * 0.55, py - c.dy * len * 0.55);
+      }
+    } else {
+      const pad = 1;
+      const x0 = pad, y0 = pad, x1 = w - pad, y1 = h - pad;
+      const n = this._notch(w, h);
+      // Top-left (sits just past the notch).
+      g.moveTo(x0, y0 + n + len); g.lineTo(x0, y0 + n); g.lineTo(x0 + n, y0); g.lineTo(x0 + n + len, y0);
+      // Top-right.
+      g.moveTo(x1 - len, y0); g.lineTo(x1, y0); g.lineTo(x1, y0 + len);
+      // Bottom-left.
+      g.moveTo(x0, y1 - len); g.lineTo(x0, y1); g.lineTo(x0 + len, y1);
+      // Bottom-right (sits just past the notch).
+      g.moveTo(x1, y1 - n - len); g.lineTo(x1, y1 - n); g.lineTo(x1 - n, y1); g.lineTo(x1 - n - len, y1);
+    }
+    g.lineStyle(0);
+  }
+
+  // Builds the holo sweep as a short bright arc/segment of the frame edge.
+  // It is positioned/rotated by the tick loop. We bake a localized highlight
+  // (a fading "comet" along the edge) once; animation only spins + fades it.
+  _buildSweep(entry, g, w, h, r, isCircle, high) {
+    const P = TOKEN_OVERLAY_PALETTE;
+    g.clear();
+    const cx = w / 2, cy = h / 2;
+    const sweepR = isCircle ? r : Math.min(w, h) / 2;
+    entry.sweepR = sweepR;
+
+    // Three colour stops travelling around: deep amber -> hot -> white tip.
+    const stops = high
+      ? [
+          { col: P.brokenDeep, a: 0.0, span: 0.55, wmul: 0.9 },
+          { col: P.broken,     a: 0.55, span: 0.32, wmul: 1.0 },
+          { col: P.brokenHot,  a: 0.85, span: 0.16, wmul: 1.2 },
+          { col: P.white,      a: 1.0, span: 0.05, wmul: 1.5 }
+        ]
+      : [
+          { col: P.broken,    a: 0.55, span: 0.3, wmul: 1.0 },
+          { col: P.brokenHot, a: 0.9, span: 0.12, wmul: 1.3 }
+        ];
+
+    if (isCircle) {
+      // Draw a comet arc from angle 0 backwards; tick loop rotates the gfx.
+      const arc = high ? Math.PI * 0.9 : Math.PI * 0.6;
+      const segCount = high ? 22 : 12;
+      for (let s = 0; s < segCount; s++) {
+        const t0 = s / segCount;
+        const t1 = (s + 1) / segCount;
+        // brightness ramps toward the leading tip (t -> 1)
+        const stop = this._sweepStop(stops, t0);
+        const lw = (high ? 3 : 2.4) * stop.wmul;
+        g.lineStyle({ width: lw, color: stop.col, alpha: stop.a * (0.5 + 0.5 * t0) });
+        const a0 = -arc + arc * t0;
+        const a1 = -arc + arc * t1;
+        g.moveTo(cx + Math.cos(a0) * sweepR, cy + Math.sin(a0) * sweepR);
+        g.lineTo(cx + Math.cos(a1) * sweepR, cy + Math.sin(a1) * sweepR);
+      }
+    } else {
+      // Square: trace a comet along the angled-corner perimeter starting at the
+      // top-left notch. The tick loop advances `entry` by re-positioning along
+      // the path, but to keep it cheap we instead rotate the same way as the
+      // circle using an approximate radius pivot, plus a perimeter shimmer.
+      const pts = this._framePoints(w, h, 1);
+      // Build perimeter point list (closed loop).
+      const loop = [];
+      for (let i = 0; i < pts.length; i += 2) loop.push({ x: pts[i], y: pts[i + 1] });
+      loop.push({ ...loop[0] });
+      // cumulative lengths
+      let total = 0;
+      const segs = [];
+      for (let i = 0; i < loop.length - 1; i++) {
+        const dx = loop[i + 1].x - loop[i].x, dy = loop[i + 1].y - loop[i].y;
+        const len = Math.hypot(dx, dy);
+        segs.push({ a: loop[i], b: loop[i + 1], len, at: total });
+        total += len;
+      }
+      entry.sweepPerim = total;
+      entry.sweepSegs = segs;
+      // The comet is drawn at distance 0; tick loop sets sweepGfx via a sampled
+      // position. For square we render a static gradient dash set and let the
+      // tick loop slide a mask-free bright dot. Simplest cheap approach: draw a
+      // fixed bright dash and animate alpha + a moving highlight graphic.
+      const dashCount = high ? 14 : 8;
+      const dashLen = total / (dashCount * 2);
+      for (let i = 0; i < dashCount; i++) {
+        const t = i / dashCount;
+        const stop = this._sweepStop(stops, t);
+        const startD = t * total;
+        this._drawPerimDash(g, segs, startD, dashLen, stop.col, stop.a * 0.5, (high ? 2.6 : 2.2) * stop.wmul);
+      }
+    }
+  }
+
+  _sweepStop(stops, t) {
+    // Map normalized progress to one of the colour stops by cumulative span.
+    let acc = 0;
+    for (const s of stops) {
+      acc += s.span;
+      if (t <= acc) return s;
+    }
+    return stops[stops.length - 1];
+  }
+
+  // Draws a dash of length `dashLen` starting at perimeter distance `startD`.
+  _drawPerimDash(g, segs, startD, dashLen, color, alpha, width) {
+    const total = segs[segs.length - 1].at + segs[segs.length - 1].len;
+    let d = ((startD % total) + total) % total;
+    let remaining = dashLen;
+    g.lineStyle({ width, color, alpha });
+    let started = false;
+    let guard = 0;
+    while (remaining > 0 && guard++ < 64) {
+      const seg = segs.find(s => d >= s.at && d < s.at + s.len) || segs[0];
+      const into = d - seg.at;
+      const segRemain = seg.len - into;
+      const take = Math.min(segRemain, remaining);
+      const ux = (seg.b.x - seg.a.x) / (seg.len || 1);
+      const uy = (seg.b.y - seg.a.y) / (seg.len || 1);
+      const px = seg.a.x + ux * into;
+      const py = seg.a.y + uy * into;
+      const qx = px + ux * take;
+      const qy = py + uy * take;
+      if (!started) { g.moveTo(px, py); started = true; }
+      g.lineTo(qx, qy);
+      remaining -= take;
+      d += take;
+      if (d >= total) d -= total;
+    }
   }
 
   _drawDelayPattern(g, cx, cy, r, w, h, isCircle, rng) {
     const insetR = r * 0.9;
+    const P = TOKEN_OVERLAY_PALETTE;
 
-    this._drawHatchSet(g, cx, cy, insetR, w, h, isCircle, Math.PI / 6, 0x4aa3ff, 0.06, 0.7);
-    this._drawHatchSet(g, cx, cy, insetR, w, h, isCircle, 5 * Math.PI / 6, 0x9ad8ff, 0.04, 0.6);
+    this._drawHatchSet(g, cx, cy, insetR, w, h, isCircle, Math.PI / 6, P.delayed, 0.06, 0.7);
+    this._drawHatchSet(g, cx, cy, insetR, w, h, isCircle, 5 * Math.PI / 6, P.delayedHi, 0.04, 0.6);
 
     const nodeCount = 3 + Math.floor(rng() * 2);
     const bounds = isCircle ? r * 0.65 : Math.min(w, h) * 0.32;
@@ -3110,13 +3865,13 @@ class TokenOverlayManager {
         const sr = nodeR * (0.7 + rng() * 0.6);
         pts.push(nx + Math.cos(sa) * sr, ny + Math.sin(sa) * sr);
       }
-      g.lineStyle({ width: 0.7, color: 0x9ad8ff, alpha: 0.2 + rng() * 0.1 });
+      g.lineStyle({ width: 0.7, color: P.delayedHi, alpha: 0.2 + rng() * 0.1 });
       g.drawPolygon(pts);
       nodes.push({ x: nx, y: ny });
     }
 
     for (let i = 1; i < nodes.length; i++) {
-      g.lineStyle({ width: 0.5, color: 0x4aa3ff, alpha: 0.14 });
+      g.lineStyle({ width: 0.5, color: P.delayed, alpha: 0.14 });
       g.moveTo(nodes[i - 1].x, nodes[i - 1].y);
       g.lineTo(nodes[i].x, nodes[i].y);
 
@@ -3125,7 +3880,7 @@ class TokenOverlayManager {
         const my = (nodes[i - 1].y + nodes[i].y) / 2 + (rng() - 0.5) * 6;
         const ta = rng() * Math.PI * 2;
         const tl = Math.max(w, h) * 0.04;
-        g.lineStyle({ width: 0.4, color: 0x9ad8ff, alpha: 0.1 });
+        g.lineStyle({ width: 0.4, color: P.delayedHi, alpha: 0.1 });
         g.moveTo(mx, my);
         g.lineTo(mx + Math.cos(ta) * tl, my + Math.sin(ta) * tl);
       }
@@ -3158,22 +3913,23 @@ class TokenOverlayManager {
   }
 
   _drawBreakCracks(g, cx, cy, radius, rng) {
+    const P = TOKEN_OVERLAY_PALETTE;
     const impactX = cx + (rng() - 0.5) * radius * 0.3;
     const impactY = cy + (rng() - 0.5) * radius * 0.3;
 
-    g.beginFill(0xffb12d, 0.1);
+    g.beginFill(P.broken, 0.1);
     g.drawCircle(impactX, impactY, radius * 0.22);
     g.endFill();
-    g.beginFill(0xffe070, 0.18);
+    g.beginFill(P.brokenHot, 0.18);
     g.drawCircle(impactX, impactY, radius * 0.1);
     g.endFill();
-    g.beginFill(0xffffff, 0.14);
+    g.beginFill(P.white, 0.14);
     g.drawCircle(impactX, impactY, radius * 0.04);
     g.endFill();
 
     const armCount = 5 + Math.floor(rng() * 3);
     const step = (Math.PI * 2) / armCount;
-    const colors = [0xffe070, 0xffb12d, 0xff6f1a, 0xffffff];
+    const colors = [P.brokenHot, P.broken, P.brokenDeep, P.white];
     const arms = [];
 
     for (let i = 0; i < armCount; i++) {
@@ -3197,7 +3953,7 @@ class TokenOverlayManager {
           const sp = branchPath[si];
           const sa = ba + (rng() > 0.5 ? 1 : -1) * (0.5 + rng() * 0.6);
           const subPath = this._buildCrackPath(sp.x, sp.y, sa, bl * 0.4, 2 + Math.floor(rng() * 2), rng);
-          arms.push({ path: subPath, color: 0xffe070, sub: true });
+          arms.push({ path: subPath, color: P.brokenHot, sub: true });
         }
       }
     }
@@ -3269,6 +4025,8 @@ class TokenOverlayManager {
     const entry = this._entries.get(tokenId);
     if (!entry) return;
     if (!entry.container.destroyed) {
+      // Drop any blur filter we attached so the GPU resource is released.
+      try { if (entry.glow) entry.glow.filters = null; } catch {}
       if (entry.container.parent) entry.container.parent.removeChild(entry.container);
       entry.container.destroy({ children: true });
     }
@@ -3299,15 +4057,39 @@ class TokenOverlayManager {
     for (const entry of this._entries.values()) {
       if (entry.container.destroyed) continue;
       const isBreak = entry.mode === "broken";
+      const high = entry.fidelity !== "balanced";
 
       if (isBreak) {
+        // Frame keeps a gentle breathing pulse.
         const bt = 0.5 + 0.5 * Math.sin((this._time * 2 * Math.PI / 1.28) + entry.phase);
-        entry.border.alpha = 0.55 + 0.45 * bt;
+        entry.frame.alpha = 0.7 + 0.3 * bt;
+        if (entry.brackets) entry.brackets.alpha = 0.65 + 0.35 * bt;
+
         const ct = 0.5 + 0.5 * Math.sin((this._time * 2 * Math.PI / 1.08) + entry.phase + 0.7);
         entry.cracks.alpha = 0.55 + 0.45 * ct;
+
+        // Holo edge sweep — cheap: rotate (circle) or fade-pulse (square) the
+        // pre-built highlight, plus an overall travelling alpha shimmer.
+        if (entry.sweep && !entry.sweep.destroyed) {
+          const speed = high ? 2.6 : 1.9; // radians/sec-ish
+          const shimmer = 0.55 + 0.45 * Math.sin((this._time * 2 * Math.PI / (high ? 0.7 : 1.0)) + entry.phase);
+          entry.sweep.alpha = (high ? 0.85 : 0.6) * shimmer;
+          if (entry.shape === "circle") {
+            entry.sweep.rotation = (this._time * speed) % (Math.PI * 2);
+          } else {
+            // Square: cannot cheaply rotate around a non-circular edge, so we
+            // pulse alpha and slide a subtle skew via position bob instead.
+            entry.sweep.rotation = 0;
+            const bob = Math.sin(this._time * speed * 0.5 + entry.phase) * 0.6;
+            entry.sweep.position.set(entry.cx, entry.cy + bob);
+          }
+        }
       } else {
+        // DELAYED stays calm: slow gentle pulse, no sweep.
         const t = 0.5 + 0.5 * Math.sin((this._time * 2 * Math.PI / 3.5) + entry.phase);
-        entry.border.alpha = 0.5 + 0.3 * t;
+        entry.frame.alpha = 0.55 + 0.3 * t;
+        if (entry.brackets) entry.brackets.alpha = 0.5 + 0.3 * t;
+        if (entry.glow) entry.glow.alpha = 0.6 + 0.4 * t;
       }
     }
   }
