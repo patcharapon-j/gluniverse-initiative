@@ -78,6 +78,8 @@
   "GLUNI.Unknown": "Unknown",
   "GLUNI.Delayed": "Delayed",
   "GLUNI.GuardBreak": "Break",
+  "GLUNI.PF2e.BreakEffect.Name": "Break",
+  "GLUNI.PF2e.BreakEffect.Description": "<p>Your guard has been broken. You take a -2 status penalty to AC and all saving throws, and you lose all resistances.</p>",
   "GLUNI.Dying": "Dying",
   "GLUNI.Dying.Aria": "Dying {value} of {max}"
 }

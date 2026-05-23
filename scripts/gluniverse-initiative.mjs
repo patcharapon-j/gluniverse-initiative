@@ -41,6 +41,12 @@ const VISIBILITY = {
   mystery: "mystery"
 };
 
+// PF2e-only: an Effect item applied to a broken actor that imposes a -2 status
+// penalty to AC and all saving throws. The slug + module flag let us find and
+// remove exactly the effect we created when the break is cleared.
+const PF2E_GUARD_BREAK_EFFECT_SLUG = "gluni-guard-break";
+const PF2E_GUARD_BREAK_PENALTY = 2;
+
 const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.AnimationIntensity.Default": "Default",
   "GLUNI.Settings.AnimationIntensity.Cinematic": "Cinematic",
@@ -108,6 +114,8 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.AdHoc.Visibility": "Visibility",
   "GLUNI.Delayed": "Delayed",
   "GLUNI.GuardBreak": "Break",
+  "GLUNI.PF2e.BreakEffect.Name": "Break",
+  "GLUNI.PF2e.BreakEffect.Description": "<p>Your guard has been broken. You take a -2 status penalty to AC and all saving throws, and you lose all resistances.</p>",
   "GLUNI.Dying": "Dying",
   "GLUNI.Dying.Aria": "Dying {value} of {max}",
   "GLUNI.PortraitConfig.ActiveCard": "Active card",
@@ -254,9 +262,11 @@ Hooks.once("ready", () => {
 });
 
 Hooks.on("createCombat", () => overlay?.renderSoon());
+Hooks.on("preDeleteCombat", combat => overlay?.removeAllPF2eGuardBreakEffects(combat));
 Hooks.on("deleteCombat", () => overlay?.renderSoon());
 Hooks.on("updateCombat", (combat, changed) => overlay?.onCombatUpdate(combat, changed));
 Hooks.on("createCombatant", () => overlay?.renderSoon());
+Hooks.on("preDeleteCombatant", combatant => overlay?.removePF2eGuardBreakEffect(combatant));
 Hooks.on("deleteCombatant", () => overlay?.renderSoon());
 Hooks.on("updateCombatant", (_combatant, changed) => {
   if (isRelevantCombatantUpdate(changed)) overlay?.renderSoon();
@@ -1777,6 +1787,58 @@ class GLUniverseInitiativeOverlay {
     ]);
   }
 
+  async applyPF2eGuardBreakEffect(combatant) {
+    if (game.system?.id !== "pf2e" || !game.user.isGM) return;
+    const actor = combatant?.actor;
+    if (!actor?.createEmbeddedDocuments) return;
+    if (findPF2eGuardBreakEffects(actor).length) return;
+
+    const effectData = {
+      type: "effect",
+      name: localize("GLUNI.PF2e.BreakEffect.Name"),
+      img: "icons/svg/downgrade.svg",
+      system: {
+        slug: PF2E_GUARD_BREAK_EFFECT_SLUG,
+        description: { value: localize("GLUNI.PF2e.BreakEffect.Description") },
+        tokenIcon: { show: true },
+        duration: { value: -1, unit: "unlimited", expiry: null, sustained: false },
+        rules: [
+          { key: "FlatModifier", selector: "ac", type: "status", value: -PF2E_GUARD_BREAK_PENALTY },
+          { key: "FlatModifier", selector: "saving-throw", type: "status", value: -PF2E_GUARD_BREAK_PENALTY },
+          { key: "ActiveEffectLike", mode: "override", path: "system.attributes.resistances", value: [] }
+        ]
+      },
+      flags: { [MODULE_ID]: { guardBreak: true } }
+    };
+
+    try {
+      await actor.createEmbeddedDocuments("Item", [effectData]);
+    } catch (error) {
+      console.warn(`${MODULE_ID} | Failed to apply PF2e break effect`, error);
+    }
+  }
+
+  async removePF2eGuardBreakEffect(combatant) {
+    if (game.system?.id !== "pf2e" || !game.user.isGM) return;
+    const actor = combatant?.actor;
+    if (!actor?.deleteEmbeddedDocuments) return;
+
+    const ids = findPF2eGuardBreakEffects(actor).map(effect => effect.id);
+    if (!ids.length) return;
+
+    try {
+      await actor.deleteEmbeddedDocuments("Item", ids);
+    } catch (error) {
+      console.warn(`${MODULE_ID} | Failed to remove PF2e break effect`, error);
+    }
+  }
+
+  async removeAllPF2eGuardBreakEffects(combat) {
+    if (game.system?.id !== "pf2e" || !game.user.isGM || !combat) return;
+    const combatants = Array.from(combat.combatants ?? []);
+    await Promise.allSettled(combatants.map(combatant => this.removePF2eGuardBreakEffect(combatant)));
+  }
+
   async applyGuardBreak(combatant) {
     const combat = this.combat;
     if (!game.user.isGM || !combat?.started || !combatant || isAdhocCombatant(combatant)) return;
@@ -1803,6 +1865,7 @@ class GLUniverseInitiativeOverlay {
     await combatant.setFlag(MODULE_ID, FLAGS.guardBroken, payload);
     await combatant.unsetFlag(MODULE_ID, FLAGS.manualDelayed);
     await this.clearKnownPF2eDelayFlags(combatant);
+    await this.applyPF2eGuardBreakEffect(combatant);
     await this.moveGuardBrokenCombatantBeforeActive(combatant, activeId);
     this.queueGuardBreakImpact({ combatId: combat.id, combatantId: combatant.id });
     this.broadcastGuardBreakImpact(combatant.id);
@@ -1814,6 +1877,7 @@ class GLUniverseInitiativeOverlay {
   async clearGuardBreak(combatant) {
     if (!game.user.isGM || !combatant || !getGuardBreakState(combatant)) return;
     await combatant.unsetFlag(MODULE_ID, FLAGS.guardBroken);
+    await this.removePF2eGuardBreakEffect(combatant);
     this.broadcastRefresh();
   }
 
@@ -1852,6 +1916,7 @@ class GLUniverseInitiativeOverlay {
     if (state.anchorCombatantId === combatant.id && state.round === (combat.round ?? 1)) return;
 
     await combatant.unsetFlag(MODULE_ID, FLAGS.guardBroken);
+    await this.removePF2eGuardBreakEffect(combatant);
     this.broadcastRefresh();
   }
 
@@ -2654,6 +2719,13 @@ function getConditionValue(actor, slug) {
 
 function hasActorItem(actor, slug) {
   return getActorItems(actor).some(item => getItemSlug(item) === slug);
+}
+
+function findPF2eGuardBreakEffects(actor) {
+  return getActorItems(actor).filter(item =>
+    item?.type === "effect" &&
+    (item.getFlag?.(MODULE_ID, "guardBreak") === true || getItemSlug(item) === PF2E_GUARD_BREAK_EFFECT_SLUG)
+  );
 }
 
 function getActorItems(actor) {
