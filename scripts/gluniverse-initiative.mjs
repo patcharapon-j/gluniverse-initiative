@@ -39,6 +39,9 @@ const FLAGS = {
 // Stored per-combatant under FLAGS.breakGauge as { max, value, mode }.
 const BREAK_GAUGE_DEFAULT_MAX = 100;
 const BREAK_GAUGE_MODES = Object.freeze({ smooth: "smooth", segmented: "segmented" });
+// Shared by the card (CSS) and token (PIXI) gauges so they animate alike.
+const BREAK_GAUGE_FLASH_SEC = 0.55;
+const BREAK_GAUGE_SHEEN_SEC = 3.4;
 
 const VISIBILITY = {
   auto: "auto",
@@ -3875,6 +3878,10 @@ class CardFXManager {
     this.entries = new Map();   // combatantId -> { canvas, ctx, mode, seed, impact, t0 }
     this.ticking = false;
     this.tickFn = this._tick.bind(this);
+    // These effects are slow (a break glow / a dying creep); 30fps is visually
+    // identical to 60 and halves the per-frame PIXI render + canvas blit cost.
+    this._frameMs = 1000 / 30;
+    this._lastDraw = 0;
   }
 
   ensureRenderer() {
@@ -3952,6 +3959,13 @@ class CardFXManager {
   _tick() {
     if (!this.ticking) return;
     const now = performance.now();
+    // Throttle the actual GPU work to ~30fps while still riding rAF (which the
+    // browser pauses for us when the tab is hidden).
+    if (now - this._lastDraw < this._frameMs) {
+      requestAnimationFrame(this.tickFn);
+      return;
+    }
+    this._lastDraw = now;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     for (const entry of this.entries.values()) {
       const cv = entry.canvas;
@@ -3962,7 +3976,13 @@ class CardFXManager {
       const ph = Math.max(1, Math.round(ch * dpr));
       if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
       try {
-        if (this.renderer.width !== pw || this.renderer.height !== ph) this.renderer.resize(pw, ph);
+        // Grow the shared renderer to the largest entry only; never shrink it.
+        // Differently-sized entries then render into the top-left corner and we
+        // blit just that region, so we avoid a resize() (render-target realloc)
+        // on every entry every frame.
+        if (this.renderer.width < pw || this.renderer.height < ph) {
+          this.renderer.resize(Math.max(this.renderer.width, pw), Math.max(this.renderer.height, ph));
+        }
         const filter = this.filters[entry.mode];
         filter.uniforms.uTime = (now - entry.t0) / 1000;
         filter.uniforms.uSeed = entry.seed;
@@ -3973,7 +3993,7 @@ class CardFXManager {
         this.sprite.filters = [filter];
         this.renderer.render(this.sprite);
         entry.ctx.clearRect(0, 0, pw, ph);
-        entry.ctx.drawImage(this.renderer.view, 0, 0);
+        entry.ctx.drawImage(this.renderer.view, 0, 0, pw, ph, 0, 0, pw, ph);
       } catch { /* leave the canvas transparent; the portrait shows through */ }
     }
     if (this.ticking) requestAnimationFrame(this.tickFn);
@@ -4171,12 +4191,17 @@ class TokenOverlayManager {
       fontFamily: '"Bahnschrift", "Segoe UI", Arial, sans-serif',
       fontSize: 9,
       fontWeight: "bold",
-      fill: "#ffe070",
+      fill: "#ffffff",
       letterSpacing: 0.6,
-      align: "center",
-      trim: true
+      align: "right",
+      trim: true,
+      dropShadow: true,
+      dropShadowColor: "#000000",
+      dropShadowAlpha: 0.95,
+      dropShadowBlur: 2,
+      dropShadowDistance: 1
     });
-    gaugeText.anchor.set(0.5, 1);
+    gaugeText.anchor.set(1, 0.5);   // baked into the bar, right-aligned
     container.addChild(gaugeText);
 
     token.addChild(container);
@@ -4186,6 +4211,7 @@ class TokenOverlayManager {
       gaugeGfx, gaugeText,
       fxSprite, fxFilter: null, fxFilterMode: null, fxOn: false, fxStart: 0,
       mode: null, w: 0, h: 0, shape: null, fidelity: null, gauge: null, gaugeKey: "",
+      gaugeAnim: null, gaugeGeom: null,
       phase: Math.random() * Math.PI * 2,
       seed: Math.random() * 99999,
       // Geometry the tick loop needs without re-deriving each frame.
@@ -4218,23 +4244,52 @@ class TokenOverlayManager {
   // Draws the break gauge bar above the token's top edge, in the amber break
   // palette. Smooth mode is a proportional fill with a bright leading edge;
   // segmented mode is one lit pip per remaining point.
+  // Sets up the gauge geometry + transition state on a data change, then paints.
+  // Matches the rail card: value baked into the bar, a travelling sheen, a width
+  // tween and an amber/cyan flash on value change (the latter three are driven
+  // per-frame from _onTick).
   _drawGauge(entry) {
-    const { gaugeGfx, gaugeText, gauge, w, h } = entry;
-    const P = TOKEN_OVERLAY_PALETTE;
-    gaugeGfx.clear();
+    const { gauge, w, h } = entry;
 
     if (!gauge) {
-      gaugeText.text = "";
-      gaugeText.visible = false;
+      entry.gaugeAnim = null;
+      entry.gaugeGeom = null;
+      entry.gaugeGfx.clear();
+      entry.gaugeText.text = "";
+      entry.gaugeText.visible = false;
       return;
     }
 
-    const { value, max, ratio } = gauge;
+    const ratio = clamp(gauge.ratio, 0, 1);
     const barW = w * 0.9;
     const barH = clamp(Math.min(w, h) * 0.07, 4, 9);
     const x = (w - barW) / 2;
     const y = -clamp(Math.min(w, h) * 0.05, 4, 12) - barH;
+    entry.gaugeGeom = { barW, barH, x, y };
 
+    const anim = entry.gaugeAnim;
+    if (!anim) {
+      entry.gaugeAnim = { display: ratio, target: ratio, flashT: 0, flashDir: 0 };
+    } else if (Math.abs(anim.target - ratio) > 0.0005) {
+      anim.flashDir = ratio < anim.target ? -1 : 1;   // depleting vs replenishing
+      anim.flashT = BREAK_GAUGE_FLASH_SEC;
+      anim.target = ratio;                            // display tweens toward it in _onTick
+    }
+    this._paintGauge(entry);
+  }
+
+  // Pure paint at the current animation state — cheap (a handful of rects), safe
+  // to call every frame for the few GM-marked gauged tokens.
+  _paintGauge(entry) {
+    const { gaugeGfx, gaugeText, gauge, gaugeGeom, w, h } = entry;
+    if (!gauge || !gaugeGeom) return;
+    const P = TOKEN_OVERLAY_PALETTE;
+    const { barW, barH, x, y } = gaugeGeom;
+    const anim = entry.gaugeAnim;
+    const { value, max } = gauge;
+    const segmented = gauge.mode === BREAK_GAUGE_MODES.segmented;
+
+    gaugeGfx.clear();
     gaugeGfx.beginFill(P.ink, 0.7);
     gaugeGfx.drawRect(x - 1, y - 1, barW + 2, barH + 2);
     gaugeGfx.endFill();
@@ -4242,7 +4297,7 @@ class TokenOverlayManager {
     gaugeGfx.drawRect(x, y, barW, barH);
     gaugeGfx.endFill();
 
-    if (gauge.mode === BREAK_GAUGE_MODES.segmented) {
+    if (segmented) {
       const segGap = Math.max(1, barW * 0.012);
       const segW = Math.max((barW - segGap * (max - 1)) / max, 0.5);
       for (let i = 0; i < max; i++) {
@@ -4258,7 +4313,7 @@ class TokenOverlayManager {
         }
       }
     } else {
-      const fillW = barW * clamp(ratio, 0, 1);
+      const fillW = barW * clamp(anim.display, 0, 1);
       if (fillW > 0) {
         gaugeGfx.beginFill(P.broken, 0.95);
         gaugeGfx.drawRect(x, y, fillW, barH);
@@ -4266,9 +4321,20 @@ class TokenOverlayManager {
         gaugeGfx.beginFill(P.brokenHot, 0.55);
         gaugeGfx.drawRect(x, y, fillW, Math.max(1, barH * 0.32));
         gaugeGfx.endFill();
-        gaugeGfx.beginFill(P.white, 0.85);
+        gaugeGfx.beginFill(P.white, 0.85);   // bright leading edge
         gaugeGfx.drawRect(x + Math.max(0, fillW - 2), y, 2, barH);
         gaugeGfx.endFill();
+        // travelling sheen glint, clipped to the filled region
+        const ph = (this._time % BREAK_GAUGE_SHEEN_SEC) / BREAK_GAUGE_SHEEN_SEC;
+        const band = Math.max(2, barW * 0.07);
+        const travel = ph * (fillW + band * 2) - band;
+        const s0 = Math.max(x, x + travel);
+        const s1 = Math.min(x + fillW, x + travel + band);
+        if (s1 > s0) {
+          gaugeGfx.beginFill(P.white, 0.28);
+          gaugeGfx.drawRect(s0, y, s1 - s0, barH);
+          gaugeGfx.endFill();
+        }
       }
     }
 
@@ -4276,10 +4342,25 @@ class TokenOverlayManager {
     gaugeGfx.drawRect(x, y, barW, barH);
     gaugeGfx.lineStyle(0);
 
-    gaugeText.style.fontSize = clamp(Math.round(Math.max(w, h) * 0.085), 8, 13);
+    gaugeText.style.fontSize = clamp(Math.round(Math.max(w, h) * 0.078), 7, 12);
     gaugeText.text = `${value}/${max}`;
     gaugeText.visible = true;
-    gaugeText.position.set(w / 2, y - 1);
+    const pad = Math.max(2, barW * 0.035);
+    gaugeText.position.set(x + barW - pad, y + barH / 2 + 0.5);
+
+    // dark fade behind the baked number so it stays legible over pips/fill
+    const tw = Math.min(gaugeText.width + 4, barW);
+    gaugeGfx.beginFill(P.ink, 0.5);
+    gaugeGfx.drawRect(x + barW - pad - tw + 2, y + 0.5, tw, barH - 1);
+    gaugeGfx.endFill();
+
+    if (anim.flashT > 0) {
+      const f = anim.flashT / BREAK_GAUGE_FLASH_SEC;        // 1 -> 0
+      const col = anim.flashDir < 0 ? P.brokenHot : P.delayedHi;  // amber down / cyan up
+      gaugeGfx.beginFill(col, 0.5 * f);
+      gaugeGfx.drawRect(x, y, barW, barH);
+      gaugeGfx.endFill();
+    }
   }
 
   // Attaches the shader interior to the token overlay sprite (break fracture /
@@ -4875,9 +4956,32 @@ class TokenOverlayManager {
   }
 
   _onTick(dt) {
-    this._time += (typeof dt === "number" ? dt : 1) / 60;
+    const dts = (typeof dt === "number" ? dt : 1) / 60;
+    this._time += dts;
     for (const entry of this._entries.values()) {
       if (entry.container.destroyed) continue;
+
+      // Break-gauge animation runs for any gauged token, even one that is neither
+      // broken nor delayed: tween the fill toward its target, decay the flash and
+      // keep the sheen sweeping.
+      if (entry.gauge && entry.gaugeAnim && entry.gaugeGeom) {
+        const a = entry.gaugeAnim;
+        const smooth = entry.gauge.mode !== BREAK_GAUGE_MODES.segmented;
+        let active = false;
+        if (Math.abs(a.target - a.display) > 0.0008) {
+          a.display += (a.target - a.display) * (1 - Math.exp(-dts * 7));
+          if (Math.abs(a.target - a.display) <= 0.001) a.display = a.target;
+          active = true;
+        }
+        if (a.flashT > 0) { a.flashT = Math.max(0, a.flashT - dts); active = true; }
+        if (smooth && a.display > 0) active = true;   // keep the sheen alive
+        // advance the math every tick but throttle the Graphics rebuild to ~30fps
+        if (active && this._time - (a.paintAt || 0) >= 0.0333) {
+          a.paintAt = this._time;
+          this._paintGauge(entry);
+        }
+      }
+
       // Gauge-only entries have no animated status frame to drive.
       if (entry.mode !== "broken" && entry.mode !== "delayed") continue;
       const isBreak = entry.mode === "broken";
