@@ -266,6 +266,7 @@ const PORTRAIT_FRAME_LIMITS = Object.freeze({
 
 let overlay;
 let tokenOverlays;
+let cardFX;
 let breakGaugeEditor = null;
 const portraitQualityCache = new Map();
 
@@ -275,6 +276,8 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", () => {
   overlay = new GLUniverseInitiativeOverlay();
+  cardFX = new CardFXManager();
+  cardFX.ensureRenderer();
   overlay.mount();
   overlay.render();
   tokenOverlays = new TokenOverlayManager();
@@ -726,6 +729,7 @@ class GLUniverseInitiativeOverlay {
       }
       this.lastRootClassName = this.root.className;
       tokenOverlays?.refresh();
+      cardFX?.clear();
       return;
     }
 
@@ -790,6 +794,7 @@ class GLUniverseInitiativeOverlay {
     this.lastRenderedRound = combat.round ?? null;
     if (isDelayReturn) this.pendingDelayReturnId = null;
     tokenOverlays?.refresh();
+    cardFX?.sync(this.root);
   }
 
   getRenderSettings() {
@@ -975,6 +980,14 @@ class GLUniverseInitiativeOverlay {
     ].filter(Boolean).join(" ");
     const style = renderCombatantStyle(card);
 
+    // High-fidelity WebGL portrait FX layer (replaces the CSS crack/vein bg).
+    // Falls back to the CSS background when unsupported or fidelity is balanced.
+    const useFX = !card.adhoc && !card.mystery && Boolean(card.portrait)
+      && cardFX?.supported && getVisualFidelity() === "high";
+    const fxMode = useFX
+      ? (card.guardBroken ? "break" : card.dying ? "dying" : card.active ? "shimmer" : null)
+      : null;
+
     return `
       <article class="${classes}" data-gluni-key="${escapeAttr(card.key)}" data-combatant-id="${card.id}" data-round-offset="${card.roundOffset}"${style}>
         <div class="gluni-card-accent" aria-hidden="true"></div>
@@ -1004,7 +1017,7 @@ class GLUniverseInitiativeOverlay {
           : ""}
         ${card.dying
           ? `
-            <div class="gluni-card-dying-bg" aria-hidden="true"></div>
+            ${fxMode === "dying" ? "" : `<div class="gluni-card-dying-bg" aria-hidden="true"></div>`}
             <div class="gluni-card-dying-repeat" aria-hidden="true">
               ${renderDyingRepeatText(card.dying)}
             </div>
@@ -1012,12 +1025,13 @@ class GLUniverseInitiativeOverlay {
           : ""}
         ${card.guardBroken
           ? `
-            <div class="gluni-card-guard-break-bg" aria-hidden="true"></div>
+            ${fxMode === "break" ? "" : `<div class="gluni-card-guard-break-bg" aria-hidden="true"></div>`}
             <div class="gluni-card-guard-break-repeat" aria-hidden="true">
               ${renderGuardBreakRepeatText()}
             </div>
           `
           : ""}
+        ${fxMode ? `<canvas class="gluni-card-portrait-fx gluni-card-portrait-fx--${fxMode}" data-fx="${fxMode}" aria-hidden="true"></canvas>` : ""}
         <div class="gluni-card-content">
           <div class="gluni-card-kicker">
             ${card.active ? `<span class="gluni-active-tag">TURN</span>` : ""}
@@ -3680,6 +3694,216 @@ function clonePortraitFrameDefaults() {
     normal: { ...PORTRAIT_FRAME_DEFAULTS.normal },
     expanded: { ...PORTRAIT_FRAME_DEFAULTS.expanded }
   };
+}
+
+// ---------------------------------------------------------------------------
+// Card portrait FX — a high-fidelity WebGL effect layer for the initiative
+// cards. One shared PIXI renderer draws each affected card's procedural effect
+// (break / dying / active shimmer) and blits it into a per-card 2D <canvas>
+// that sits between the portrait and the card content. DOM still owns layout,
+// text, glows and controls; this only touches the imagery layer. Everything is
+// feature-detected and fails back to the CSS effects.
+// ---------------------------------------------------------------------------
+
+const FX_GLSL_NOISE = `
+float gluHash1(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7))+uSeed)*43758.5453); }
+float gluVNoise(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(gluHash1(i),gluHash1(i+vec2(1.0,0.0)),f.x),
+             mix(gluHash1(i+vec2(0.0,1.0)),gluHash1(i+vec2(1.0,1.0)),f.x), f.y); }
+float gluFbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ s+=a*gluVNoise(p); p*=2.02; a*=0.5; } return s; }
+`;
+
+const FX_FRAG_BREAK = `
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform float uTime, uSeed, uAspect;
+uniform vec2 uImpact;
+vec2 gluHash2(vec2 p){ p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))); return fract(sin(p+uSeed)*43758.5453); }
+float gluVoroEdge(vec2 x){
+  vec2 n=floor(x), f=fract(x); float f1=9.0,f2=9.0;
+  for(int j=-1;j<=1;j++) for(int i=-1;i<=1;i++){
+    vec2 g=vec2(float(i),float(j)); vec2 o=gluHash2(n+g); vec2 r=g+o-f; float d=dot(r,r);
+    if(d<f1){f2=f1;f1=d;} else if(d<f2){f2=d;}
+  }
+  return sqrt(f2)-sqrt(f1);
+}
+${FX_GLSL_NOISE}
+void main(void){
+  vec2 uv=vTextureCoord;
+  vec2 d=(uv-uImpact); d.x*=uAspect; float dist=length(d);
+  float ang=atan(d.y,d.x);
+  float warp=0.17*gluFbm(vec2(ang*1.3+3.0,1.7))+0.09*gluFbm(vec2(ang*3.7,5.0))-0.13;
+  float wdist=dist+warp;
+  float scale=mix(15.0,6.0,smoothstep(0.0,0.8,dist));
+  float ce=gluVoroEdge(vec2(uv.x*uAspect,uv.y)*scale+7.0);
+  float edge=1.0-smoothstep(0.0,0.045,ce);
+  float shatterT=clamp(uTime*1.4,0.0,1.0);
+  float front=smoothstep(0.05,-0.06, wdist-(0.05+1.2*shatterT));
+  float coverage=smoothstep(1.15,0.10,wdist)*front;
+  float crack=edge*coverage;
+  float settled=smoothstep(0.55,1.0,shatterT);
+  float flow=pow(0.5+0.5*sin(dist*26.0-uTime*3.2),6.0);
+  float glowFlow=crack*flow*settled;
+  float pulse=0.62+0.38*sin(uTime*2.2);
+  float halo=(1.0-smoothstep(0.0,0.13,ce))*coverage*0.30*pulse;
+  float core=smoothstep(0.12,0.0,dist)*smoothstep(0.0,0.12,shatterT);
+  vec3 amber=vec3(1.0,0.69,0.18), hot=vec3(1.0,0.88,0.44), white=vec3(1.0);
+  vec3 col=mix(amber,hot,clamp(crack*pulse,0.0,1.0));
+  col=mix(col,white,clamp(core+glowFlow,0.0,1.0));
+  float a=clamp(crack*0.95+halo+core*0.7+glowFlow*0.8,0.0,1.0);
+  gl_FragColor=vec4(col*a, a);
+}`;
+
+const FX_FRAG_DYING = `
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform float uTime, uSeed, uAspect;
+${FX_GLSL_NOISE}
+void main(void){
+  vec2 uv=vTextureCoord;
+  vec2 q=vec2(gluFbm(uv*3.0+vec2(0.0,uTime*0.05)), gluFbm(uv*3.0+vec2(5.2,-uTime*0.04)));
+  float n=gluFbm(uv*4.5+q*1.8);
+  float ridge=1.0-abs(n*2.0-1.0);
+  float veins=smoothstep(0.80,0.99,ridge);
+  float eb=max(smoothstep(0.55,0.0,uv.x),smoothstep(0.45,1.0,uv.x));
+  eb=max(eb,smoothstep(0.5,0.0,uv.y));
+  veins*=mix(0.25,1.0,eb);
+  float halo=smoothstep(0.6,0.99,ridge)*0.16*eb;
+  vec3 violet=vec3(0.71,0.59,1.0), vhot=vec3(0.94,0.84,1.0);
+  vec3 col=mix(violet,vhot,veins);
+  float a=clamp(veins*0.9+halo,0.0,1.0);
+  gl_FragColor=vec4(col*a, a);
+}`;
+
+const FX_FRAG_SHIMMER = `
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform float uTime, uSeed, uAspect;
+void main(void){
+  vec2 uv=vTextureCoord;
+  float band=sin((uv.x*1.4+uv.y*0.6)*3.14159 - uTime*1.6);
+  float sweep=smoothstep(0.86,1.0,band);
+  vec3 cyan=vec3(0.37,0.92,1.0), violet=vec3(0.71,0.59,1.0), magenta=vec3(1.0,0.40,0.70);
+  float ph=0.5+0.5*sin(uTime*0.8+uv.x*2.0);
+  vec3 tint=mix(mix(cyan,violet,ph), magenta, smoothstep(0.6,1.0,ph));
+  float a=sweep*0.42;
+  gl_FragColor=vec4(tint*a, a);
+}`;
+
+class CardFXManager {
+  constructor() {
+    this.supported = false;
+    this._initTried = false;
+    this.renderer = null;
+    this.sprite = null;
+    this.filters = {};
+    this.entries = new Map();   // combatantId -> { canvas, ctx, mode, seed, impact, t0 }
+    this.ticking = false;
+    this.tickFn = this._tick.bind(this);
+  }
+
+  ensureRenderer() {
+    if (this._initTried) return this.supported;
+    this._initTried = true;
+    try {
+      if (!globalThis.PIXI?.Renderer || !globalThis.PIXI?.Filter || !globalThis.PIXI?.Sprite) return false;
+      this.renderer = new PIXI.Renderer({ width: 256, height: 160, backgroundAlpha: 0, antialias: true });
+      this.sprite = new PIXI.Sprite(PIXI.Texture.WHITE);
+      const mk = frag => {
+        const f = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: 0, uAspect: 1, uImpact: [0.65, 0.34] });
+        f.padding = 0;
+        return f;
+      };
+      this.filters = { break: mk(FX_FRAG_BREAK), dying: mk(FX_FRAG_DYING), shimmer: mk(FX_FRAG_SHIMMER) };
+      this.supported = true;
+    } catch (err) {
+      console.warn(`${MODULE_ID} | Card portrait FX unavailable, falling back to CSS`, err);
+      this.supported = false;
+      this.renderer = null;
+    }
+    return this.supported;
+  }
+
+  // Reconcile the live FX canvases in the DOM after each overlay render.
+  sync(root) {
+    if (!this.supported || !root) { this.clear(); return; }
+    const seen = new Set();
+    root.querySelectorAll(".gluni-card-portrait-fx").forEach(cv => {
+      const card = cv.closest(".gluni-card");
+      const id = card?.dataset.combatantId;
+      const mode = cv.dataset.fx;
+      if (!id || !this.filters[mode]) return;
+      seen.add(id);
+      const prev = this.entries.get(id);
+      if (prev && prev.canvas === cv && prev.mode === mode) return;
+      // New or replaced canvas (the rail rebuilds innerHTML each render): keep
+      // the seed/impact stable per combatant so the effect doesn't re-randomize,
+      // and only reset the clock when the effect type actually changed.
+      this.entries.set(id, {
+        canvas: cv,
+        ctx: cv.getContext("2d"),
+        mode,
+        seed: prev?.seed ?? Math.random() * 100,
+        impact: prev?.impact ?? [0.42 + Math.random() * 0.36, 0.18 + Math.random() * 0.42],
+        t0: prev && prev.mode === mode ? prev.t0 : performance.now()
+      });
+    });
+    for (const id of [...this.entries.keys()]) if (!seen.has(id)) this.entries.delete(id);
+    if (this.entries.size && !this.ticking) this._start();
+    else if (!this.entries.size) this._stop();
+  }
+
+  clear() {
+    this.entries.clear();
+    this._stop();
+  }
+
+  _start() {
+    if (this.ticking) return;
+    this.ticking = true;
+    requestAnimationFrame(this.tickFn);
+  }
+
+  _stop() {
+    this.ticking = false;
+  }
+
+  _tick() {
+    if (!this.ticking) return;
+    const now = performance.now();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    for (const entry of this.entries.values()) {
+      const cv = entry.canvas;
+      if (!cv.isConnected || !entry.ctx) continue;
+      const cw = cv.clientWidth, ch = cv.clientHeight;
+      if (!cw || !ch) continue;
+      const pw = Math.max(1, Math.round(cw * dpr));
+      const ph = Math.max(1, Math.round(ch * dpr));
+      if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+      try {
+        if (this.renderer.width !== pw || this.renderer.height !== ph) this.renderer.resize(pw, ph);
+        const filter = this.filters[entry.mode];
+        filter.uniforms.uTime = (now - entry.t0) / 1000;
+        filter.uniforms.uSeed = entry.seed;
+        filter.uniforms.uAspect = pw / ph;
+        if (entry.mode === "break") filter.uniforms.uImpact = entry.impact;
+        this.sprite.width = pw;
+        this.sprite.height = ph;
+        this.sprite.filters = [filter];
+        this.renderer.render(this.sprite);
+        entry.ctx.clearRect(0, 0, pw, ph);
+        entry.ctx.drawImage(this.renderer.view, 0, 0);
+      } catch { /* leave the canvas transparent; the portrait shows through */ }
+    }
+    if (this.ticking) requestAnimationFrame(this.tickFn);
+  }
+
+  destroy() {
+    this.clear();
+    try { this.renderer?.destroy(); } catch {}
+    this.renderer = null;
+    this.supported = false;
+  }
 }
 
 class TokenOverlayManager {
