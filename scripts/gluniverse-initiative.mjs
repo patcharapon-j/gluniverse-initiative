@@ -898,6 +898,7 @@ class GLUniverseInitiativeOverlay {
     const hasActiveCombat = Boolean(combat?.started && combat.combatants?.size);
 
     if (!this.enabled || !hasActiveCombat) {
+      this.finishCardDrag();
       this.closeInitiativeContextMenu();
       closeBreakGaugeEditor();
       this.root.className = "gluni-initiative gluni-initiative--hidden";
@@ -950,6 +951,7 @@ class GLUniverseInitiativeOverlay {
       this.root.innerHTML = markup;
       this.lastMarkup = markup;
       this.positionFloatingControls();
+      this.reacquireCardDragAfterRender();
     }
 
     if (shouldAnimateTurnChange) {
@@ -2457,6 +2459,7 @@ class GLUniverseInitiativeOverlay {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
+      lastClientY: event.clientY,
       moved: false,
       originalBeforeId: railCards[originalIndex - 1]?.dataset.combatantId ?? null,
       originalAfterId: railCards[originalIndex + 1]?.dataset.combatantId ?? null,
@@ -2500,6 +2503,7 @@ class GLUniverseInitiativeOverlay {
   onCardPointerMove = event => {
     if (!this.cardDrag) return;
 
+    this.cardDrag.lastClientY = event.clientY;
     const distance = Math.hypot(event.clientX - this.cardDrag.startX, event.clientY - this.cardDrag.startY);
     if (distance > 4) this.cardDrag.moved = true;
     if (!this.cardDrag.moved) return;
@@ -2540,6 +2544,37 @@ class GLUniverseInitiativeOverlay {
     this.cardDrag.card.style.removeProperty("--gluni-card-drag-y");
     this.root.classList.remove("gluni-initiative--card-dragging");
     this.cardDrag = null;
+  }
+
+  // A background combat/actor update can rebuild the rail mid-drag, detaching the
+  // dragged element and the cached layout. Re-bind to the fresh DOM (or cancel if
+  // the dragged combatant is gone) so drop targeting reflects what the user sees.
+  reacquireCardDragAfterRender() {
+    const drag = this.cardDrag;
+    if (!drag) return;
+
+    const railCards = Array.from(this.root?.querySelectorAll(".gluni-rail .gluni-card[data-combatant-id]") ?? []);
+    const newCard = railCards.find(el => el.dataset.combatantId === drag.combatantId) ?? null;
+    if (!newCard) {
+      this.finishCardDrag();
+      return;
+    }
+
+    drag.card = newCard;
+    drag.slotHeight = newCard.getBoundingClientRect().height + 5;
+    drag.layout = railCards.map(el => {
+      const rect = el.getBoundingClientRect();
+      return { id: el.dataset.combatantId, el, mid: rect.top + rect.height / 2 };
+    });
+
+    this.root.classList.add("gluni-initiative--card-dragging");
+    newCard.classList.add("gluni-card--dragging");
+    newCard.setPointerCapture?.(drag.pointerId);
+
+    if (drag.moved) {
+      newCard.style.setProperty("--gluni-card-drag-y", `${Math.round(drag.lastClientY - drag.startY)}px`);
+      this.updateCardReorder(drag.lastClientY);
+    }
   }
 
   // Shift the surrounding cards to open a gap where the dragged card will land,
