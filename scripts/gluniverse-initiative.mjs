@@ -313,11 +313,15 @@ Hooks.once("ready", () => {
   overlay.mount();
   overlay.render();
   tokenOverlays = new TokenOverlayManager();
+  refreshNativeTurnMarkerSuppression();
 });
 
 Hooks.on("createCombat", () => overlay?.renderSoon());
 Hooks.on("preDeleteCombat", combat => overlay?.removeAllPF2eGuardBreakEffects(combat));
-Hooks.on("deleteCombat", () => overlay?.renderSoon());
+Hooks.on("deleteCombat", () => {
+  overlay?.renderSoon();
+  refreshNativeTurnMarkerSuppression();
+});
 Hooks.on("updateCombat", (combat, changed) => overlay?.onCombatUpdate(combat, changed));
 Hooks.on("createCombatant", () => overlay?.renderSoon());
 Hooks.on("preDeleteCombatant", combatant => overlay?.removePF2eGuardBreakEffect(combatant));
@@ -346,7 +350,11 @@ Hooks.on("renderTokenHUD", (hud, html, data) => {
 Hooks.on("combatRound", (_combat, updateData) => {
   if (typeof updateData?.round === "number") overlay?.showRoundSplash(updateData.round);
 });
-Hooks.on("canvasReady", () => tokenOverlays?.refresh());
+Hooks.on("canvasReady", () => {
+  tokenOverlays?.refresh();
+  refreshNativeTurnMarkerSuppression();
+});
+Hooks.on("refreshToken", token => hideNativeTurnMarker(token));
 
 function registerSettings() {
   const rerender = () => overlay?.renderSoon();
@@ -358,7 +366,7 @@ function registerSettings() {
     config: true,
     type: Boolean,
     default: true,
-    onChange: rerender
+    onChange: () => { rerender(); refreshNativeTurnMarkerSuppression(); }
   });
 
   game.settings.register(MODULE_ID, SETTINGS.edge, {
@@ -468,7 +476,7 @@ function registerSettings() {
     config: true,
     type: Boolean,
     default: true,
-    onChange: () => tokenOverlays?.forceRedraw()
+    onChange: () => { tokenOverlays?.forceRedraw(); refreshNativeTurnMarkerSuppression(); }
   });
 
   game.settings.register(MODULE_ID, SETTINGS.startMarkerEnabled, {
@@ -774,6 +782,8 @@ class GLUniverseInitiativeOverlay {
     if (typeof changed?.turn === "number" || typeof changed?.round === "number" || changed?.started === true) {
       this.captureTurnStartPosition(combat);
     }
+
+    if (changed?.started !== undefined) refreshNativeTurnMarkerSuppression();
 
     this.renderSoon();
   }
@@ -4037,6 +4047,70 @@ void main(void){
   gl_FragColor=vec4(col*a, a);
 }`;
 
+// Ground turn-indicator. A cinematic energy disc drawn BENEATH the token, larger
+// than the token footprint so it reads as a glowing pedestal rather than a status
+// frame on the art. Procedural and disposition-coloured (uColor / uColorHi):
+// a clear centre (token shows through), a bright torus band, drifting concentric
+// rings, rotating radial ticks, an orbiting comet sweep with a white-hot head and
+// flowing fbm energy. uActive demotes the whole thing for the "next" ring; uReduced
+// freezes motion for the reduced animation tier.
+const FX_FRAG_TURN = `
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform float uTime, uSeed, uActive, uReduced, uHigh;
+uniform vec3 uColor, uColorHi;
+${FX_GLSL_NOISE}
+#define TAU 6.28318530718
+void main(void){
+  vec2 uv = vTextureCoord - 0.5;
+  float dist = length(uv) * 2.0;            // 0 centre .. ~1 at sprite edge
+  float ang = atan(uv.y, uv.x);
+  float spin = uReduced > 0.5 ? 1.7 : uTime;   // frozen-but-posed when reduced
+
+  // Energy torus: clear centre (token shows), bright mid, soft outer fade.
+  float rMid = 0.66;
+  float band = smoothstep(0.32, rMid, dist) * (1.0 - smoothstep(rMid, 0.99, dist));
+
+  // Drifting concentric hairline rings.
+  float rings = pow(0.5 + 0.5 * sin(dist * 50.0 - spin * 2.0), 6.0) * band;
+
+  // Rotating radial ticks around the outer band.
+  float ticks = pow(0.5 + 0.5 * cos(ang * 40.0 + spin * 1.4), 16.0)
+              * smoothstep(0.5, 0.72, dist) * (1.0 - smoothstep(0.78, 0.99, dist));
+
+  // Orbiting comet sweep with a bright leading head.
+  float head = mod(ang - spin * 1.15, TAU);
+  float sweep = pow(smoothstep(2.4, 0.0, head), 1.4) * band;
+  float headGlow = pow(smoothstep(0.45, 0.0, head), 2.0) * band;
+
+  // Flowing fbm energy so the band shimmers like plasma.
+  float flow = gluFbm(vec2(ang * 3.0 + spin * 0.5, dist * 5.0 - spin));
+  float energy = (0.4 + 0.6 * flow) * band;
+
+  // A whisper of inner glow keeps the centre subtly lit without hiding the art.
+  float core = (1.0 - smoothstep(0.0, rMid, dist)) * 0.14;
+
+  float ringsW = uHigh > 0.5 ? 0.95 : 0.6;
+  float ticksW = uHigh > 0.5 ? 0.85 : 0.5;
+  float intensity = band * (0.45 + 0.6 * energy)
+                  + rings * ringsW + ticks * ticksW + sweep * 0.7 + core;
+  intensity *= (uActive > 0.5 ? 1.0 : 0.5);
+
+  float pulse = uReduced > 0.5 ? 1.0 : (0.85 + 0.15 * sin(uTime * (uActive > 0.5 ? 3.0 : 1.6)));
+  intensity *= pulse;
+
+  vec3 col = mix(uColor, uColorHi, clamp(rings + ticks + sweep * 0.5 + headGlow, 0.0, 1.0));
+  col = mix(col, vec3(1.0), clamp(headGlow * 0.85, 0.0, 1.0));   // white-hot comet tip
+
+  float a = clamp(intensity, 0.0, 1.0) * (uActive > 0.5 ? 0.96 : 0.66);
+  a *= smoothstep(1.0, 0.9, dist);          // clip to the disc; corners transparent
+  gl_FragColor = vec4(col * a, a);
+}`;
+
+function rgbFloat(hex) {
+  return [((hex >> 16) & 0xff) / 255, ((hex >> 8) & 0xff) / 255, (hex & 0xff) / 255];
+}
+
 class CardFXManager {
   constructor() {
     this.supported = false;
@@ -4443,13 +4517,24 @@ class TokenOverlayManager {
     root.addChild(echoWrap);
 
     const ringWrap = new PIXI.Container();    // anchored at the token centre
+
+    // Shader energy disc (the star of the show). A white sprite carrying the
+    // FX_FRAG_TURN filter; created lazily/defensively so a filter failure falls
+    // back to the hand-drawn ring below.
+    let fxSprite = null;
+    try {
+      if (globalThis.PIXI?.Sprite && globalThis.PIXI?.Texture?.WHITE) {
+        fxSprite = new PIXI.Sprite(PIXI.Texture.WHITE);
+        fxSprite.anchor.set(0.5);
+        fxSprite.visible = false;
+        ringWrap.addChild(fxSprite);
+      }
+    } catch { fxSprite = null; }
+
+    // Hand-drawn fallback ring (used only when shaders are unavailable).
     const glow = new PIXI.Graphics();
     const frame = new PIXI.Graphics();
-    const brackets = new PIXI.Graphics();
-    const sweep = new PIXI.Container();
-    const sweepGfx = new PIXI.Graphics();
-    sweep.addChild(sweepGfx);
-    ringWrap.addChild(glow, frame, brackets, sweep);
+    ringWrap.addChild(glow, frame);
 
     const chipBg = new PIXI.Graphics();
     const chip = new PIXI.Text("", {
@@ -4466,135 +4551,132 @@ class TokenOverlayManager {
     root.addChild(ringWrap);
 
     return {
-      root, connector, echoWrap, echo, ringWrap, glow, frame, brackets, sweep, sweepGfx, chipBg, chip,
+      root, connector, echoWrap, echo, ringWrap, glow, frame, chipBg, chip,
+      fxSprite, fxFilter: null, fxOn: false, fxStart: 0, discR: 0,
       token: null, role: null, disposition: null, shape: null, fidelity: null,
       w: 0, h: 0, origin: null, key: null,
-      phase: Math.random() * Math.PI * 2, sweepR: 0
+      phase: Math.random() * Math.PI * 2
     };
   }
 
-  // Draws the static geometry of a ground marker around its own local origin.
-  // The tick loop only repositions ringWrap, rotates the sweep, pulses alpha and
-  // redraws the (cheap) connector — so this runs only on a data/size change.
+  // Draws a ground marker around its own local origin. The disc is a procedural
+  // WebGL energy field sized LARGER than the token so it reads as a glowing
+  // pedestal the art sits on (not a frame on the art). The tick loop only
+  // repositions ringWrap, advances the shader clock and redraws the connector —
+  // so this runs only on a data/size change.
   _drawMarker(marker) {
-    const { glow, frame, brackets, sweepGfx, sweep, chipBg, chip, echo, role, shape, w, h } = marker;
+    const { glow, frame, chipBg, chip, echo, role, w, h } = marker;
     const colors = getDispositionColors(marker.disposition);
     const accent = colors.base;
     const hi = colors.hi;
     const high = marker.fidelity !== "balanced";
-    const isCircle = shape === "circle";
     const isActive = role === "active";
-    const r = Math.min(w, h) / 2;
+    const base = Math.max(w, h);
+    // Disc reaches well beyond the token footprint so it never hides under the art.
+    const discR = base * (isActive ? 1.0 : 0.85);
+    marker.discR = discR;
 
     glow.clear(); glow.filters = null;
-    frame.clear(); brackets.clear(); sweepGfx.clear();
-    sweep.visible = false; sweep.alpha = 0; sweep.rotation = 0;
+    frame.clear();
     chipBg.clear(); chip.text = ""; chip.visible = false;
     echo.clear();
 
-    // Start echo — a faint desaturated copy of the ring at the origin (active only).
-    // Drawn independently of the ring so the start toggle can be on with the turn
-    // toggle off.
+    // Start echo — a faint shader-less ring at the origin (active only). Drawn
+    // independently of the disc so the start toggle works with the turn toggle off.
     if (isActive && marker.showStart && marker.origin) {
-      echo.lineStyle({ width: 1.6, color: accent, alpha: 0.42, alignment: 0.5 });
-      if (isCircle) echo.drawCircle(0, 0, r * 0.82);
-      else echo.drawPolygon(this._groundFramePoints(w, h, Math.min(w, h) * 0.09));
-      echo.lineStyle({ width: 0.8, color: hi, alpha: 0.22, alignment: 1 });
-      if (isCircle) echo.drawCircle(0, 0, r * 0.82 - 1.2);
-      echo.beginFill(accent, 0.32);   // centre tick so an unmoved creature still reads
-      echo.drawCircle(0, 0, Math.max(2, r * 0.1));
+      const er = base * 0.7;
+      echo.lineStyle({ width: 2, color: accent, alpha: 0.5, alignment: 0.5 });
+      echo.drawCircle(0, 0, er);
+      echo.lineStyle({ width: 1, color: hi, alpha: 0.28, alignment: 1 });
+      echo.drawCircle(0, 0, er - 2);
+      echo.lineStyle({ width: 1, color: accent, alpha: 0.35 });   // crosshair ticks
+      for (let i = 0; i < 4; i++) {
+        const a = i * Math.PI / 2;
+        echo.moveTo(Math.cos(a) * (er - 5), Math.sin(a) * (er - 5));
+        echo.lineTo(Math.cos(a) * (er + 5), Math.sin(a) * (er + 5));
+      }
+      echo.beginFill(accent, 0.4);
+      echo.drawCircle(0, 0, Math.max(2.5, base * 0.05));
       echo.endFill();
     }
 
-    if (!marker.showRing) return;
-
-    // Soft outer glow (high fidelity only), brighter and wider for the active ring.
-    if (high) {
-      const gA = isActive ? 0.22 : 0.12;
-      const expand = isActive ? 5 : 3;
-      glow.lineStyle({ width: isActive ? 7 : 5, color: hi, alpha: gA, alignment: 0.5 });
-      if (isCircle) glow.drawCircle(0, 0, r + expand);
-      else glow.drawPolygon(this._groundFramePoints(w, h, -expand));
-      try { const blur = new PIXI.BlurFilter(isActive ? 5 : 3.5); blur.quality = 2; glow.filters = [blur]; } catch {}
+    if (!marker.showRing) {
+      marker.fxOn = false;
+      if (marker.fxSprite) marker.fxSprite.visible = false;
+      return;
     }
 
-    // Accent ring + inner hairline.
-    const ringA = isActive ? 0.92 : 0.6;
-    const ringW = isActive ? 2.6 : 1.8;
-    frame.lineStyle({ width: ringW, color: accent, alpha: ringA, alignment: 0.5 });
-    if (isCircle) frame.drawCircle(0, 0, r);
-    else frame.drawPolygon(this._groundFramePoints(w, h, 0));
-    frame.lineStyle({ width: 0.9, color: hi, alpha: isActive ? 0.3 : 0.18, alignment: 1 });
-    if (isCircle) frame.drawCircle(0, 0, r - (isActive ? 1.6 : 1.2));
-    else frame.drawPolygon(this._groundFramePoints(w, h, isActive ? 1.6 : 1.2));
+    // Shader energy disc — the primary visual.
+    marker.fxOn = this._setupMarkerFx(marker, discR * 2, colors, isActive, high);
 
-    // Corner bracket ticks — reuse the same tactical L-marks as the status frames,
-    // drawn in token-local space (centred), so re-centre by offsetting w/2,h/2.
-    brackets.position.set(-w / 2, -h / 2);
-    this._drawBrackets(brackets, w, h, r, w / 2, h / 2, isCircle, accent, isActive ? 0.85 : 0.55);
-
-    // Rotating holo sweep — active ring only (the "acting now" cue).
-    if (isActive) {
-      this._buildGroundSweep(marker, sweepGfx, r, isCircle, high, colors);
-      sweep.visible = true;
+    // Hand-drawn fallback (only when the shader is unavailable).
+    if (!marker.fxOn) {
+      if (high) {
+        glow.lineStyle({ width: isActive ? 9 : 6, color: hi, alpha: isActive ? 0.22 : 0.12, alignment: 0.5 });
+        glow.drawCircle(0, 0, discR * 0.86);
+        try { const blur = new PIXI.BlurFilter(isActive ? 6 : 4); blur.quality = 2; glow.filters = [blur]; } catch {}
+      }
+      frame.lineStyle({ width: isActive ? 3 : 2, color: accent, alpha: isActive ? 0.92 : 0.6, alignment: 0.5 });
+      frame.drawCircle(0, 0, discR * 0.82);
+      frame.lineStyle({ width: 1, color: hi, alpha: isActive ? 0.3 : 0.18 });
+      frame.drawCircle(0, 0, discR * 0.62);
     }
 
-    // "NEXT" chip — next ring only.
+    // "NEXT" chip — next ring only, above the disc.
     if (role === "next") {
-      const fontSize = clamp(Math.round(Math.max(w, h) * 0.1), 8, 13);
+      const fontSize = clamp(Math.round(base * 0.13), 9, 16);
       chip.style.fontSize = fontSize;
       chip.text = localize("GLUNI.TurnMarker.Next").toUpperCase();
       chip.visible = true;
-      const padX = fontSize * 0.6, padY = fontSize * 0.3;
+      const padX = fontSize * 0.62, padY = fontSize * 0.32;
       const cw = chip.width + padX * 2, ch = chip.height + padY * 2;
-      const cy = -r - ch * 0.7;
+      const cy = -discR * 0.86 - ch * 0.6;
       const cx = -cw / 2;
       const notch = clamp(ch * 0.42, 3, 7);
-      chipBg.beginFill(0x000000, 0.4);
+      chipBg.beginFill(0x000000, 0.45);
       chipBg.drawPolygon(this._chipPoints(cx, cy + 1, cw, ch, notch));
       chipBg.endFill();
       chipBg.beginFill(accent, 0.95);
       chipBg.drawPolygon(this._chipPoints(cx, cy, cw, ch, notch));
       chipBg.endFill();
-      chipBg.lineStyle({ width: 0.8, color: hi, alpha: 0.6 });
+      chipBg.lineStyle({ width: 1, color: hi, alpha: 0.65 });
       chipBg.drawPolygon(this._chipPoints(cx, cy, cw, ch, notch));
       chip.position.set(0, cy + ch / 2);
     }
   }
 
-  // Angled-corner ground frame centred on (0,0); `inset` shrinks it inward.
-  _groundFramePoints(w, h, inset) {
-    const n = clamp(Math.min(w, h) * 0.16, 5, 16);
-    const x0 = -w / 2 + inset, y0 = -h / 2 + inset, x1 = w / 2 - inset, y1 = h / 2 - inset;
-    return [
-      x0 + n, y0, x1, y0, x1, y1 - n, x1 - n, y1, x0, y1, x0, y0 + n
-    ];
-  }
-
-  _buildGroundSweep(marker, g, r, isCircle, high, colors) {
-    g.clear();
-    const stops = high
-      ? [
-          { col: colors.base, a: 0.0, span: 0.55 },
-          { col: colors.base, a: 0.5, span: 0.3 },
-          { col: colors.hi, a: 0.85, span: 0.1 },
-          { col: TOKEN_OVERLAY_PALETTE.white, a: 1.0, span: 0.05 }
-        ]
-      : [
-          { col: colors.base, a: 0.5, span: 0.4 },
-          { col: colors.hi, a: 0.9, span: 0.1 }
-        ];
-    const sweepR = isCircle ? r : Math.min(r, Math.hypot(marker.w, marker.h) / 2);
-    marker.sweepR = sweepR;
-    const arc = high ? Math.PI * 0.85 : Math.PI * 0.55;
-    const segCount = high ? 20 : 12;
-    for (let s = 0; s < segCount; s++) {
-      const t0 = s / segCount, t1 = (s + 1) / segCount;
-      const stop = this._sweepStop(stops, t0);
-      g.lineStyle({ width: (high ? 3 : 2.4), color: stop.col, alpha: stop.a * (0.4 + 0.6 * t0) });
-      const a0 = -arc + arc * t0, a1 = -arc + arc * t1;
-      g.moveTo(Math.cos(a0) * sweepR, Math.sin(a0) * sweepR);
-      g.lineTo(Math.cos(a1) * sweepR, Math.sin(a1) * sweepR);
+  // Attaches the FX_FRAG_TURN energy disc to the marker's sprite. Returns false
+  // (and hides the sprite) when filters are unavailable, so the hand-drawn ring
+  // fallback is used instead.
+  _setupMarkerFx(marker, size, colors, isActive, high) {
+    const sprite = marker.fxSprite;
+    if (!sprite) return false;
+    try {
+      if (!globalThis.PIXI?.Filter) { sprite.visible = false; return false; }
+      if (!marker.fxFilter) {
+        const filter = new PIXI.Filter(undefined, FX_FRAG_TURN, {
+          uTime: 0, uSeed: Math.random() * 100, uActive: 1, uReduced: 0, uHigh: 1,
+          uColor: [1, 1, 1], uColorHi: [1, 1, 1]
+        });
+        filter.padding = 0;
+        marker.fxFilter = filter;
+        marker.fxStart = this._time;
+      }
+      const filter = marker.fxFilter;
+      filter.uniforms.uColor = rgbFloat(colors.base);
+      filter.uniforms.uColorHi = rgbFloat(colors.hi);
+      filter.uniforms.uActive = isActive ? 1 : 0;
+      filter.uniforms.uHigh = high ? 1 : 0;
+      sprite.width = size;
+      sprite.height = size;
+      sprite.filters = [filter];
+      sprite.visible = true;
+      return true;
+    } catch (err) {
+      console.warn(`${MODULE_ID} | Turn-marker shader unavailable, using fallback`, err);
+      sprite.visible = false;
+      marker.fxFilter = null;
+      return false;
     }
   }
 
@@ -4618,28 +4700,22 @@ class TokenOverlayManager {
     const t = this._time;
     const isActive = marker.role === "active";
 
-    if (isActive && marker.sweep && !marker.sweep.destroyed) {
-      if (motion) {
-        const speed = intensity === "cinematic" ? 2.4 : 1.6;
-        const shimmer = 0.6 + 0.4 * Math.sin((t * 2 * Math.PI / (intensity === "cinematic" ? 0.7 : 1.0)) + marker.phase);
-        marker.sweep.alpha = (marker.fidelity === "balanced" ? 0.6 : 0.85) * shimmer;
-        if (marker.shape === "circle") marker.sweep.rotation = (t * speed) % (Math.PI * 2);
-        else marker.sweep.rotation = 0;
-      } else {
-        marker.sweep.alpha = 0.5;
-        marker.sweep.rotation = 0;
-      }
-    }
-
-    // Gentle breathing pulse on the ring frame.
-    if (motion) {
-      const period = isActive ? 1.6 : 3.0;
-      const pulse = 0.5 + 0.5 * Math.sin((t * 2 * Math.PI / period) + marker.phase);
-      marker.frame.alpha = (isActive ? 0.78 : 0.62) + (isActive ? 0.22 : 0.18) * pulse;
-      if (marker.glow) marker.glow.alpha = 0.6 + 0.4 * pulse;
+    // Drive the shader disc (rotation / shimmer / pulse all live in the shader).
+    if (marker.fxOn && marker.fxFilter && marker.fxSprite?.visible) {
+      const speed = intensity === "cinematic" ? 1.5 : 1.0;
+      marker.fxFilter.uniforms.uTime = (t - marker.fxStart) * speed;
+      marker.fxFilter.uniforms.uReduced = motion ? 0 : 1;
     } else {
-      marker.frame.alpha = 1;
-      if (marker.glow) marker.glow.alpha = 1;
+      // Hand-drawn fallback ring: a gentle breathing pulse.
+      if (motion) {
+        const period = isActive ? 1.6 : 3.0;
+        const pulse = 0.5 + 0.5 * Math.sin((t * 2 * Math.PI / period) + marker.phase);
+        marker.frame.alpha = (isActive ? 0.8 : 0.62) + (isActive ? 0.2 : 0.18) * pulse;
+        if (marker.glow) marker.glow.alpha = 0.6 + 0.4 * pulse;
+      } else {
+        marker.frame.alpha = 1;
+        if (marker.glow) marker.glow.alpha = 1;
+      }
     }
 
     // Start echo + connector (active only). Both anchor to the stored origin and
@@ -4690,6 +4766,9 @@ class TokenOverlayManager {
     if (!marker) return;
     if (!marker.root.destroyed) {
       try { if (marker.glow) marker.glow.filters = null; } catch {}
+      try { if (marker.fxSprite) marker.fxSprite.filters = null; } catch {}
+      try { marker.fxFilter?.destroy?.(); } catch {}
+      marker.fxFilter = null;
       if (marker.root.parent) marker.root.parent.removeChild(marker.root);
       marker.root.destroy({ children: true });
     }
@@ -5812,6 +5891,50 @@ function getCombatantTokenObject(combatant) {
     if (tokenId && document?.id === tokenId) return true;
     return !tokenId && combatant.actor?.id && token.actor?.id === combatant.actor.id;
   }) ?? null;
+}
+
+// While our cinematic turn ring is active we hide Foundry v13's built-in turn
+// marker so the two don't stack under the active token. We only suppress it when
+// OUR ring is actually drawing (module enabled + turn marker on + combat running),
+// so turning our ring off restores the native one. This hides the rendered object
+// rather than mutating the world setting, so it's fully reversible.
+function shouldSuppressNativeTurnMarker() {
+  try {
+    return Boolean(
+      overlay?.enabled &&
+      game.combat?.started &&
+      game.settings.get(MODULE_ID, SETTINGS.turnMarkerEnabled)
+    );
+  } catch { return false; }
+}
+
+function getNativeTurnMarkers(token) {
+  const markers = [];
+  if (token?.turnMarker) markers.push(token.turnMarker);
+  for (const child of token?.children ?? []) {
+    if (child && child !== token.turnMarker && /TurnMarker/.test(child.constructor?.name ?? "")) {
+      markers.push(child);
+    }
+  }
+  return markers;
+}
+
+function hideNativeTurnMarker(token) {
+  if (!token || !shouldSuppressNativeTurnMarker()) return;
+  for (const marker of getNativeTurnMarkers(token)) {
+    try { marker.visible = false; marker.renderable = false; } catch {}
+  }
+}
+
+// Re-evaluate every token: hide native markers while suppressing, or ask Foundry
+// to redraw them (so the native marker returns) once we stop.
+function refreshNativeTurnMarkerSuppression() {
+  const tokens = globalThis.canvas?.tokens?.placeables ?? [];
+  const suppress = shouldSuppressNativeTurnMarker();
+  for (const token of tokens) {
+    if (suppress) hideNativeTurnMarker(token);
+    else { try { token.renderFlags?.set?.({ refreshTurnMarker: true }); } catch {} }
+  }
 }
 
 function getDisposition(combatant, mystery) {
