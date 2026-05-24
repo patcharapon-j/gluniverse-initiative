@@ -2090,9 +2090,10 @@ class GLUniverseInitiativeOverlay {
     if (!state) return;
     if (state.anchorCombatantId === combatant.id && state.round === (combat.round ?? 1)) return;
 
-    await combatant.unsetFlag(MODULE_ID, FLAGS.guardBroken);
-    await this.removePF2eGuardBreakEffect(combatant);
-    this.broadcastRefresh();
+    // Route through clearGuardBreak so the gauge auto-replenishes in lockstep
+    // with the break state (it unsets the flag, removes the PF2e effect,
+    // refills the gauge to max, and broadcasts).
+    await this.clearGuardBreak(combatant);
   }
 
   queueGuardBreakImpact(data) {
