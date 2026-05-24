@@ -396,8 +396,8 @@ function registerSettings() {
     config: true,
     type: Number,
     range: {
-      min: 0.75,
-      max: 1.5,
+      min: 0.5,
+      max: 2.0,
       step: 0.05
     },
     default: 1,
@@ -842,7 +842,7 @@ class GLUniverseInitiativeOverlay {
 
   getRenderSettings() {
     const visibleCount = clamp(Number(game.settings.get(MODULE_ID, SETTINGS.visibleCount)) || 5, 1, 12);
-    const uiScale = clamp(Number(game.settings.get(MODULE_ID, SETTINGS.uiScale)) || 1, 0.75, 1.5);
+    const uiScale = clamp(Number(game.settings.get(MODULE_ID, SETTINGS.uiScale)) || 1, 0.5, 2.0);
 
     return {
       edge: game.settings.get(MODULE_ID, SETTINGS.edge) || "right",
