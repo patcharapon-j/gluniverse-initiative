@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Condition Halo — layout options</title>
+<title>Condition Halo — left-side fan</title>
 <style>
   :root {
     --gluni-cyan:#5eeaff; --gluni-white:#f3fbff; --gluni-red:#ff335f;
@@ -13,7 +13,7 @@
   }
   * { box-sizing:border-box; }
   body {
-    margin:0; min-height:100vh; padding:40px 30px 90px;
+    margin:0; min-height:100vh; padding:40px 30px 80px;
     font-family:"Bahnschrift","Share Tech Mono","JetBrains Mono",Consolas,monospace;
     color:var(--gluni-white);
     background:
@@ -27,15 +27,15 @@
   .sub { font-size:10px; color:var(--gluni-text-dim); text-align:center; margin:0 auto 26px; max-width:620px; line-height:1.7; }
 
   .controls {
-    display:flex; gap:24px; align-items:center; justify-content:center; flex-wrap:wrap;
-    margin:0 auto 34px; padding:12px 20px; width:max-content; max-width:100%;
+    display:flex; gap:22px; align-items:center; justify-content:center; flex-wrap:wrap;
+    margin:0 auto 32px; padding:12px 20px; width:max-content; max-width:100%;
     background:linear-gradient(120deg, rgba(10,18,24,0.6), rgba(2,7,11,0.6));
     box-shadow: inset 0 0 0 1px var(--gluni-line);
     clip-path: polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
   }
   .controls label { font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--gluni-text-dim); display:flex; align-items:center; gap:9px; }
-  .controls output { color:var(--gluni-cyan); font-weight:950; min-width:18px; text-align:center; }
-  input[type=range]{ accent-color:var(--gluni-cyan); width:150px; }
+  .controls output { color:var(--gluni-cyan); font-weight:950; min-width:30px; text-align:center; }
+  input[type=range]{ accent-color:var(--gluni-cyan); width:140px; }
   .seg { display:flex; gap:0; }
   .seg button {
     border:0; cursor:pointer; font:inherit; font-size:8.5px; font-weight:900; letter-spacing:0.1em;
@@ -44,27 +44,23 @@
   }
   .seg button.on { color:var(--gluni-ink); background:var(--gluni-cyan); }
 
-  .grid { display:flex; flex-wrap:wrap; gap:46px 56px; align-items:flex-start; justify-content:center; }
-  .opt { width:300px; }
-  .opt h2 { font-size:12px; letter-spacing:0.16em; text-transform:uppercase; font-weight:900; margin:0 0 3px; text-align:center; }
-  .opt .desc { font-size:9px; color:var(--gluni-text-dim); text-align:center; line-height:1.65; margin:0 auto 14px; min-height:42px; max-width:260px; }
+  .grid { display:flex; flex-wrap:wrap; gap:54px; align-items:flex-start; justify-content:center; }
+  .opt h2 { font-size:12px; letter-spacing:0.16em; text-transform:uppercase; font-weight:900; margin:0 0 12px; text-align:center; }
 
-  /* battlefield tile so the token reads as on-canvas */
+  /* battlefield tile */
   .stage {
-    position:relative; width:300px; height:300px; margin:0 auto;
+    position:relative; width:340px; height:340px; margin:0 auto;
     background:
       radial-gradient(circle at 50% 42%, rgba(40,58,74,0.55), rgba(7,12,17,0.9) 70%),
-      repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 50px),
-      repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 50px),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 56px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 56px),
       #0a0f15;
-    box-shadow: inset 0 0 0 1px var(--gluni-line), inset 0 0 60px rgba(0,0,0,0.6);
+    box-shadow: inset 0 0 0 1px var(--gluni-line), inset 0 0 70px rgba(0,0,0,0.6);
     overflow:hidden;
   }
+  .stage--big { width:430px; height:430px; }
 
-  /* ---- token + existing overlay (notched tactical frame, chip, pips) ---- */
-  .token {
-    position:absolute; left:50%; top:50%; width:138px; height:138px; transform:translate(-50%,-50%);
-  }
+  .token { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); }
   .token-art {
     position:absolute; inset:0;
     background:
@@ -72,10 +68,6 @@
       radial-gradient(circle at 50% 78%, rgba(255,177,45,0.18), transparent 60%);
     clip-path: polygon(16% 0,100% 0,100% 84%,84% 100%,0 100%,0 16%);
     box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5);
-  }
-  .token-art::after { /* fake silhouette */
-    content:""; position:absolute; left:50%; bottom:0; width:62%; height:74%; transform:translateX(-50%);
-    background:radial-gradient(ellipse at 50% 0, rgba(20,12,6,0.9), transparent 70%);
   }
   .token-face {
     position:absolute; left:50%; top:34%; width:40%; height:40%; transform:translate(-50%,-50%);
@@ -85,8 +77,6 @@
   }
   .frame { position:absolute; inset:0; pointer-events:none; }
   .frame svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
-
-  /* bottom tag chip (existing) */
   .chip {
     position:absolute; left:50%; bottom:6px; transform:translateX(-50%);
     color:var(--gluni-ink); background:linear-gradient(180deg, var(--gluni-amber-hot), var(--gluni-amber));
@@ -94,72 +84,79 @@
     clip-path: polygon(3px 0,100% 0,100% 100%,0 100%,0 3px);
     box-shadow:0 0 8px rgba(255,177,45,0.4);
   }
-  /* dying pips (existing) — sit just above the chip */
   .pips { position:absolute; left:50%; bottom:24px; transform:translateX(-50%); display:flex; gap:4px; }
   .pip { width:9px; height:9px; transform:rotate(45deg); background:rgba(180,151,255,0.18); box-shadow:inset 0 0 0 1px rgba(180,151,255,0.4); }
   .pip.on { background:var(--gluni-violet); box-shadow:0 0 6px var(--gluni-violet); }
 
-  /* ---- condition icon chip ---- */
+  /* condition chip */
   .cond {
     position:absolute; width:30px; height:30px; transform:translate(-50%,-50%);
-    --c:var(--gluni-cyan);
-    display:grid; place-items:center;
-    transition:left .45s cubic-bezier(.22,.61,.36,1), top .45s cubic-bezier(.22,.61,.36,1);
+    --c:var(--gluni-cyan); display:grid; place-items:center;
+    transition:left .42s cubic-bezier(.22,.61,.36,1), top .42s cubic-bezier(.22,.61,.36,1);
   }
   .cond-chip {
     position:absolute; inset:0;
-    background:linear-gradient(150deg, rgba(12,20,27,0.95), rgba(3,7,11,0.96));
+    background:linear-gradient(150deg, rgba(12,20,27,0.96), rgba(3,7,11,0.97));
     clip-path: polygon(50% 0,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);
     box-shadow:
-      inset 0 0 0 1.2px color-mix(in srgb, var(--c) 78%, transparent),
+      inset 0 0 0 1.2px color-mix(in srgb, var(--c) 80%, transparent),
       inset 0 0 7px color-mix(in srgb, var(--c) 22%, transparent),
-      0 0 9px color-mix(in srgb, var(--c) 32%, transparent),
-      0 2px 5px rgba(0,0,0,0.55);
+      0 0 9px color-mix(in srgb, var(--c) 34%, transparent),
+      0 2px 5px rgba(0,0,0,0.6);
   }
   .cond svg { position:relative; width:15px; height:15px; color:var(--c); filter:drop-shadow(0 0 3px color-mix(in srgb, var(--c) 55%, transparent)); }
   .cond .val {
-    position:absolute; right:-3px; bottom:-3px; z-index:2; min-width:13px; height:13px; padding:0 2px;
+    position:absolute; right:-3px; bottom:-3px; z-index:3; min-width:13px; height:13px; padding:0 2px;
     display:grid; place-items:center; font-size:8.5px; font-weight:950; line-height:1; color:var(--gluni-ink);
     background:linear-gradient(180deg, #fff, var(--c)); border-radius:3px;
     box-shadow:0 0 5px color-mix(in srgb, var(--c) 60%, transparent), 0 1px 2px rgba(0,0,0,0.7);
   }
   .cond.more .cond-chip { background:linear-gradient(150deg, rgba(20,26,34,0.96), rgba(8,11,16,0.96)); --c:var(--gluni-white); }
-  .cond.more .lbl { position:relative; font-size:9px; font-weight:950; color:var(--gluni-white); letter-spacing:0.02em; }
+  .cond.more .lbl { position:relative; font-size:9px; font-weight:950; color:var(--gluni-white); }
 
-  .legend { text-align:center; font-size:9px; color:var(--gluni-text-dim); margin-top:54px; line-height:1.8; }
+  .legend { text-align:center; font-size:9px; color:var(--gluni-text-dim); margin-top:46px; line-height:1.85; }
   .legend b { color:var(--gluni-white); font-weight:900; }
 </style>
 </head>
 <body>
-  <h1>Condition Halo &mdash; Layout Options</h1>
-  <p class="sub">A token in combat with the module's existing overlay (notched tactical frame, bottom DELAYED/BREAK chip, dying pips) plus a halo of status conditions. Drag the slider to see how each arrangement copes with few vs. many conditions. The last chip becomes a <b>+N</b> overflow when the cap is exceeded.</p>
+  <h1>Condition Halo &mdash; Left-Side Fan</h1>
+  <p class="sub">A tight fan of condition chips hugging the edge of the token, opposite the rail. Tune the <b>Tightness</b> until the packing feels right. The fan sits on the side facing <b>away</b> from the rail; flip the rail edge to confirm it mirrors.</p>
 
   <div class="controls">
-    <label>Conditions <input id="count" type="range" min="1" max="12" value="5"><output id="countOut">5</output></label>
+    <label>Conditions <input id="count" type="range" min="1" max="12" value="6"><output id="countOut">6</output></label>
+    <label>Tightness <input id="tight" type="range" min="13" max="34" value="19"><output id="tightOut">19&deg;</output></label>
     <label>Cap
       <span class="seg" id="capSeg">
-        <button data-cap="6" class="on">6</button>
-        <button data-cap="8">8</button>
+        <button data-cap="6">6</button>
+        <button data-cap="8" class="on">8</button>
         <button data-cap="99">none</button>
       </span>
     </label>
-    <label>Existing chrome
-      <span class="seg" id="chromeSeg">
-        <button data-chrome="on" class="on">show</button>
-        <button data-chrome="off">hide</button>
+    <label>Rail edge
+      <span class="seg" id="railSeg">
+        <button data-rail="right" class="on">right</button>
+        <button data-rail="left">left</button>
       </span>
     </label>
   </div>
 
-  <div class="grid" id="grid"></div>
+  <div class="grid">
+    <div class="opt">
+      <h2>Standard token</h2>
+      <div class="stage"><div class="token" data-size="138"></div></div>
+    </div>
+    <div class="opt">
+      <h2>Large token (2&times;2)</h2>
+      <div class="stage stage--big"><div class="token" data-size="210"></div></div>
+    </div>
+  </div>
 
   <p class="legend">
-    All four share the same chip styling, glow, value badges and overflow rule &mdash; only the <b>arrangement</b> differs.<br>
-    Animations: chips ease into position when conditions are added/removed (slide the counter slowly to preview).
+    Chips ease into place as conditions are added/removed &mdash; slide <b>Conditions</b> slowly to preview.<br>
+    Value badges (e.g. frightened&nbsp;<b>2</b>) sit bottom-right; the last slot collapses to <b>+N</b> past the cap.
   </p>
 
 <script>
-/* ---- condition library (glyph + tint) ---------------------------------- */
 const G = {
   frightened: '<path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M3 11c1.4-1.6 3-2.4 5-2.4s3.6.8 5 2.4M5 5.5h.01M11 5.5h.01"/>',
   sickened:   '<path fill="currentColor" d="M8 1.5C5 5 3.2 7.2 3.2 9.6A4.8 4.8 0 0 0 12.8 9.6C12.8 7.2 11 5 8 1.5Z"/>',
@@ -189,121 +186,80 @@ const POOL = [
   { key:'observed',   val:0, c:'#f3fbff' }
 ];
 
-const LAYOUTS = [
-  { id:'arc', name:'Top arc', desc:'Curves along the top edge — leaves the bottom chip & dying pips fully clear. Closest to pf2e-effects-halo.' },
-  { id:'ring', name:'Full ring', desc:'Evenly around the whole border. Most halo-like, but the bottom of the ring collides with the chip & pips.' },
-  { id:'stack', name:'Vertical stack', desc:'Column down the edge facing away from the rail. Predictable, scales to many icons, least cinematic.' },
-  { id:'fan', name:'Right-side fan', desc:'Quarter arc from top-right growing clockwise. Stays clear of the chip and reads as a status fan.' }
-];
+function framePoints(){ const n = 16; return `${n},0 100,0 100,${100-n} ${100-n},100 0,100 0,${n}`; }
 
-const TOKEN = 138, IS = 30;        // token + icon size (px) inside a 300 stage
-const STAGE = 300, C = STAGE / 2;  // stage centre
-const R = TOKEN / 2 + 12;          // halo radius from token centre
-
-function framePoints(){ // notched square matching the module silhouette (viewBox 0..100)
-  const n = 16;
-  return `${n},0 100,0 100,${100-n} ${100-n},100 0,100 0,${n}`;
+function buildToken(el){
+  const S = +el.dataset.size;
+  el.style.width = el.style.height = S + 'px';
+  el.innerHTML = `
+    <div class="token-art"></div>
+    <div class="token-face"></div>
+    <div class="frame"><svg viewBox="0 0 100 100" preserveAspectRatio="none">
+      <polygon points="${framePoints()}" fill="none" stroke="rgba(255,177,45,0.85)" stroke-width="1.6"/>
+      <polygon points="${framePoints()}" fill="none" stroke="rgba(255,224,112,0.35)" stroke-width="0.6" transform="scale(0.965)" transform-origin="50 50"/>
+    </svg></div>
+    <div class="pips"><span class="pip on"></span><span class="pip on"></span><span class="pip"></span><span class="pip"></span></div>
+    <div class="chip">BREAK</div>
+    <div class="halo"></div>`;
 }
 
-function buildStage(layout){
-  const wrap = document.createElement('div');
-  wrap.className = 'opt';
-  wrap.innerHTML = `
-    <h2>${layout.name}</h2>
-    <div class="desc">${layout.desc}</div>
-    <div class="stage">
-      <div class="token">
-        <div class="token-art"></div>
-        <div class="token-face"></div>
-        <div class="frame">
-          <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-            <polygon points="${framePoints()}" fill="none" stroke="rgba(255,177,45,0.85)" stroke-width="1.6"/>
-            <polygon points="${framePoints()}" fill="none" stroke="rgba(255,224,112,0.35)" stroke-width="0.6" transform="scale(0.965)" transform-origin="50 50"/>
-          </svg>
-        </div>
-        <div class="pips"><span class="pip on"></span><span class="pip on"></span><span class="pip"></span><span class="pip"></span></div>
-        <div class="chip">BREAK</div>
-      </div>
-      <div class="halo" data-layout="${layout.id}"></div>
-    </div>`;
-  return wrap;
-}
-
-/* position list for n icons under a given layout (returns [{x,y}] in stage px) */
-function positions(layout, n){
+/* Fan on the side facing away from the rail. Anchored near the top of that
+   edge, growing downward; angle step = tightness. */
+function fanPositions(stageW, stageH, tokenS, n, stepDeg, railRight){
+  const cx = stageW/2, cy = stageH/2;
+  const R = tokenS/2 + 13;
+  // rail on right -> fan on LEFT (face left, base angle 180); rail left -> right (0)
+  const base = railRight ? 180 : 0;
+  const dir  = railRight ? 1 : -1;        // sweep downward on the chosen side
+  const startDeg = base - dir * ((n-1)*stepDeg)/2 - 18; // bias slightly upward
   const out = [];
-  if (layout === 'ring'){
-    for (let i=0;i<n;i++){
-      const a = -Math.PI/2 + (i/n)*Math.PI*2;     // start at top, full circle
-      out.push({ x:C+Math.cos(a)*R, y:C+Math.sin(a)*R });
-    }
-  } else if (layout === 'arc'){
-    const stepDeg = 26, total = (n-1)*stepDeg;     // symmetric around top (-90)
-    for (let i=0;i<n;i++){
-      const a = (-90 - total/2 + i*stepDeg) * Math.PI/180;
-      out.push({ x:C+Math.cos(a)*R, y:C+Math.sin(a)*R });
-    }
-  } else if (layout === 'fan'){
-    const start = -55, stepDeg = 30;               // top-right, growing clockwise
-    for (let i=0;i<n;i++){
-      const a = (start + i*stepDeg) * Math.PI/180;
-      out.push({ x:C+Math.cos(a)*R, y:C+Math.sin(a)*R });
-    }
-  } else { // stack — column on the left edge, top-aligned
-    const x = C - TOKEN/2 - IS*0.55;
-    const top = C - TOKEN/2 + IS*0.4;
-    for (let i=0;i<n;i++) out.push({ x, y: top + i*(IS+4) });
+  for (let i=0;i<n;i++){
+    const a = (startDeg + dir * i*stepDeg) * Math.PI/180;
+    out.push({ x:cx + Math.cos(a)*R, y:cy + Math.sin(a)*R });
   }
   return out;
 }
 
 function render(){
   const total = +document.getElementById('count').value;
+  const step  = +document.getElementById('tight').value;
+  const cap   = +document.querySelector('#capSeg button.on').dataset.cap;
+  const railRight = document.querySelector('#railSeg button.on').dataset.rail === 'right';
   document.getElementById('countOut').textContent = total;
-  const cap = +document.querySelector('#capSeg button.on').dataset.cap;
-  const chromeOn = document.querySelector('#chromeSeg button.on').dataset.chrome === 'on';
+  document.getElementById('tightOut').innerHTML = step + '&deg;';
 
   const shown = Math.min(total, cap);
-  const overflow = total - shown;                 // how many hidden behind +N
-  const visibleCount = overflow > 0 ? shown : total; // includes the +N chip slot if overflow
+  const overflow = total - shown;
+  const visibleCount = overflow > 0 ? shown : total;
 
-  document.querySelectorAll('.opt').forEach(opt=>{
-    opt.querySelector('.token').style.opacity = chromeOn ? 1 : 0.32;
-    const halo = opt.querySelector('.halo');
-    const layout = halo.dataset.layout;
-    const pos = positions(layout, visibleCount);
-
-    // build chip data: real conditions, last slot = +N if overflow
-    const items = [];
+  document.querySelectorAll('.stage').forEach(stage=>{
+    const tokenEl = stage.querySelector('.token');
+    const S = +tokenEl.dataset.size;
+    const rect = stage.getBoundingClientRect();
+    const pos = fanPositions(rect.width, rect.height, S, visibleCount, step, railRight);
     const realCount = overflow > 0 ? visibleCount - 1 : visibleCount;
-    for (let i=0;i<realCount;i++) items.push(POOL[i % POOL.length]);
-    let html = items.map((d,i)=>{
-      const p = pos[i];
-      const valBadge = d.val>0 ? `<span class="val">${d.val}</span>` : '';
-      return `<div class="cond" style="left:${p.x}px;top:${p.y}px;--c:${d.c}">
-        <div class="cond-chip"></div>
-        <svg viewBox="0 0 16 16">${G[d.key]}</svg>${valBadge}</div>`;
-    }).join('');
+    const halo = tokenEl.querySelector('.halo');
+    // halo lives inside token (centered); convert stage coords -> token-local
+    const offX = (rect.width - S)/2, offY = (rect.height - S)/2;
+    let html = '';
+    for (let i=0;i<realCount;i++){
+      const d = POOL[i % POOL.length], p = pos[i];
+      const val = d.val>0 ? `<span class="val">${d.val}</span>` : '';
+      html += `<div class="cond" style="left:${p.x-offX}px;top:${p.y-offY}px;--c:${d.c}">
+        <div class="cond-chip"></div><svg viewBox="0 0 16 16">${G[d.key]}</svg>${val}</div>`;
+    }
     if (overflow > 0){
       const p = pos[visibleCount-1];
-      html += `<div class="cond more" style="left:${p.x}px;top:${p.y}px">
-        <div class="cond-chip"></div><span class="lbl">+${overflow}</span></div>`;
+      html += `<div class="cond more" style="left:${p.x-offX}px;top:${p.y-offY}px"><div class="cond-chip"></div><span class="lbl">+${overflow}</span></div>`;
     }
     halo.innerHTML = html;
   });
 }
 
-/* build */
-const grid = document.getElementById('grid');
-LAYOUTS.forEach(l=>grid.appendChild(buildStage(l)));
-
-/* wire controls */
-document.getElementById('count').addEventListener('input', render);
-document.querySelectorAll('#capSeg button').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('#capSeg button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
-}));
-document.querySelectorAll('#chromeSeg button').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('#chromeSeg button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
+document.querySelectorAll('.token').forEach(buildToken);
+['count','tight'].forEach(id=>document.getElementById(id).addEventListener('input', render));
+document.querySelectorAll('#capSeg button, #railSeg button').forEach(b=>b.addEventListener('click',()=>{
+  b.parentElement.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
 }));
 render();
 </script>
