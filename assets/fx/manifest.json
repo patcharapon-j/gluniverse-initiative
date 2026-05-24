@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "loopSeconds": 3,
+  "channels": "R=core G=highlight B=revealOrder A=coverage",
+  "effects": {
+    "break": {
+      "token": {
+        "file": "break-token.png",
+        "frameSize": 256,
+        "frames": 40,
+        "cols": 8,
+        "rows": 5,
+        "atlasWidth": 2048,
+        "atlasHeight": 1280
+      },
+      "card": {
+        "file": "break-card.png",
+        "frameSize": 512,
+        "frames": 40,
+        "cols": 8,
+        "rows": 5,
+        "atlasWidth": 4096,
+        "atlasHeight": 2560
+      }
+    },
+    "dying": {
+      "token": {
+        "file": "dying-token.png",
+        "frameSize": 256,
+        "frames": 40,
+        "cols": 8,
+        "rows": 5,
+        "atlasWidth": 2048,
+        "atlasHeight": 1280
+      },
+      "card": {
+        "file": "dying-card.png",
+        "frameSize": 512,
+        "frames": 40,
+        "cols": 8,
+        "rows": 5,
+        "atlasWidth": 4096,
+        "atlasHeight": 2560
+      }
+    }
+  }
+}

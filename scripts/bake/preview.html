@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<!--
+  GLUniverse FX atlas — live playback preview (sign-off tool for issue #5).
+
+  Plays the baked, channel-packed atlases through the SAME trivial playback
+  shaders the runtime uses (mirrors PLAYBACK_FRAG_* in shaders.mjs). Use it to
+  eyeball: seamless loop, progressive damage reveal (B channel), circle vs
+  square masking, and per-token phase offset. No fbm runs here — pure atlas play.
+
+  Serve from the repo root so the relative asset paths resolve, e.g.:
+      python3 -m http.server
+  then open  http://localhost:8000/scripts/bake/preview.html
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>GLUniverse FX atlas preview</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b0b0f; color: #d8d8e0; font: 13px/1.5 "Segoe UI", system-ui, sans-serif; }
+  header { padding: 14px 18px; border-bottom: 1px solid #23232c; }
+  h1 { margin: 0 0 2px; font-size: 15px; letter-spacing: .04em; }
+  header p { margin: 0; color: #8b8b98; font-size: 12px; }
+  main { display: flex; gap: 22px; padding: 20px; flex-wrap: wrap; }
+  .stage { background:
+      radial-gradient(120% 90% at 50% 30%, #2b2330 0%, #14141b 60%, #0c0c12 100%);
+      border: 1px solid #2a2a35; border-radius: 10px; padding: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(var(--n,1), auto); gap: 14px; }
+  canvas { display: block; border-radius: 8px; image-rendering: auto; background: #111; }
+  .cap { text-align: center; color: #7d7d8c; font-size: 11px; margin-top: 6px; }
+  aside { min-width: 240px; }
+  label { display: block; margin: 12px 0 4px; color: #aeaebd; font-size: 12px; }
+  select, input[type=range] { width: 100%; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row input[type=checkbox] { width: auto; }
+  .val { color: #f0c46a; font-variant-numeric: tabular-nums; }
+  .seam { color: #8be08b; }
+  code { background:#1a1a22; padding:1px 5px; border-radius:4px; color:#cfcfe0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>GLUniverse break / dying FX — baked atlas playback</h1>
+  <p>Sign-off preview for issue #5. Live fbm noise is gone; this is the trivial atlas sampler the runtime will use.</p>
+</header>
+<main>
+  <div class="stage">
+    <div class="grid" id="grid"></div>
+  </div>
+  <aside>
+    <label>Effect</label>
+    <select id="effect"><option value="break">Break (cracks)</option><option value="dying">Dying (veins)</option></select>
+    <label>Tier</label>
+    <select id="tier"><option value="card">Card (512)</option><option value="token">Token (256)</option></select>
+    <label>Damage / intensity <span class="val" id="ratioV">1.00</span> &nbsp;<small>(B-channel reveal)</small></label>
+    <input type="range" id="ratio" min="0" max="1" step="0.01" value="1" />
+    <div class="row"><label style="margin:12px 0 0">Shape mask</label></div>
+    <div class="row"><input type="checkbox" id="circle" /> <span>Clip to circle (token)</span></div>
+    <label>Playback speed <span class="val" id="speedV">1.0x</span></label>
+    <input type="range" id="speed" min="0" max="3" step="0.1" value="1" />
+    <label>Phase scrub <span class="val" id="phaseV">auto</span></label>
+    <input type="range" id="phase" min="0" max="1" step="0.005" value="0" />
+    <div class="row"><input type="checkbox" id="auto" checked /> <span>Auto-play loop</span></div>
+    <div class="row"><input type="checkbox" id="multi" /> <span>3× per-token phase offset</span></div>
+    <p style="margin-top:16px;color:#7d7d8c">Loop length: <span id="looplen">3</span>s. Watch the wrap point for a pop; drag <code>Damage</code> from 0→1 to see cracks grow.</p>
+  </aside>
+</main>
+
+<script type="module">
+import { PLAYBACK_FRAG_BREAK, PLAYBACK_FRAG_DYING, TINTS } from "./shaders.mjs";
+
+const VERT = `attribute vec2 aPos; varying vec2 vTextureCoord;
+uniform vec4 uFrame; // x,y = uv offset of frame in atlas; z,w = uv size
+void main(){ vec2 uv = aPos*0.5+0.5; vTextureCoord = uFrame.xy + uv*uFrame.zw;
+  gl_Position = vec4(aPos.x, -aPos.y, 0.0, 1.0); }`;
+
+const ASSET = "../../assets/fx/";
+let manifest = { loopSeconds: 3, effects: {
+  break: { card:{file:"break-card.png",frameSize:512,frames:40,cols:8,rows:5,atlasWidth:4096,atlasHeight:2560},
+           token:{file:"break-token.png",frameSize:256,frames:40,cols:8,rows:5,atlasWidth:2048,atlasHeight:1280} },
+  dying: { card:{file:"dying-card.png",frameSize:512,frames:40,cols:8,rows:5,atlasWidth:4096,atlasHeight:2560},
+           token:{file:"dying-token.png",frameSize:256,frames:40,cols:8,rows:5,atlasWidth:2048,atlasHeight:1280} } } };
+try { manifest = await (await fetch(ASSET + "manifest.json")).json(); } catch {}
+document.getElementById("looplen").textContent = manifest.loopSeconds;
+
+const texCache = new Map();
+function loadTex(gl, file) {
+  if (texCache.has(file)) return texCache.get(file);
+  const tex = gl.createTexture();
+  const img = new Image();
+  const rec = { tex, ready: false };
+  img.onload = () => {
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    rec.ready = true;
+  };
+  img.src = ASSET + file;
+  texCache.set(file, rec);
+  return rec;
+}
+
+function makeProg(gl, frag) {
+  const c = (t, s) => { const sh = gl.createShader(t); gl.shaderSource(sh, s); gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(sh); return sh; };
+  const p = gl.createProgram();
+  gl.attachShader(p, c(gl.VERTEX_SHADER, VERT));
+  gl.attachShader(p, c(gl.FRAGMENT_SHADER, frag));
+  gl.linkProgram(p);
+  return p;
+}
+
+const ui = id => document.getElementById(id);
+const grid = ui("grid");
+let instances = [];
+
+function rebuild() {
+  grid.innerHTML = "";
+  instances = [];
+  const n = ui("multi").checked ? 3 : 1;
+  grid.style.setProperty("--n", n);
+  for (let i = 0; i < n; i++) {
+    const wrap = document.createElement("div");
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = 320;
+    const gl = cv.getContext("webgl", { premultipliedAlpha: true, alpha: true });
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+    const progs = { break: makeProg(gl, PLAYBACK_FRAG_BREAK), dying: makeProg(gl, PLAYBACK_FRAG_DYING) };
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    const cap = document.createElement("div");
+    cap.className = "cap";
+    wrap.appendChild(cv); wrap.appendChild(cap);
+    grid.appendChild(wrap);
+    instances.push({ gl, buf, progs, cap, phaseOff: n === 1 ? 0 : (i * 0.37) % 1 });
+  }
+}
+
+function draw(now) {
+  const effect = ui("effect").value;
+  const tier = ui("tier").value;
+  const info = manifest.effects[effect][tier];
+  const ratio = parseFloat(ui("ratio").value);
+  const circle = ui("circle").checked;
+  const speed = parseFloat(ui("speed").value);
+  const auto = ui("auto").checked;
+  ui("ratioV").textContent = ratio.toFixed(2);
+  ui("speedV").textContent = speed.toFixed(1) + "x";
+  const loopMs = manifest.loopSeconds * 1000;
+  let basePhase;
+  if (auto) { basePhase = ((now * speed) % loopMs) / loopMs; ui("phase").value = basePhase.toFixed(3); ui("phaseV").textContent = "auto"; }
+  else { basePhase = parseFloat(ui("phase").value); ui("phaseV").textContent = basePhase.toFixed(2); }
+
+  const tint = TINTS[effect];
+  const rec = null;
+  for (const inst of instances) {
+    const { gl, progs } = inst;
+    const t = loadTex(gl, info.file);
+    gl.viewport(0, 0, 320, 320);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    if (!t.ready) { inst.cap.textContent = "loading…"; continue; }
+    const phase = (basePhase + inst.phaseOff) % 1;
+    const frame = Math.floor(phase * info.frames) % info.frames;
+    const col = frame % info.cols, row = Math.floor(frame / info.cols);
+    const fw = info.frameSize / info.atlasWidth, fh = info.frameSize / info.atlasHeight;
+    const prog = progs[effect];
+    gl.useProgram(prog);
+    const aPos = gl.getAttribLocation(prog, "aPos");
+    gl.bindBuffer(gl.ARRAY_BUFFER, inst.buf);
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, t.tex);
+    gl.uniform1i(gl.getUniformLocation(prog, "uSampler"), 0);
+    gl.uniform1f(gl.getUniformLocation(prog, "uAspect"), 1);
+    gl.uniform1f(gl.getUniformLocation(prog, "uClipCircle"), circle ? 1 : 0);
+    gl.uniform1f(gl.getUniformLocation(prog, "uRatio"), ratio);
+    gl.uniform3fv(gl.getUniformLocation(prog, "uCoreTint"), tint.core);
+    gl.uniform3fv(gl.getUniformLocation(prog, "uHotTint"), tint.hot);
+    gl.uniform4f(gl.getUniformLocation(prog, "uFrame"), col * fw, 1 - (row + 1) * fh, fw, fh);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    inst.cap.textContent = `frame ${frame}/${info.frames} · phase ${phase.toFixed(2)}`;
+  }
+  requestAnimationFrame(draw);
+}
+
+["effect","tier"].forEach(id => ui(id).addEventListener("change", () => {}));
+ui("multi").addEventListener("change", rebuild);
+rebuild();
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

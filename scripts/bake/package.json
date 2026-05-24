@@ -1,0 +1,15 @@
+{
+  "name": "gluniverse-fx-bake",
+  "private": true,
+  "type": "module",
+  "description": "Offline, maintainer-only bake harness for the GLUniverse break/dying FX atlases. Not shipped; the module only loads the generated PNGs in assets/fx/.",
+  "scripts": {
+    "bake": "xvfb-run -a node bake.mjs",
+    "bake:nox": "node bake.mjs",
+    "qc": "xvfb-run -a node qc.mjs"
+  },
+  "dependencies": {
+    "gl": "^8.1.6",
+    "pngjs": "^7.0.0"
+  }
+}

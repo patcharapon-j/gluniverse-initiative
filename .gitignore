@@ -5,3 +5,6 @@ Thumbs.db
 .vscode/
 node_modules/
 dist/
+
+# Regenerable FX QC sheets (run `npm --prefix scripts/bake run qc`)
+assets/fx/qc-*.png
