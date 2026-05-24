@@ -4826,8 +4826,9 @@ class TokenOverlayManager {
     const high = marker.fidelity !== "balanced";
     const isActive = role === "active";
     const base = Math.max(w, h);
-    // Disc reaches well beyond the token footprint so it never hides under the art.
-    const discR = base * (isActive ? 1.0 : 0.85);
+    // Disc sits just outside the token footprint — a tight pedestal that hugs the
+    // art rather than a wide halo on the floor.
+    const discR = base * (isActive ? 0.68 : 0.58);
     marker.discR = discR;
 
     glow.clear(); glow.filters = null;
