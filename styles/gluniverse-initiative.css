@@ -110,8 +110,17 @@
   color: var(--gluni-white);
   cursor: grab;
   pointer-events: auto;
+  opacity: 0;
   clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px);
-  transition: box-shadow var(--gluni-d-quick) var(--gluni-ease);
+  transition:
+    box-shadow var(--gluni-d-quick) var(--gluni-ease),
+    opacity var(--gluni-d-quick) var(--gluni-ease);
+}
+
+.gluni-initiative:hover .gluni-drag-handle,
+.gluni-initiative--dragging .gluni-drag-handle,
+.gluni-drag-handle:focus-visible {
+  opacity: 1;
 }
 
 .gluni-drag-handle:disabled {
