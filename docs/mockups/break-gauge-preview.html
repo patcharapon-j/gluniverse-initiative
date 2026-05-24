@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Break Gauge — as-built preview</title>
+<style>
+  :root {
+    --gluni-cyan:#5eeaff; --gluni-white:#f3fbff; --gluni-red:#ff335f;
+    --gluni-break:#ffb12d; --gluni-break-hot:#ffe070; --gluni-break-deep:#ff6f1a;
+    --gluni-ink:#02070b; --gluni-line:rgba(244,252,255,0.10);
+    --gluni-line-strong:rgba(244,252,255,0.55); --gluni-text-dim:rgba(243,251,255,0.62);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; min-height:100vh; padding:40px 30px 70px;
+    font-family:"Bahnschrift","Share Tech Mono","JetBrains Mono",Consolas,monospace;
+    color:var(--gluni-white);
+    background:
+      radial-gradient(circle at 30% 20%, rgba(94,234,255,0.06), transparent 42%),
+      radial-gradient(circle at 78% 80%, rgba(255,177,45,0.08), transparent 46%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 46px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 46px),
+      #05090d;
+    display:flex; flex-wrap:wrap; gap:54px; align-items:flex-start; justify-content:center;
+  }
+  h2 { font-size:11px; letter-spacing:0.22em; text-transform:uppercase; color:var(--gluni-text-dim); font-weight:950; margin:0 0 12px; text-align:center; }
+  .col { width: 210px; }
+  .caption { font-size:9px; color:var(--gluni-text-dim); text-align:center; margin-top:10px; letter-spacing:0.06em; line-height:1.5; }
+
+  /* fake initiative card shell (approx the real .gluni-card) */
+  .card {
+    position:relative; width:188px; min-height:60px; margin:0 auto 6px;
+    display:grid; align-items:end;
+    background:linear-gradient(120deg, rgba(10,18,24,0.6), rgba(2,7,11,0.6)),
+               linear-gradient(180deg, #243042, #0c1118);
+    box-shadow: inset 0 0 0 1px var(--gluni-line);
+    clip-path: polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);
+    overflow:hidden;
+  }
+  .card::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--gluni-cyan); box-shadow:0 0 10px var(--gluni-cyan); }
+  .card.active::before { width:4px; }
+  .card .portrait { position:absolute; inset:0; background:linear-gradient(160deg,#3a4a63,#10161f); opacity:0.5; }
+  .content { position:relative; z-index:2; padding:8px 42px 9px 12px; }
+  .kicker { display:flex; gap:4px; margin-bottom:3px; min-height:11px; }
+  .kicker span { font-size:6.5px; font-weight:950; letter-spacing:0.16em; padding:2px 4px 1px; line-height:1; clip-path:polygon(2px 0,100% 0,100% 100%,0 100%,0 2px); }
+  .tag-turn { color:var(--gluni-ink); background:var(--gluni-cyan); }
+  .tag-break { color:var(--gluni-ink); background:linear-gradient(180deg,var(--gluni-break-hot),var(--gluni-break)); }
+  .content h3 { margin:0; font-size:13px; font-weight:800; letter-spacing:0.02em; }
+  .badge { position:absolute; right:8px; bottom:6px; z-index:3; font-size:17px; font-weight:950; color:var(--gluni-cyan); font-variant-numeric:tabular-nums; }
+  .card.broken { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gluni-break) 74%, var(--gluni-line)), 0 0 22px rgba(255,177,45,0.4); }
+  .card.broken::before { background:var(--gluni-break); box-shadow:0 0 14px var(--gluni-break-hot); }
+  .card.broken .badge { color:var(--gluni-break-hot); }
+
+  /* ===== ACTUAL break-gauge CSS (copied from the stylesheet) ===== */
+  .gluni-break-gauge { display:grid; grid-template-columns:auto 1fr auto; grid-template-areas:"tag bar value"; align-items:center; column-gap:4px; margin-top:3px; }
+  .gluni-break-gauge-tag { grid-area:tag; color:var(--gluni-ink); background:linear-gradient(180deg,var(--gluni-break-hot),var(--gluni-break)); padding:2px 3px 1px; font-size:6.5px; font-weight:950; line-height:1; letter-spacing:0.16em; clip-path:polygon(2px 0,100% 0,100% 100%,0 100%,0 2px); }
+  .gluni-break-gauge-value { grid-area:value; color:var(--gluni-break-hot); font-size:8.5px; font-weight:950; font-variant-numeric:tabular-nums; white-space:nowrap; text-shadow:0 0 8px color-mix(in srgb,var(--gluni-break) 55%,transparent),0 1px 2px rgba(0,0,0,0.9); }
+  .gluni-break-gauge-value small { font-size:6.5px; color:var(--gluni-text-dim); }
+  .gluni-break-gauge-bar { grid-area:bar; position:relative; height:7px; background:rgba(255,177,45,0.1); box-shadow:inset 0 0 0 1px rgba(255,177,45,0.28); clip-path:polygon(2px 0,100% 0,100% 100%,0 100%,0 2px); overflow:hidden; }
+  .gluni-break-gauge-fill { position:absolute; inset:0 auto 0 0; background:linear-gradient(90deg,var(--gluni-break-deep),var(--gluni-break) 62%,var(--gluni-break-hot)); box-shadow:0 0 8px color-mix(in srgb,var(--gluni-break) 70%,transparent); }
+  .gluni-break-gauge-fill::after { content:""; position:absolute; right:0; top:0; bottom:0; width:2px; background:var(--gluni-white); box-shadow:0 0 6px var(--gluni-break-hot); }
+  .gluni-break-gauge-segs { grid-area:bar; display:flex; gap:2px; height:8px; }
+  .gluni-break-gauge-seg { flex:1 1 0; min-width:1px; background:rgba(255,177,45,0.08); box-shadow:inset 0 0 0 1px rgba(255,177,45,0.22); clip-path:polygon(2px 0,100% 0,100% 100%,0 100%,0 2px); }
+  .gluni-break-gauge-seg--on { background:linear-gradient(180deg,var(--gluni-break-hot),var(--gluni-break) 70%,var(--gluni-break-deep)); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--gluni-break-hot) 60%,transparent),0 0 6px color-mix(in srgb,var(--gluni-break) 55%,transparent); }
+  .gluni-break-gauge--empty .gluni-break-gauge-value { color:var(--gluni-break-deep); }
+
+  /* token + floating gauge bar mock */
+  .token-wrap { display:flex; flex-direction:column; align-items:center; gap:0; }
+  .token-gauge { width:120px; }
+  .token-gauge .num { text-align:center; font-size:10px; font-weight:950; color:var(--gluni-break-hot); margin-bottom:2px; }
+  .token-gauge .bar { position:relative; height:8px; background:#1a0f02; box-shadow:inset 0 0 0 1px var(--gluni-break); }
+  .token-gauge .bar i { position:absolute; inset:0 auto 0 0; background:var(--gluni-break); }
+  .token-gauge .bar i::after { content:""; position:absolute; right:0; top:0; bottom:0; width:2px; background:var(--gluni-white); box-shadow:0 0 6px var(--gluni-break-hot); }
+  .token { width:120px; height:120px; margin-top:8px; border-radius:50%; background:radial-gradient(circle at 40% 35%, #4a5e7a, #16202c); box-shadow:0 0 0 2px rgba(255,177,45,0.85), 0 0 24px rgba(255,177,45,0.4); display:grid; place-items:center; color:var(--gluni-text-dim); font-size:9px; letter-spacing:0.15em; }
+
+  /* editor popover mock */
+  .editor { width:168px; margin:0 auto; padding:8px; display:grid; gap:7px;
+    background:linear-gradient(135deg, rgba(18,9,2,0.96), rgba(10,7,4,0.94));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gluni-break) 40%, var(--gluni-line)), 0 10px 28px rgba(0,0,0,0.42);
+    clip-path: polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px); }
+  .editor .title { color:var(--gluni-break-hot); font-size:8px; font-weight:950; letter-spacing:0.2em; text-transform:uppercase; }
+  .editor .field { display:grid; gap:5px; }
+  .editor .field span { color:rgba(243,251,255,0.68); font-size:8px; font-weight:950; letter-spacing:0.16em; text-transform:uppercase; }
+  .editor .field input { height:28px; border:1px solid rgba(224,246,255,0.22); border-radius:3px; background:rgba(0,0,0,0.46); color:var(--gluni-white); font:inherit; font-size:13px; font-weight:950; text-align:right; padding:0 6px; }
+  .editor .row { display:grid; grid-template-columns:28px 1fr 28px; gap:4px; }
+  .editor .step { height:24px; border:0; color:rgba(243,251,255,0.88); background:rgba(3,8,12,0.86); box-shadow:inset 0 0 0 1px var(--gluni-line); cursor:pointer; clip-path:polygon(4px 0,100% 0,100% 100%,0 100%,0 4px); }
+  .editor .modes { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+  .editor .modes button { height:24px; border:0; color:rgba(243,251,255,0.82); background:rgba(3,8,12,0.86); box-shadow:inset 0 0 0 1px var(--gluni-line); font:inherit; font-size:8px; font-weight:950; letter-spacing:0.1em; cursor:pointer; clip-path:polygon(4px 0,100% 0,100% 100%,0 100%,0 4px); }
+  .editor .modes button.active { color:var(--gluni-ink); background:linear-gradient(180deg,var(--gluni-break-hot),var(--gluni-break)); }
+  .editor .btns { display:flex; gap:4px; }
+  .editor .btns button { flex:1; height:26px; border:0; font:inherit; font-size:8px; font-weight:950; letter-spacing:0.12em; cursor:pointer; clip-path:polygon(4px 0,100% 0,100% 100%,0 100%,0 4px); }
+  .editor .apply { color:var(--gluni-ink); background:linear-gradient(180deg,var(--gluni-break-hot),var(--gluni-break)); }
+  .editor .remove { color:rgba(243,251,255,0.88); background:rgba(3,8,12,0.86); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--gluni-red) 42%,var(--gluni-line)); }
+</style>
+</head>
+<body>
+
+  <div class="col">
+    <h2>On the card — smooth</h2>
+    <div class="card active">
+      <div class="portrait"></div>
+      <div class="content">
+        <div class="kicker"><span class="tag-turn">TURN</span></div>
+        <h3>Iron Colossus</h3>
+        <div class="gluni-break-gauge" role="img" aria-label="Break gauge 248 of 300">
+          <span class="gluni-break-gauge-tag">BREAK</span>
+          <div class="gluni-break-gauge-bar"><div class="gluni-break-gauge-fill" style="width:82.6%"></div></div>
+          <span class="gluni-break-gauge-value">248<small>/300</small></span>
+        </div>
+      </div>
+      <span class="badge">21</span>
+    </div>
+    <p class="caption">embedded under the name, full design language</p>
+  </div>
+
+  <div class="col">
+    <h2>On the card — segmented</h2>
+    <div class="card">
+      <div class="portrait"></div>
+      <div class="content">
+        <div class="kicker"></div>
+        <h3>Frost Warden</h3>
+        <div class="gluni-break-gauge" role="img" aria-label="Break gauge 4 of 7">
+          <span class="gluni-break-gauge-tag">BREAK</span>
+          <div class="gluni-break-gauge-segs">
+            <span class="gluni-break-gauge-seg gluni-break-gauge-seg--on"></span>
+            <span class="gluni-break-gauge-seg gluni-break-gauge-seg--on"></span>
+            <span class="gluni-break-gauge-seg gluni-break-gauge-seg--on"></span>
+            <span class="gluni-break-gauge-seg gluni-break-gauge-seg--on"></span>
+            <span class="gluni-break-gauge-seg"></span>
+            <span class="gluni-break-gauge-seg"></span>
+            <span class="gluni-break-gauge-seg"></span>
+          </div>
+          <span class="gluni-break-gauge-value">4<small>/7</small></span>
+        </div>
+      </div>
+      <span class="badge">15</span>
+    </div>
+    <p class="caption">single-digit max → discrete pips</p>
+  </div>
+
+  <div class="col">
+    <h2>Depleted → guard break</h2>
+    <div class="card broken">
+      <div class="portrait" style="filter:sepia(0.4) saturate(0.5);"></div>
+      <div class="content">
+        <div class="kicker"><span class="tag-break">BREAK</span></div>
+        <h3>Iron Colossus</h3>
+        <div class="gluni-break-gauge gluni-break-gauge--empty" role="img" aria-label="Break gauge 0 of 300">
+          <span class="gluni-break-gauge-tag">BREAK</span>
+          <div class="gluni-break-gauge-bar"><div class="gluni-break-gauge-fill" style="width:0%"></div></div>
+          <span class="gluni-break-gauge-value">0<small>/300</small></span>
+        </div>
+      </div>
+      <span class="badge">21</span>
+    </div>
+    <p class="caption">empty gauge auto-fires the existing guard-break FX (+ PF2e &minus;2 AC/saves)</p>
+  </div>
+
+  <div class="col">
+    <h2>On the token</h2>
+    <div class="token-wrap">
+      <div class="token-gauge">
+        <div class="num">248/300</div>
+        <div class="bar"><i style="width:82.6%"></i></div>
+      </div>
+      <div class="token">TOKEN</div>
+    </div>
+    <p class="caption">amber bar drawn above the token, in the canvas overlay</p>
+  </div>
+
+  <div class="col">
+    <h2>GM editor</h2>
+    <p class="caption" style="margin-top:0;margin-bottom:10px;">opens from card right-click → BREAK GAUGE, or the token HUD gauge button</p>
+    <div class="editor">
+      <div class="title">Break gauge</div>
+      <label class="field"><span>Max</span><input type="text" value="300"></label>
+      <label class="field"><span>Current</span><input type="text" value="248"></label>
+      <div class="row">
+        <button class="step">&minus;</button>
+        <div class="modes"><button class="active">Smooth</button><button>Segmented</button></div>
+        <button class="step">&plus;</button>
+      </div>
+      <div class="btns">
+        <button class="remove">REMOVE</button>
+        <button class="apply">APPLY</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
