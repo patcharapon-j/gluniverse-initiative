@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Break / Dying FX — WebGL shader prototype</title>
+<style>
+  :root{
+    --gluni-cyan:#5eeaff; --gluni-white:#f3fbff;
+    --gluni-break:#ffb12d; --gluni-break-hot:#ffe070; --gluni-break-deep:#ff6f1a;
+    --gluni-dying:#b497ff; --gluni-dying-hot:#efd7ff;
+    --gluni-line:rgba(244,252,255,0.10); --gluni-text-dim:rgba(243,251,255,0.62);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;min-height:100vh;padding:42px 30px 70px;
+    font-family:"Bahnschrift","Share Tech Mono",Consolas,monospace;color:var(--gluni-white);
+    background:
+      radial-gradient(circle at 30% 18%, rgba(94,234,255,0.05), transparent 42%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.016) 0 1px, transparent 1px 46px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.016) 0 1px, transparent 1px 46px),
+      #05090d;
+    display:grid;gap:26px;justify-items:center;
+  }
+  h1{font-size:13px;letter-spacing:0.2em;text-transform:uppercase;color:var(--gluni-text-dim);font-weight:950;margin:4px 0 0}
+  .row{display:flex;gap:46px;flex-wrap:wrap;justify-content:center}
+  .cell{width:236px;text-align:center}
+  .cell h2{font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:var(--gluni-break-hot);font-weight:950;margin:0 0 10px}
+  .cell.violet h2{color:var(--gluni-dying-hot)}
+  .caption{font-size:9px;color:var(--gluni-text-dim);margin-top:10px;line-height:1.5}
+  .card{
+    position:relative;width:214px;height:90px;margin:0 auto;overflow:hidden;
+    background:linear-gradient(120deg, rgba(10,18,24,0.55), rgba(2,7,11,0.55)), linear-gradient(165deg,#2c3648,#0c1118);
+    box-shadow:inset 0 0 0 1px var(--gluni-line);
+    clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
+    display:flex;align-items:flex-end;
+  }
+  .card canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .card .name{position:relative;z-index:9;padding:0 0 9px 13px;font-size:14px;font-weight:850;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+  .card.break{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--gluni-break) 70%,var(--gluni-line)),0 0 24px rgba(255,177,45,0.34)}
+  .card.break::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--gluni-break);box-shadow:0 0 14px var(--gluni-break-hot);z-index:9}
+  .card.dying{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--gluni-dying) 64%,var(--gluni-line)),0 0 20px rgba(180,151,255,0.28)}
+  .card.dying::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--gluni-dying);box-shadow:0 0 12px var(--gluni-dying-hot);z-index:9}
+  button{margin-top:6px;font:inherit;font-size:9px;letter-spacing:.1em;font-weight:950;color:#02070b;background:linear-gradient(180deg,var(--gluni-break-hot),var(--gluni-break));border:0;padding:6px 12px;cursor:pointer;clip-path:polygon(4px 0,100% 0,100% 100%,0 100%,0 4px)}
+  .note{max-width:560px;text-align:center;font-size:10px;color:var(--gluni-text-dim);line-height:1.6}
+  code{color:var(--gluni-break-hot)}
+</style>
+</head>
+<body>
+  <h1>WebGL shader prototype — runs as a PIXI.Filter in Foundry</h1>
+
+  <div class="row">
+    <div class="cell">
+      <h2>Guard break — Voronoi fracture</h2>
+      <div class="card break"><canvas data-fx="break"></canvas><div class="name">Iron Colossus</div></div>
+      <button onclick="window.__retrigger&&window.__retrigger()">Re-shatter</button>
+      <p class="caption">real cell-fracture, impact flash, expanding crack front; unique per seed</p>
+    </div>
+    <div class="cell violet">
+      <h2>Dying — domain-warped flow</h2>
+      <div class="card dying"><canvas data-fx="veins"></canvas><div class="name">Frost Warden</div></div>
+      <p class="caption">ridged fractal noise creeping in from the edges</p>
+    </div>
+  </div>
+
+  <p class="note">
+    This is raw WebGL (no library) so it runs in any browser — but the GLSL is exactly what would drop into a
+    <code>PIXI.Filter</code>, which Foundry v13 supports out of the box (it bundles PIXI v7). Same shader, applied to
+    a card-effect sprite. Gate behind the existing <b>high</b> fidelity tier.
+  </p>
+
+<script>
+const VERT = `
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main(){ v_uv = a_pos*0.5+0.5; gl_Position = vec4(a_pos,0.0,1.0); }`;
+
+const COMMON = `
+precision highp float;
+varying vec2 v_uv;
+uniform vec2 u_res;
+uniform float u_time;
+uniform float u_seed;
+vec2 hash2(vec2 p){
+  p = vec2(dot(p,vec2(127.1,311.7)), dot(p,vec2(269.5,183.3)));
+  return fract(sin(p+u_seed)*43758.5453);
+}
+float hash1(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7))+u_seed)*43758.5453); }
+float vnoise(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  float a=hash1(i), b=hash1(i+vec2(1,0)), c=hash1(i+vec2(0,1)), d=hash1(i+vec2(1,1));
+  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
+}
+float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ s+=a*vnoise(p); p=p*2.02; a*=0.5; } return s; }
+`;
+
+const FRAG_BREAK = COMMON + `
+uniform vec2 u_impact;
+// returns F2-F1 (small near a cell edge)
+float voro(vec2 x){
+  vec2 n=floor(x), f=fract(x);
+  float f1=9.0, f2=9.0;
+  for(int j=-1;j<=1;j++) for(int i=-1;i<=1;i++){
+    vec2 g=vec2(float(i),float(j));
+    vec2 o=hash2(n+g);
+    vec2 r=g+o-f;
+    float d=dot(r,r);
+    if(d<f1){ f2=f1; f1=d; } else if(d<f2){ f2=d; }
+  }
+  return sqrt(f2)-sqrt(f1);
+}
+void main(){
+  vec2 uv=v_uv;
+  float aspect=u_res.x/u_res.y;
+  vec2 d=(uv-u_impact); d.x*=aspect;
+  float dist=length(d);
+
+  // denser cells near impact
+  float scale=mix(16.0,6.0,smoothstep(0.0,0.8,dist));
+  float e=voro(vec2(uv.x*aspect,uv.y)*scale + 11.0);
+  float edge=1.0-smoothstep(0.0,0.05,e);
+
+  // crack front expands then settles
+  float t=clamp(u_time*1.6,0.0,1.0);
+  float front=smoothstep(0.02,-0.05, dist-(0.05+1.1*t));
+  float coverage=smoothstep(1.05,0.15,dist)*front;
+  float crack=edge*coverage;
+
+  // wide soft halo (fake bloom)
+  float halo=(1.0-smoothstep(0.0,0.14,e))*coverage*0.35;
+
+  float core=smoothstep(0.12,0.0,dist)*smoothstep(0.0,0.15,t);
+
+  vec3 amber=vec3(1.0,0.69,0.18);
+  vec3 hot=vec3(1.0,0.88,0.44);
+  vec3 white=vec3(1.0);
+  vec3 col=mix(amber,hot,crack);
+  col=mix(col,white,core);
+  float a=clamp(crack*0.95 + halo + core*0.7, 0.0, 1.0);
+  gl_FragColor=vec4(col*a, a);   // premultiplied
+}
+`;
+
+const FRAG_VEINS = COMMON + `
+void main(){
+  vec2 uv=v_uv;
+  vec2 q=vec2(fbm(uv*3.0+vec2(0.0,u_time*0.05)), fbm(uv*3.0+vec2(5.2,-u_time*0.04)));
+  float n=fbm(uv*4.5+q*1.8);
+  float ridge=1.0-abs(n*2.0-1.0);
+  float veins=smoothstep(0.80,0.99,ridge);
+  float edgeBias=max(smoothstep(0.55,0.0,uv.x), smoothstep(0.45,1.0,uv.x));
+  edgeBias=max(edgeBias, smoothstep(0.5,0.0,uv.y));
+  veins*=mix(0.25,1.0,edgeBias);
+  float halo=smoothstep(0.6,0.99,ridge)*0.18*edgeBias;
+  vec3 violet=vec3(0.71,0.59,1.0), vhot=vec3(0.94,0.84,1.0);
+  vec3 col=mix(violet,vhot,veins);
+  float a=clamp(veins*0.9+halo,0.0,1.0);
+  gl_FragColor=vec4(col*a, a);   // premultiplied
+}
+`;
+
+function compile(gl, type, src){
+  const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){ console.error(gl.getShaderInfoLog(s), src); return null; }
+  return s;
+}
+function setup(canvas, frag){
+  const gl=canvas.getContext("webgl",{premultipliedAlpha:true,alpha:true,antialias:true});
+  if(!gl){ console.error("no webgl"); return null; }
+  const prog=gl.createProgram();
+  const vs=compile(gl,gl.VERTEX_SHADER,VERT), fs=compile(gl,gl.FRAGMENT_SHADER,frag);
+  if(!vs||!fs) return null;
+  gl.attachShader(prog,vs); gl.attachShader(prog,fs); gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){ console.error(gl.getProgramInfoLog(prog)); return null; }
+  gl.useProgram(prog);
+  const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1, 3,-1, -1,3]),gl.STATIC_DRAW);
+  const loc=gl.getAttribLocation(prog,"a_pos"); gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+  return {gl,prog,
+    u_res:gl.getUniformLocation(prog,"u_res"),
+    u_time:gl.getUniformLocation(prog,"u_time"),
+    u_seed:gl.getUniformLocation(prog,"u_seed"),
+    u_impact:gl.getUniformLocation(prog,"u_impact")};
+}
+function size(canvas){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  const w=canvas.clientWidth*dpr|0, h=canvas.clientHeight*dpr|0;
+  if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; }
+}
+
+const ctxs=[];
+document.querySelectorAll("canvas[data-fx]").forEach(c=>{
+  const isBreak=c.dataset.fx==="break";
+  const s=setup(c, isBreak?FRAG_BREAK:FRAG_VEINS);
+  if(s) ctxs.push({c,s,isBreak,seed:Math.random()*100,t0:performance.now(),impact:[0.7,0.32]});
+});
+window.__retrigger=()=>ctxs.forEach(o=>{ if(o.isBreak){ o.seed=Math.random()*100; o.t0=performance.now(); o.impact=[0.45+Math.random()*0.4, 0.2+Math.random()*0.4]; }});
+
+function frame(now){
+  for(const o of ctxs){
+    size(o.c); const {gl}=o.s;
+    gl.viewport(0,0,o.c.width,o.c.height);
+    gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniform2f(o.s.u_res,o.c.width,o.c.height);
+    gl.uniform1f(o.s.u_time,(now-o.t0)/1000);
+    gl.uniform1f(o.s.u_seed,o.seed);
+    if(o.isBreak) gl.uniform2f(o.s.u_impact,o.impact[0],o.impact[1]);
+    gl.drawArrays(gl.TRIANGLES,0,3);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
