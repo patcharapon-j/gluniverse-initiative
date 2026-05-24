@@ -981,15 +981,13 @@ class GLUniverseInitiativeOverlay {
     const style = renderCombatantStyle(card);
 
     // High-fidelity WebGL portrait FX layer (replaces the CSS crack/vein bg).
-    // Falls back to the CSS background when unsupported or fidelity is balanced.
-    const fxReady = !card.adhoc && cardFX?.supported && getVisualFidelity() === "high";
-    let fxMode = null;
-    if (fxReady) {
-      if (card.mystery) fxMode = "scramble";
-      else if (card.portrait) {
-        fxMode = card.guardBroken ? "break" : card.dying ? "dying" : card.active ? "shimmer" : null;
-      }
-    }
+    // Limited to break + dying (the persistent states) to keep the GPU cost
+    // low. Falls back to the CSS background when unsupported or balanced.
+    const fxReady = !card.adhoc && !card.mystery && Boolean(card.portrait)
+      && cardFX?.supported && getVisualFidelity() === "high";
+    const fxMode = fxReady
+      ? (card.guardBroken ? "break" : card.dying ? "dying" : null)
+      : null;
 
     return `
       <article class="${classes}" data-gluni-key="${escapeAttr(card.key)}" data-combatant-id="${card.id}" data-round-offset="${card.roundOffset}"${style}>
@@ -1020,7 +1018,7 @@ class GLUniverseInitiativeOverlay {
           : ""}
         ${card.dying
           ? `
-            ${fxMode === "dying" || fxMode === "scramble" ? "" : `<div class="gluni-card-dying-bg" aria-hidden="true"></div>`}
+            ${fxMode === "dying" ? "" : `<div class="gluni-card-dying-bg" aria-hidden="true"></div>`}
             <div class="gluni-card-dying-repeat" aria-hidden="true">
               ${renderDyingRepeatText(card.dying)}
             </div>
@@ -1028,7 +1026,7 @@ class GLUniverseInitiativeOverlay {
           : ""}
         ${card.guardBroken
           ? `
-            ${fxMode === "break" || fxMode === "scramble" ? "" : `<div class="gluni-card-guard-break-bg" aria-hidden="true"></div>`}
+            ${fxMode === "break" ? "" : `<div class="gluni-card-guard-break-bg" aria-hidden="true"></div>`}
             <div class="gluni-card-guard-break-repeat" aria-hidden="true">
               ${renderGuardBreakRepeatText()}
             </div>
@@ -3702,10 +3700,11 @@ function clonePortraitFrameDefaults() {
 // ---------------------------------------------------------------------------
 // Card portrait FX — a high-fidelity WebGL effect layer for the initiative
 // cards. One shared PIXI renderer draws each affected card's procedural effect
-// (break / dying / active shimmer) and blits it into a per-card 2D <canvas>
-// that sits between the portrait and the card content. DOM still owns layout,
-// text, glows and controls; this only touches the imagery layer. Everything is
-// feature-detected and fails back to the CSS effects.
+// (break / dying only, to keep the GPU cost low) and blits it into a per-card
+// 2D <canvas> that sits between the portrait and the card content. DOM still
+// owns layout, text, glows and controls; this only touches the imagery layer.
+// Everything is feature-detected and fails back to the CSS effects. The same
+// FX_FRAG_* shaders also drive the token break/delay overlays.
 // ---------------------------------------------------------------------------
 
 const FX_GLSL_NOISE = `
@@ -3716,10 +3715,14 @@ float gluVNoise(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
 float gluFbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ s+=a*gluVNoise(p); p*=2.02; a*=0.5; } return s; }
 `;
 
+// Glass fracture. Deliberately sparse — a few bold shards radiating from the
+// impact, thin crisp lines, low alpha and tight coverage so the small card /
+// token art stays readable underneath. uClipCircle masks to a disc for round
+// token overlays (0 for rectangular card portraits).
 const FX_FRAG_BREAK = `
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
-uniform float uTime, uSeed, uAspect;
+uniform float uTime, uSeed, uAspect, uClipCircle;
 uniform vec2 uImpact;
 vec2 gluHash2(vec2 p){ p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))); return fract(sin(p+uSeed)*43758.5453); }
 float gluVoroEdge(vec2 x){
@@ -3735,28 +3738,29 @@ void main(void){
   vec2 uv=vTextureCoord;
   vec2 d=(uv-uImpact); d.x*=uAspect; float dist=length(d);
   float ang=atan(d.y,d.x);
-  float warp=0.17*gluFbm(vec2(ang*1.3+3.0,1.7))+0.09*gluFbm(vec2(ang*3.7,5.0))-0.13;
+  float warp=0.16*gluFbm(vec2(ang*1.2+3.0,1.7))+0.08*gluFbm(vec2(ang*3.3,5.0))-0.12;
   float wdist=dist+warp;
-  float scale=mix(15.0,6.0,smoothstep(0.0,0.8,dist));
+  float scale=mix(8.0,4.0,smoothstep(0.0,0.8,dist));   // large shards -> few cracks
   float ce=gluVoroEdge(vec2(uv.x*uAspect,uv.y)*scale+7.0);
-  float edge=1.0-smoothstep(0.0,0.045,ce);
+  float edge=1.0-smoothstep(0.0,0.03,ce);              // thin crisp lines
   float shatterT=clamp(uTime*1.4,0.0,1.0);
   float front=smoothstep(0.05,-0.06, wdist-(0.05+1.2*shatterT));
-  float coverage=smoothstep(1.15,0.10,wdist)*front;
+  float coverage=smoothstep(0.95,0.12,wdist)*front;    // tight, leaves edges clear
   float crack=edge*coverage;
   float settled=smoothstep(0.55,1.0,shatterT);
-  float flow=pow(0.5+0.5*sin(dist*26.0-uTime*3.2),6.0);
+  float flow=pow(0.5+0.5*sin(dist*18.0-uTime*3.0),8.0); // sharp, sparse pulses
   float glowFlow=crack*flow*settled;
-  float pulse=0.62+0.38*sin(uTime*2.2);
-  float halo=(1.0-smoothstep(0.0,0.13,ce))*coverage*0.30*pulse;
-  float core=smoothstep(0.12,0.0,dist)*smoothstep(0.0,0.12,shatterT);
+  float pulse=0.6+0.4*sin(uTime*2.2);
+  float core=smoothstep(0.10,0.0,dist)*smoothstep(0.0,0.12,shatterT);
   vec3 amber=vec3(1.0,0.69,0.18), hot=vec3(1.0,0.88,0.44), white=vec3(1.0);
   vec3 col=mix(amber,hot,clamp(crack*pulse,0.0,1.0));
   col=mix(col,white,clamp(core+glowFlow,0.0,1.0));
-  float a=clamp(crack*0.95+halo+core*0.7+glowFlow*0.8,0.0,1.0);
+  float a=clamp(crack*0.8 + core*0.7 + glowFlow*0.7, 0.0, 1.0) * 0.92;
+  if(uClipCircle>0.5) a*=smoothstep(0.5,0.46,length(uv-vec2(0.5)));
   gl_FragColor=vec4(col*a, a);
 }`;
 
+// Corruption veins. Light, concentrated at the edges so the face stays clear.
 const FX_FRAG_DYING = `
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
@@ -3764,70 +3768,38 @@ uniform float uTime, uSeed, uAspect;
 ${FX_GLSL_NOISE}
 void main(void){
   vec2 uv=vTextureCoord;
-  vec2 q=vec2(gluFbm(uv*3.0+vec2(0.0,uTime*0.05)), gluFbm(uv*3.0+vec2(5.2,-uTime*0.04)));
-  float n=gluFbm(uv*4.5+q*1.8);
+  vec2 q=vec2(gluFbm(uv*2.4+vec2(0.0,uTime*0.05)), gluFbm(uv*2.4+vec2(5.2,-uTime*0.04)));
+  float n=gluFbm(uv*3.6+q*1.6);
   float ridge=1.0-abs(n*2.0-1.0);
-  float veins=smoothstep(0.80,0.99,ridge);
-  float eb=max(smoothstep(0.55,0.0,uv.x),smoothstep(0.45,1.0,uv.x));
-  eb=max(eb,smoothstep(0.5,0.0,uv.y));
-  veins*=mix(0.25,1.0,eb);
-  float halo=smoothstep(0.6,0.99,ridge)*0.16*eb;
+  float veins=smoothstep(0.86,0.99,ridge);             // higher threshold -> fewer veins
+  float eb=max(smoothstep(0.5,0.0,uv.x),smoothstep(0.5,1.0,uv.x));
+  eb=max(eb,smoothstep(0.45,0.0,uv.y));
+  veins*=mix(0.12,0.9,eb);                              // concentrate at edges
   vec3 violet=vec3(0.71,0.59,1.0), vhot=vec3(0.94,0.84,1.0);
   vec3 col=mix(violet,vhot,veins);
-  float a=clamp(veins*0.9+halo,0.0,1.0);
+  float a=clamp(veins*0.75,0.0,1.0);
   gl_FragColor=vec4(col*a, a);
 }`;
 
-const FX_FRAG_SHIMMER = `
+// Delay (token only): a calm blue energy scan drifting at the edges, center
+// clear. uClipCircle masks to a disc for round token overlays.
+const FX_FRAG_DELAY = `
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
-uniform float uTime, uSeed, uAspect;
+uniform float uTime, uSeed, uAspect, uClipCircle;
+${FX_GLSL_NOISE}
 void main(void){
   vec2 uv=vTextureCoord;
-  // steady holographic sweep
-  float band=sin((uv.x*1.4+uv.y*0.6)*3.14159 - uTime*1.6);
-  float sweep=smoothstep(0.86,1.0,band);
-  vec3 cyan=vec3(0.37,0.92,1.0), violet=vec3(0.71,0.59,1.0), magenta=vec3(1.0,0.40,0.70);
-  float ph=0.5+0.5*sin(uTime*0.8+uv.x*2.0);
-  vec3 tint=mix(mix(cyan,violet,ph), magenta, smoothstep(0.6,1.0,ph));
-  float a=sweep*0.42;
-
-  // one-shot turn-change impact: an energy shockwave that expands from the
-  // centre and a brief flash, both fading over the first ~0.7s of activation.
-  vec2 d=(uv-vec2(0.5)); d.x*=uAspect; float dist=length(d);
-  float it=clamp(uTime/0.7,0.0,1.0);
-  float fade=(1.0-it);
-  float ring=smoothstep(0.07,0.0,abs(dist-it*0.95))*fade;
-  float flash=fade*fade*0.45*smoothstep(0.0,0.08,uTime);
-  vec3 impactCol=mix(cyan, vec3(1.0), 0.5);
-  float ia=clamp(ring*0.9+flash,0.0,1.0);
-  vec3 col=mix(tint, impactCol, ia);
-  a=clamp(a+ia,0.0,1.0);
+  float flow=gluFbm(vec2(uv.x*3.0, uv.y*3.0 - uTime*0.4));
+  float bands=0.5+0.5*sin((uv.y*8.0 - uTime*1.2) + flow*3.0);
+  float lines=smoothstep(0.74,1.0,bands);
+  float edge=smoothstep(0.28,0.5,length(uv-vec2(0.5)));
+  float v=lines*mix(0.18,0.7,edge);
+  vec3 blue=vec3(0.29,0.64,1.0), ice=vec3(0.60,0.85,1.0);
+  vec3 col=mix(blue,ice,lines);
+  float a=v*0.55;
+  if(uClipCircle>0.5) a*=smoothstep(0.5,0.46,length(uv-vec2(0.5)));
   gl_FragColor=vec4(col*a, a);
-}`;
-
-const FX_FRAG_SCRAMBLE = `
-varying vec2 vTextureCoord;
-uniform sampler2D uSampler;
-uniform float uTime, uSeed, uAspect;
-float gluH(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7))+uSeed)*43758.5453); }
-void main(void){
-  vec2 uv=vTextureCoord;
-  float rows=14.0;
-  float row=floor(uv.y*rows);
-  float t=floor(uTime*12.0);
-  // occasional horizontal glitch shift per scanline row
-  float g=gluH(vec2(row,t));
-  float glitch=step(0.82,g)*(gluH(vec2(row,t+1.0))-0.5)*0.3;
-  vec2 suv=uv; suv.x+=glitch;
-  float blocks=gluH(floor(suv*vec2(34.0,rows))+t*0.5);
-  float scan=0.5+0.5*sin(uv.y*rows*6.2831);
-  float noise=gluH(floor(suv*120.0)+t);
-  float intensity=mix(0.25,0.6,blocks)*mix(0.6,1.0,scan);
-  vec3 violet=vec3(0.71,0.59,1.0), cyan=vec3(0.37,0.92,1.0);
-  vec3 col=mix(violet, cyan, step(0.7,noise));
-  float a=intensity*0.5 + step(0.93,noise)*0.4 + step(0.82,g)*0.15;
-  gl_FragColor=vec4(col*clamp(a,0.0,1.0), clamp(a,0.0,1.0));
 }`;
 
 class CardFXManager {
@@ -3850,15 +3822,13 @@ class CardFXManager {
       this.renderer = new PIXI.Renderer({ width: 256, height: 160, backgroundAlpha: 0, antialias: true });
       this.sprite = new PIXI.Sprite(PIXI.Texture.WHITE);
       const mk = frag => {
-        const f = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: 0, uAspect: 1, uImpact: [0.65, 0.34] });
+        const f = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: 0, uAspect: 1, uClipCircle: 0, uImpact: [0.65, 0.34] });
         f.padding = 0;
         return f;
       };
       this.filters = {
         break: mk(FX_FRAG_BREAK),
-        dying: mk(FX_FRAG_DYING),
-        shimmer: mk(FX_FRAG_SHIMMER),
-        scramble: mk(FX_FRAG_SCRAMBLE)
+        dying: mk(FX_FRAG_DYING)
       };
       this.supported = true;
     } catch (err) {
@@ -3875,16 +3845,19 @@ class CardFXManager {
     const seen = new Set();
     root.querySelectorAll(".gluni-card-portrait-fx").forEach(cv => {
       const card = cv.closest(".gluni-card");
-      const id = card?.dataset.combatantId;
+      // Key by the per-card rail key, not the combatant id: the same combatant
+      // can appear on more than one card (e.g. the active turn plus a next-round
+      // preview), and each instance needs its own effect entry.
+      const key = card?.dataset.gluniKey || card?.dataset.combatantId;
       const mode = cv.dataset.fx;
-      if (!id || !this.filters[mode]) return;
-      seen.add(id);
-      const prev = this.entries.get(id);
+      if (!key || !this.filters[mode]) return;
+      seen.add(key);
+      const prev = this.entries.get(key);
       if (prev && prev.canvas === cv && prev.mode === mode) return;
       // New or replaced canvas (the rail rebuilds innerHTML each render): keep
-      // the seed/impact stable per combatant so the effect doesn't re-randomize,
-      // and only reset the clock when the effect type actually changed.
-      this.entries.set(id, {
+      // the seed/impact stable so the effect doesn't re-randomize, and only
+      // reset the clock when the effect type actually changed.
+      this.entries.set(key, {
         canvas: cv,
         ctx: cv.getContext("2d"),
         mode,
@@ -4091,6 +4064,19 @@ class TokenOverlayManager {
     const cracks = new PIXI.Graphics();
     container.addChild(cracks);
 
+    // Shader-driven interior FX (fracture for break, energy scan for delay).
+    // A white sprite carrying a PIXI.Filter; the same shader language as the
+    // initiative cards. Created lazily so a filter failure falls back to the
+    // hand-drawn Graphics cracks/pattern below.
+    let fxSprite = null;
+    try {
+      if (globalThis.PIXI?.Sprite && globalThis.PIXI?.Texture?.WHITE) {
+        fxSprite = new PIXI.Sprite(PIXI.Texture.WHITE);
+        fxSprite.visible = false;
+        container.addChild(fxSprite);
+      }
+    } catch { fxSprite = null; }
+
     // Animated holo edge sweep (BREAK only). Pre-drawn once; the tick loop
     // only rotates / fades it. Lives in its own container so rotation pivots
     // around the token centre without touching other layers.
@@ -4135,6 +4121,7 @@ class TokenOverlayManager {
     return {
       container, glow, wash, frame, brackets, cracks, sweep, sweepGfx, pillBg, label,
       gaugeGfx, gaugeText,
+      fxSprite, fxFilter: null, fxFilterMode: null, fxOn: false, fxStart: 0,
       mode: null, w: 0, h: 0, shape: null, fidelity: null, gauge: null, gaugeKey: "",
       phase: Math.random() * Math.PI * 2,
       seed: Math.random() * 99999,
@@ -4232,6 +4219,39 @@ class TokenOverlayManager {
     gaugeText.position.set(w / 2, y - 1);
   }
 
+  // Attaches the shader interior to the token overlay sprite (break fracture /
+  // delay energy scan). Returns false (and hides the sprite) when filters are
+  // unavailable, so _redraw falls back to the hand-drawn Graphics.
+  _setupTokenFx(entry, mode, w, h, isCircle) {
+    const sprite = entry.fxSprite;
+    if (!sprite) return false;
+    try {
+      if (!entry.fxFilter || entry.fxFilterMode !== mode) {
+        if (!globalThis.PIXI?.Filter) { sprite.visible = false; return false; }
+        const frag = mode === "broken" ? FX_FRAG_BREAK : FX_FRAG_DELAY;
+        const filter = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uImpact: [0.5, 0.5] });
+        filter.padding = 0;
+        entry.fxFilter = filter;
+        entry.fxFilterMode = mode;
+        entry.fxStart = this._time;   // (re)start the fracture intro on assign
+      }
+      const filter = entry.fxFilter;
+      filter.uniforms.uAspect = h > 0 ? w / h : 1;
+      filter.uniforms.uClipCircle = isCircle ? 1 : 0;
+      filter.uniforms.uImpact = [0.5, 0.5];
+      sprite.width = w;
+      sprite.height = h;
+      sprite.filters = [filter];
+      sprite.visible = true;
+      return true;
+    } catch (err) {
+      console.warn(`${MODULE_ID} | Token FX shader unavailable, using fallback`, err);
+      sprite.visible = false;
+      entry.fxFilter = null;
+      return false;
+    }
+  }
+
   _redraw(entry) {
     const { glow, wash, frame, brackets, cracks, sweep, sweepGfx, pillBg, label,
             mode, w, h, shape, seed } = entry;
@@ -4248,6 +4268,8 @@ class TokenOverlayManager {
       wash.clear(); frame.clear(); brackets.clear(); cracks.clear();
       sweepGfx.clear(); sweep.visible = false; sweep.alpha = 0;
       pillBg.clear(); label.text = "";
+      if (entry.fxSprite) entry.fxSprite.visible = false;
+      entry.fxOn = false;
       return;
     }
 
@@ -4263,6 +4285,11 @@ class TokenOverlayManager {
 
     const accent = isBreak ? P.broken : P.delayed;
     const hi = isBreak ? P.brokenHot : P.delayedHi;
+
+    // Shader interior (fracture / energy scan). When active, the hand-drawn
+    // cracks/pattern below are skipped; the frame, brackets and label stay.
+    entry.fxOn = this._setupTokenFx(entry, mode, w, h, isCircle);
+    if (entry.fxOn) cracks.clear();
 
     // ---- wash (interior fill + subtle interior shading) -------------------
     wash.clear();
@@ -4293,7 +4320,7 @@ class TokenOverlayManager {
       wash.lineStyle(0);
     }
 
-    if (!isBreak) this._drawDelayPattern(wash, cx, cy, r, w, h, isCircle, rng);
+    if (!isBreak && !entry.fxOn) this._drawDelayPattern(wash, cx, cy, r, w, h, isCircle, rng);
 
     // ---- soft outer glow (high only; balanced skips the blur layers) ------
     glow.clear();
@@ -4339,7 +4366,7 @@ class TokenOverlayManager {
 
     // ---- break cracks -----------------------------------------------------
     cracks.clear();
-    if (isBreak) this._drawBreakCracks(cracks, cx, cy, r, rng);
+    if (isBreak && !entry.fxOn) this._drawBreakCracks(cracks, cx, cy, r, rng);
 
     // ---- holo edge sweep (BREAK only) -------------------------------------
     sweepGfx.clear();
@@ -4756,6 +4783,9 @@ class TokenOverlayManager {
     if (!entry.container.destroyed) {
       // Drop any blur filter we attached so the GPU resource is released.
       try { if (entry.glow) entry.glow.filters = null; } catch {}
+      try { if (entry.fxSprite) entry.fxSprite.filters = null; } catch {}
+      try { entry.fxFilter?.destroy?.(); } catch {}
+      entry.fxFilter = null;
       if (entry.container.parent) entry.container.parent.removeChild(entry.container);
       entry.container.destroy({ children: true });
     }
@@ -4789,6 +4819,11 @@ class TokenOverlayManager {
       if (entry.mode !== "broken" && entry.mode !== "delayed") continue;
       const isBreak = entry.mode === "broken";
       const high = entry.fidelity !== "balanced";
+
+      // Advance the shader interior clock (fracture / energy scan).
+      if (entry.fxOn && entry.fxFilter && entry.fxSprite?.visible) {
+        entry.fxFilter.uniforms.uTime = this._time - entry.fxStart;
+      }
 
       if (isBreak) {
         // Frame keeps a gentle breathing pulse.
