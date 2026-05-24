@@ -4111,6 +4111,61 @@ function rgbFloat(hex) {
   return [((hex >> 16) & 0xff) / 255, ((hex >> 8) & 0xff) / 255, (hex & 0xff) / 255];
 }
 
+// Vertex shader for rendering the procedural FX as a world-space Mesh instead of a
+// screen-space Filter. A filter samples the object's SCREEN bounds, so its UVs
+// (and thus the procedural pattern) rescale as you zoom — the effect never stays
+// locked to the token. A Mesh transforms its own geometry by the projection +
+// translation matrices and reads UVs straight from the geometry (always 0..1), so
+// the effect tracks the token perfectly at every zoom level. The varying is named
+// `vTextureCoord` so the existing FX_FRAG_* fragment shaders work unchanged.
+const FX_VERT_MESH = `
+attribute vec2 aVertexPosition;
+attribute vec2 aUvs;
+uniform mat3 translationMatrix;
+uniform mat3 projectionMatrix;
+varying vec2 vTextureCoord;
+void main(void){
+  vTextureCoord = aUvs;
+  gl_Position = vec4((projectionMatrix * translationMatrix * vec3(aVertexPosition, 1.0)).xy, 0.0, 1.0);
+}`;
+
+// Builds a quad Mesh carrying one of the FX_FRAG_* fragment shaders. Size is set
+// later via setFxMeshQuad so the geometry can be resized in place without
+// recompiling the shader program (PIXI caches the program by source).
+function makeFxMesh(frag, uniforms) {
+  const geometry = new PIXI.Geometry()
+    .addAttribute("aVertexPosition", [0, 0, 1, 0, 1, 1, 0, 1], 2)
+    .addAttribute("aUvs", [0, 0, 1, 0, 1, 1, 0, 1], 2)
+    .addIndex([0, 1, 2, 0, 2, 3]);
+  const shader = PIXI.Shader.from(FX_VERT_MESH, frag, uniforms);
+  const mesh = new PIXI.Mesh(geometry, shader);
+  mesh.eventMode = "none";
+  return mesh;
+}
+
+// Resizes the quad in place (local coordinates). `centered` anchors it on its own
+// origin (for the centred ground disc); otherwise it spans the top-left corner
+// (for the token-local status overlays drawn in 0..w / 0..h space).
+function setFxMeshQuad(mesh, w, h, centered) {
+  const x0 = centered ? -w / 2 : 0;
+  const y0 = centered ? -h / 2 : 0;
+  const x1 = x0 + w;
+  const y1 = y0 + h;
+  const buf = mesh.geometry.getBuffer("aVertexPosition");
+  const d = buf.data;
+  d[0] = x0; d[1] = y0; d[2] = x1; d[3] = y0;
+  d[4] = x1; d[5] = y1; d[6] = x0; d[7] = y1;
+  buf.update();
+}
+
+function destroyFxMesh(mesh) {
+  if (!mesh || mesh.destroyed) return;
+  const shader = mesh.shader;
+  if (mesh.parent) mesh.parent.removeChild(mesh);
+  try { mesh.destroy({ children: true, geometry: true }); } catch {}
+  try { shader?.destroy?.(); } catch {}   // PIXI.Mesh.destroy leaves the shader alone
+}
+
 class CardFXManager {
   constructor() {
     this.supported = false;
@@ -4518,18 +4573,12 @@ class TokenOverlayManager {
 
     const ringWrap = new PIXI.Container();    // anchored at the token centre
 
-    // Shader energy disc (the star of the show). A white sprite carrying the
-    // FX_FRAG_TURN filter; created lazily/defensively so a filter failure falls
-    // back to the hand-drawn ring below.
-    let fxSprite = null;
-    try {
-      if (globalThis.PIXI?.Sprite && globalThis.PIXI?.Texture?.WHITE) {
-        fxSprite = new PIXI.Sprite(PIXI.Texture.WHITE);
-        fxSprite.anchor.set(0.5);
-        fxSprite.visible = false;
-        ringWrap.addChild(fxSprite);
-      }
-    } catch { fxSprite = null; }
+    // Shader energy disc (the star of the show). Rendered as a world-space Mesh
+    // (built lazily in _setupMarkerFx) so it stays locked to the token under zoom;
+    // the holder keeps its z-slot. Falls back to the hand-drawn ring below when
+    // meshes/shaders are unavailable.
+    const fxHolder = new PIXI.Container();
+    ringWrap.addChild(fxHolder);
 
     // Hand-drawn fallback ring (used only when shaders are unavailable).
     const glow = new PIXI.Graphics();
@@ -4552,7 +4601,7 @@ class TokenOverlayManager {
 
     return {
       root, connector, echoWrap, echo, ringWrap, glow, frame, chipBg, chip,
-      fxSprite, fxFilter: null, fxOn: false, fxStart: 0, discR: 0,
+      fxHolder, fxMesh: null, fxShader: null, fxOn: false, fxStart: 0, discR: 0,
       token: null, role: null, disposition: null, shape: null, fidelity: null,
       w: 0, h: 0, origin: null, key: null,
       phase: Math.random() * Math.PI * 2
@@ -4602,7 +4651,7 @@ class TokenOverlayManager {
 
     if (!marker.showRing) {
       marker.fxOn = false;
-      if (marker.fxSprite) marker.fxSprite.visible = false;
+      if (marker.fxMesh) marker.fxMesh.visible = false;
       return;
     }
 
@@ -4645,37 +4694,33 @@ class TokenOverlayManager {
     }
   }
 
-  // Attaches the FX_FRAG_TURN energy disc to the marker's sprite. Returns false
-  // (and hides the sprite) when filters are unavailable, so the hand-drawn ring
-  // fallback is used instead.
+  // Builds/updates the FX_FRAG_TURN energy disc as a world-space Mesh so it stays
+  // locked to the token under zoom. Returns false (hiding the mesh) when meshes are
+  // unavailable, so the hand-drawn ring fallback is used instead.
   _setupMarkerFx(marker, size, colors, isActive, high) {
-    const sprite = marker.fxSprite;
-    if (!sprite) return false;
+    if (!globalThis.PIXI?.Mesh || !globalThis.PIXI?.Geometry || !globalThis.PIXI?.Shader) return false;
     try {
-      if (!globalThis.PIXI?.Filter) { sprite.visible = false; return false; }
-      if (!marker.fxFilter) {
-        const filter = new PIXI.Filter(undefined, FX_FRAG_TURN, {
+      if (!marker.fxMesh || marker.fxMesh.destroyed) {
+        const mesh = makeFxMesh(FX_FRAG_TURN, {
           uTime: 0, uSeed: Math.random() * 100, uActive: 1, uReduced: 0, uHigh: 1,
           uColor: [1, 1, 1], uColorHi: [1, 1, 1]
         });
-        filter.padding = 0;
-        marker.fxFilter = filter;
+        marker.fxMesh = mesh;
+        marker.fxShader = mesh.shader;
         marker.fxStart = this._time;
+        marker.fxHolder.addChild(mesh);
       }
-      const filter = marker.fxFilter;
-      filter.uniforms.uColor = rgbFloat(colors.base);
-      filter.uniforms.uColorHi = rgbFloat(colors.hi);
-      filter.uniforms.uActive = isActive ? 1 : 0;
-      filter.uniforms.uHigh = high ? 1 : 0;
-      sprite.width = size;
-      sprite.height = size;
-      sprite.filters = [filter];
-      sprite.visible = true;
+      const u = marker.fxShader.uniforms;
+      u.uColor = rgbFloat(colors.base);
+      u.uColorHi = rgbFloat(colors.hi);
+      u.uActive = isActive ? 1 : 0;
+      u.uHigh = high ? 1 : 0;
+      setFxMeshQuad(marker.fxMesh, size, size, true);
+      marker.fxMesh.visible = true;
       return true;
     } catch (err) {
       console.warn(`${MODULE_ID} | Turn-marker shader unavailable, using fallback`, err);
-      sprite.visible = false;
-      marker.fxFilter = null;
+      if (marker.fxMesh) marker.fxMesh.visible = false;
       return false;
     }
   }
@@ -4701,10 +4746,10 @@ class TokenOverlayManager {
     const isActive = marker.role === "active";
 
     // Drive the shader disc (rotation / shimmer / pulse all live in the shader).
-    if (marker.fxOn && marker.fxFilter && marker.fxSprite?.visible) {
+    if (marker.fxOn && marker.fxShader && marker.fxMesh?.visible) {
       const speed = intensity === "cinematic" ? 1.5 : 1.0;
-      marker.fxFilter.uniforms.uTime = (t - marker.fxStart) * speed;
-      marker.fxFilter.uniforms.uReduced = motion ? 0 : 1;
+      marker.fxShader.uniforms.uTime = (t - marker.fxStart) * speed;
+      marker.fxShader.uniforms.uReduced = motion ? 0 : 1;
     } else {
       // Hand-drawn fallback ring: a gentle breathing pulse.
       if (motion) {
@@ -4766,9 +4811,9 @@ class TokenOverlayManager {
     if (!marker) return;
     if (!marker.root.destroyed) {
       try { if (marker.glow) marker.glow.filters = null; } catch {}
-      try { if (marker.fxSprite) marker.fxSprite.filters = null; } catch {}
-      try { marker.fxFilter?.destroy?.(); } catch {}
-      marker.fxFilter = null;
+      destroyFxMesh(marker.fxMesh);
+      marker.fxMesh = null;
+      marker.fxShader = null;
       if (marker.root.parent) marker.root.parent.removeChild(marker.root);
       marker.root.destroy({ children: true });
     }
@@ -4861,17 +4906,12 @@ class TokenOverlayManager {
     container.addChild(cracks);
 
     // Shader-driven interior FX (fracture for break, energy scan for delay).
-    // A white sprite carrying a PIXI.Filter; the same shader language as the
-    // initiative cards. Created lazily so a filter failure falls back to the
-    // hand-drawn Graphics cracks/pattern below.
-    let fxSprite = null;
-    try {
-      if (globalThis.PIXI?.Sprite && globalThis.PIXI?.Texture?.WHITE) {
-        fxSprite = new PIXI.Sprite(PIXI.Texture.WHITE);
-        fxSprite.visible = false;
-        container.addChild(fxSprite);
-      }
-    } catch { fxSprite = null; }
+    // Rendered as a world-space Mesh (built lazily in _setupTokenFx) so the
+    // procedural pattern stays locked to the token under zoom rather than swimming
+    // like a screen-space filter. The holder keeps its z-slot; a mesh failure
+    // falls back to the hand-drawn Graphics cracks/pattern below.
+    const fxHolder = new PIXI.Container();
+    container.addChild(fxHolder);
 
     // Animated holo edge sweep (BREAK only). Pre-drawn once; the tick loop
     // only rotates / fades it. Lives in its own container so rotation pivots
@@ -4926,7 +4966,7 @@ class TokenOverlayManager {
     return {
       container, glow, wash, frame, brackets, cracks, sweep, sweepGfx, pillBg, label,
       dyingPips, gaugeGfx, gaugeText,
-      fxSprite, fxFilter: null, fxFilterMode: null, fxOn: false, fxStart: 0,
+      fxHolder, fxMesh: null, fxShader: null, fxFilterMode: null, fxOn: false, fxStart: 0,
       mode: null, w: 0, h: 0, shape: null, fidelity: null, gauge: null, gaugeKey: "",
       dying: null, dyingKey: "",
       gaugeAnim: null, gaugeGeom: null,
@@ -5081,35 +5121,33 @@ class TokenOverlayManager {
     }
   }
 
-  // Attaches the shader interior to the token overlay sprite (break fracture /
-  // delay energy scan). Returns false (and hides the sprite) when filters are
-  // unavailable, so _redraw falls back to the hand-drawn Graphics.
+  // Builds/updates the shader interior (break fracture / dying veins / delay scan)
+  // as a world-space Mesh so the pattern stays locked to the token under zoom.
+  // Returns false (hiding the mesh) when meshes are unavailable, so _redraw falls
+  // back to the hand-drawn Graphics.
   _setupTokenFx(entry, mode, w, h, isCircle) {
-    const sprite = entry.fxSprite;
-    if (!sprite) return false;
+    if (!globalThis.PIXI?.Mesh || !globalThis.PIXI?.Geometry || !globalThis.PIXI?.Shader) return false;
     try {
-      if (!entry.fxFilter || entry.fxFilterMode !== mode) {
-        if (!globalThis.PIXI?.Filter) { sprite.visible = false; return false; }
+      if (!entry.fxMesh || entry.fxMesh.destroyed || entry.fxFilterMode !== mode) {
+        destroyFxMesh(entry.fxMesh);
         const frag = mode === "broken" ? FX_FRAG_BREAK : mode === "dying" ? FX_FRAG_DYING : FX_FRAG_DELAY;
-        const filter = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uThick: 0.045, uImpact: [0.5, 0.5] });
-        filter.padding = 0;
-        entry.fxFilter = filter;
+        const mesh = makeFxMesh(frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uThick: 0.045, uTexel: 0, uImpact: [0.5, 0.5] });
+        entry.fxMesh = mesh;
+        entry.fxShader = mesh.shader;
         entry.fxFilterMode = mode;
         entry.fxStart = this._time;   // (re)start the fracture intro on assign
+        entry.fxHolder.addChild(mesh);
       }
-      const filter = entry.fxFilter;
-      filter.uniforms.uAspect = h > 0 ? w / h : 1;
-      filter.uniforms.uClipCircle = isCircle ? 1 : 0;
-      filter.uniforms.uImpact = [0.5, 0.5];
-      sprite.width = w;
-      sprite.height = h;
-      sprite.filters = [filter];
-      sprite.visible = true;
+      const u = entry.fxShader.uniforms;
+      u.uAspect = h > 0 ? w / h : 1;
+      u.uClipCircle = isCircle ? 1 : 0;
+      u.uImpact = [0.5, 0.5];
+      setFxMeshQuad(entry.fxMesh, w, h, false);
+      entry.fxMesh.visible = true;
       return true;
     } catch (err) {
       console.warn(`${MODULE_ID} | Token FX shader unavailable, using fallback`, err);
-      sprite.visible = false;
-      entry.fxFilter = null;
+      if (entry.fxMesh) entry.fxMesh.visible = false;
       return false;
     }
   }
@@ -5130,7 +5168,7 @@ class TokenOverlayManager {
       wash.clear(); frame.clear(); brackets.clear(); cracks.clear();
       sweepGfx.clear(); sweep.visible = false; sweep.alpha = 0;
       pillBg.clear(); label.text = ""; dyingPips.clear();
-      if (entry.fxSprite) entry.fxSprite.visible = false;
+      if (entry.fxMesh) entry.fxMesh.visible = false;
       entry.fxOn = false;
       return;
     }
@@ -5739,9 +5777,9 @@ class TokenOverlayManager {
     if (!entry.container.destroyed) {
       // Drop any blur filter we attached so the GPU resource is released.
       try { if (entry.glow) entry.glow.filters = null; } catch {}
-      try { if (entry.fxSprite) entry.fxSprite.filters = null; } catch {}
-      try { entry.fxFilter?.destroy?.(); } catch {}
-      entry.fxFilter = null;
+      destroyFxMesh(entry.fxMesh);
+      entry.fxMesh = null;
+      entry.fxShader = null;
       if (entry.container.parent) entry.container.parent.removeChild(entry.container);
       entry.container.destroy({ children: true });
     }
@@ -5812,8 +5850,8 @@ class TokenOverlayManager {
       const high = entry.fidelity !== "balanced";
 
       // Advance the shader interior clock (fracture / energy scan).
-      if (entry.fxOn && entry.fxFilter && entry.fxSprite?.visible) {
-        entry.fxFilter.uniforms.uTime = this._time - entry.fxStart;
+      if (entry.fxOn && entry.fxShader && entry.fxMesh?.visible) {
+        entry.fxShader.uniforms.uTime = this._time - entry.fxStart;
       }
 
       if (isBreak) {
