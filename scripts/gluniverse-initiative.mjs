@@ -1274,15 +1274,8 @@ class GLUniverseInitiativeOverlay {
     }
 
     // ---- Magic-move hand-off: the card morphs from its small rail size into the active
-    // size purely via the FLIP transform above. No slam, shake, shockwave, or swipe — just
-    // a smooth count-up of the initiative badge to finish the beat. ----
-    if (newActive) {
-      const badge = newActive.querySelector(".gluni-initiative-badge");
-      if (badge) {
-        const animate = intensity !== "reduced" && !options.isDelayReturn;
-        this.animateBadgeCountUp(badge, options.previousActiveInitiative, badge.textContent, !animate);
-      }
-    }
+    // size purely via the FLIP transform above. No slam, shake, shockwave, swipe, or badge
+    // count-up — the initiative number simply snaps to its new value to match the move. ----
   }
 
   getContinuityRect(oldRects, key, roundDelta = 0) {
