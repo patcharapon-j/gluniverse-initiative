@@ -10,7 +10,10 @@ const SETTINGS = {
   position: "position",
   uiScale: "uiScale",
   tokenOverlayShape: "tokenOverlayShape",
-  visualFidelity: "visualFidelity"
+  visualFidelity: "visualFidelity",
+  turnMarkerEnabled: "turnMarkerEnabled",
+  startMarkerEnabled: "startMarkerEnabled",
+  startConnectorEnabled: "startConnectorEnabled"
 };
 
 const TOKEN_OVERLAY_PALETTE = {
@@ -28,6 +31,21 @@ const TOKEN_OVERLAY_PALETTE = {
   magenta: 0xff66b3
 };
 
+// Ground turn-marker disposition colours. Deliberately kept distinct from the
+// status palette above (amber break / cyan delay / violet dying) so a disposition
+// ring on the ground never reads as an echo of an above-token status overlay.
+// `hi` is the brighter accent used for sweeps, glow and bright leading edges.
+const DISPOSITION_PALETTE = {
+  friendly: { base: 0x3fe0a0, hi: 0x9bffd6 },
+  hostile: { base: 0xff4258, hi: 0xff97a6 },
+  neutral: { base: 0xf5c451, hi: 0xffe39a },
+  secret: { base: 0x9aa7c7, hi: 0xd4dcef }
+};
+
+function getDispositionColors(disposition) {
+  return DISPOSITION_PALETTE[disposition] ?? DISPOSITION_PALETTE.neutral;
+}
+
 const FLAGS = {
   visibility: "visibility",
   manualDelayed: "manualDelayed",
@@ -35,7 +53,8 @@ const FLAGS = {
   breakGauge: "breakGauge",
   portraitFrame: "portraitFrame",
   adhoc: "adhoc",
-  adhocActor: "adhocActor"
+  adhocActor: "adhocActor",
+  turnStart: "turnStart"
 };
 
 // Break gauge: a GM-managed resource bar that depletes toward a guard break.
@@ -83,6 +102,13 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.VisualFidelity.Hint": "Higher fidelity uses real frosted glass and motion blur for the most premium look. Step down to Balanced for lighter GPU load while staying premium.",
   "GLUNI.Settings.VisualFidelity.High": "High (best looking)",
   "GLUNI.Settings.VisualFidelity.Balanced": "Balanced (lighter)",
+  "GLUNI.Settings.TurnMarker.Name": "Turn marker on tokens",
+  "GLUNI.Settings.TurnMarker.Hint": "Draw a cinematic ground ring beneath the current and next combatant's tokens, coloured by disposition.",
+  "GLUNI.Settings.StartMarker.Name": "Starting-location marker",
+  "GLUNI.Settings.StartMarker.Hint": "Mark where the active combatant's token began its turn, so players can see how far it has moved.",
+  "GLUNI.Settings.StartConnector.Name": "Starting-location trail",
+  "GLUNI.Settings.StartConnector.Hint": "Draw a flowing connector line from the starting-location marker to the active token. Requires the starting-location marker.",
+  "GLUNI.TurnMarker.Next": "Next",
   "GLUNI.Settings.VisibleCount.Hint": "Number of normal initiative combatants to show from the current turn forward.",
   "GLUNI.Settings.VisibleCount.Name": "Visible combatants",
   "GLUNI.Controls.Auto": "Auto",
@@ -435,6 +461,36 @@ function registerSettings() {
     }
   });
 
+  game.settings.register(MODULE_ID, SETTINGS.turnMarkerEnabled, {
+    name: localize("GLUNI.Settings.TurnMarker.Name"),
+    hint: localize("GLUNI.Settings.TurnMarker.Hint"),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true,
+    onChange: () => tokenOverlays?.forceRedraw()
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.startMarkerEnabled, {
+    name: localize("GLUNI.Settings.StartMarker.Name"),
+    hint: localize("GLUNI.Settings.StartMarker.Hint"),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true,
+    onChange: () => tokenOverlays?.forceRedraw()
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.startConnectorEnabled, {
+    name: localize("GLUNI.Settings.StartConnector.Name"),
+    hint: localize("GLUNI.Settings.StartConnector.Hint"),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true,
+    onChange: () => tokenOverlays?.forceRedraw()
+  });
+
   game.settings.register(MODULE_ID, SETTINGS.position, {
     scope: "client",
     config: false,
@@ -715,7 +771,113 @@ class GLUniverseInitiativeOverlay {
       this.clearActiveGuardBreakSoon();
     }
 
+    if (typeof changed?.turn === "number" || typeof changed?.round === "number" || changed?.started === true) {
+      this.captureTurnStartPosition(combat);
+    }
+
     this.renderSoon();
+  }
+
+  // Records where the newly-active combatant's token sits at the moment its turn
+  // begins, so every client can draw the "started here" ground marker. Written to
+  // a single Combat flag by the primary active GM only — with multiple GMs logged
+  // in, exactly one writes it (no races); everyone else reads it. Survives reload
+  // because it lives on the Combat document.
+  captureTurnStartPosition(combat) {
+    if (!combat?.started || !game.user.isGM || !this.isPrimaryActiveGM()) return;
+
+    const combatant = combat.combatant;
+    const token = combatant ? getCombatantTokenObject(combatant) : null;
+    const existing = combat.getFlag(MODULE_ID, FLAGS.turnStart) ?? null;
+
+    if (!token || !token.center) {
+      // No locatable token (off-scene / tokenless ad hoc): clear any stale origin
+      // so a previous turn's marker doesn't linger on the wrong creature.
+      if (existing) combat.unsetFlag(MODULE_ID, FLAGS.turnStart).catch(() => {});
+      return;
+    }
+
+    const round = Number(combat.round) || 1;
+    const turn = Number.isInteger(combat.turn) ? combat.turn : 0;
+    if (
+      existing &&
+      existing.combatantId === combatant.id &&
+      existing.round === round &&
+      existing.turn === turn
+    ) return;
+
+    combat.setFlag(MODULE_ID, FLAGS.turnStart, {
+      combatantId: combatant.id,
+      tokenId: token.id,
+      cx: token.center.x,
+      cy: token.center.y,
+      round,
+      turn
+    }).catch(() => {});
+  }
+
+  // Resolves the active and next ground-marker targets for THIS client, reusing
+  // buildCombatantCard so visibility (hidden -> omitted, mystery -> secret colour)
+  // and disposition are resolved exactly as the rail does. Scans far enough to
+  // find the next actor regardless of the visibleCount setting, wraps rounds, and
+  // skips defeated/delayed/hidden combatants silently (no perceivable gap).
+  getTurnMarkerTargets(combat) {
+    const result = { active: null, next: null };
+    if (!combat?.started) return result;
+
+    const sourceTurns = Array.isArray(combat.turns) && combat.turns.length
+      ? combat.turns
+      : combat.combatants?.contents ?? Array.from(combat.combatants ?? []);
+    const turns = Array.from(sourceTurns)
+      .map(entry => Array.isArray(entry) ? entry[1] : entry)
+      .filter(Boolean);
+    if (!turns.length) return result;
+
+    const showDefeated = Boolean(game.settings.get(MODULE_ID, SETTINGS.showDefeated));
+    const currentTurn = Number.isInteger(combat.turn) ? combat.turn : 0;
+    const activeId = combat.combatant?.id ?? turns[currentTurn]?.id ?? null;
+    const currentRound = Number(combat.round) || 1;
+
+    const eligible = combatant => {
+      if (!combatant) return false;
+      if (combatant.defeated && !showDefeated) return false;
+      if (this.isDelayed(combatant)) return false;
+      return true;
+    };
+
+    const toTarget = (combatant, displayRound, active) => {
+      const card = this.buildCombatantCard(combatant, {
+        active,
+        delayed: false,
+        roundOffset: displayRound - currentRound,
+        displayRound,
+        key: `marker:${combatant.id}`
+      });
+      if (!card) return null;   // hidden from this client
+      return { combatantId: combatant.id, disposition: card.disposition, mystery: card.mystery };
+    };
+
+    const maxScan = turns.length * 4;
+    for (let step = 0; step < maxScan; step++) {
+      const absoluteIndex = currentTurn + step;
+      const turnIndex = modulo(absoluteIndex, turns.length);
+      const combatant = turns[turnIndex];
+      const displayRound = currentRound + Math.floor(absoluteIndex / turns.length);
+
+      if (step === 0) {
+        if (combatant?.id === activeId && eligible(combatant) && shouldShowAdhocOnRound(combatant, displayRound)) {
+          result.active = toTarget(combatant, displayRound, true);
+        }
+        continue;
+      }
+
+      if (!eligible(combatant) || !shouldShowAdhocOnRound(combatant, displayRound)) continue;
+      if (combatant.id === activeId) continue;   // single combatant: no distinct next
+      const next = toTarget(combatant, displayRound, false);
+      if (next) { result.next = next; break; }
+    }
+
+    return result;
   }
 
   render() {
@@ -4034,6 +4196,13 @@ class TokenOverlayManager {
     this._ticking = false;
     this._tickFn = this._onTick.bind(this);
     this._time = 0;
+    // Ground turn-markers (active ring / next ring / start echo + connector) live
+    // in their own layer beneath the token art, separate from the above-token
+    // status overlays in `_entries`.
+    this._markers = new Map();     // tokenId -> ground marker entry
+    this._groundLayer = null;
+    this._markerIntensity = "default";
+    this._markerConnector = true;
   }
 
   refresh() {
@@ -4073,8 +4242,11 @@ class TokenOverlayManager {
       this._upsert(state.token, mode, state.gauge, state.dying);
     }
 
-    if (this._entries.size > 0 && !this._ticking) this._startTick();
-    else if (this._entries.size === 0) this._stopTick();
+    this._refreshMarkers(combat);
+
+    const active = this._entries.size > 0 || this._markers.size > 0;
+    if (active && !this._ticking) this._startTick();
+    else if (!active) this._stopTick();
   }
 
   // Break gauge for a combatant, respecting player visibility so a hidden or
@@ -4107,7 +4279,429 @@ class TokenOverlayManager {
       entry.shape = null;
       entry.fidelity = null;
     }
+    for (const marker of this._markers.values()) marker.key = null;
     this.refresh();
+  }
+
+  // ---- ground turn-markers ----------------------------------------------
+
+  _getIntensity() {
+    try { return game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default"; }
+    catch { return "default"; }
+  }
+
+  _markerSettings() {
+    const get = key => { try { return Boolean(game.settings.get(MODULE_ID, key)); } catch { return false; } };
+    return {
+      turn: get(SETTINGS.turnMarkerEnabled),
+      start: get(SETTINGS.startMarkerEnabled),
+      connector: get(SETTINGS.startConnectorEnabled)
+    };
+  }
+
+  // The shared layer that hosts every ground marker. It lives in the primary
+  // canvas group (where the token *art* lives — token children would sit above
+  // the art) and is biased just below the token sort layer so rings read as
+  // painted on the floor. Recreated on demand after a canvas teardown.
+  _ensureGroundLayer() {
+    const primary = canvas?.primary;
+    if (!primary) return null;
+    if (this._groundLayer && !this._groundLayer.destroyed && this._groundLayer.parent === primary) {
+      return this._groundLayer;
+    }
+    try { if (this._groundLayer && !this._groundLayer.destroyed) this._groundLayer.destroy({ children: true }); } catch {}
+
+    const layer = new PIXI.Container();
+    layer.eventMode = "none";
+    layer.interactiveChildren = false;
+    layer.sortableChildren = false;
+    const tokenSort = globalThis.PrimaryCanvasGroup?.SORT_LAYERS?.TOKENS ?? 700;
+    layer.elevation = 0;
+    layer.sortLayer = tokenSort - 1;   // beneath tokens, above tiles/drawings
+    layer.sort = 0;
+    layer.zIndex = tokenSort - 1;
+    primary.addChild(layer);
+    primary.sortDirty = true;
+    this._groundLayer = layer;
+    return layer;
+  }
+
+  _refreshMarkers(combat) {
+    const settings = this._markerSettings();
+    this._markerIntensity = this._getIntensity();
+    this._markerConnector = settings.connector;
+    if (!settings.turn && !settings.start) { this._clearMarkers(); return; }
+
+    const layer = this._ensureGroundLayer();
+    if (!layer) { this._clearMarkers(); return; }
+
+    const targets = overlay?.getTurnMarkerTargets?.(combat) ?? { active: null, next: null };
+    const origin = settings.start ? this._resolveStartOrigin(combat, targets.active) : null;
+
+    const wanted = new Map();   // tokenId -> { token, role, disposition, mystery, origin, showRing, showStart }
+    // The active token hosts both the ring and the start echo, so it is wanted if
+    // EITHER toggle is on; each piece is drawn independently.
+    if ((settings.turn || settings.start) && targets.active) {
+      const combatant = combat.combatants?.get?.(targets.active.combatantId);
+      const token = combatant ? getCombatantTokenObject(combatant) : null;
+      if (token && token.w && token.h && this._tokenVisible(token)) {
+        wanted.set(token.id, {
+          token, role: "active", ...targets.active,
+          origin, showRing: settings.turn, showStart: settings.start
+        });
+      }
+    }
+    if (settings.turn && targets.next) {
+      const combatant = combat.combatants?.get?.(targets.next.combatantId);
+      const token = combatant ? getCombatantTokenObject(combatant) : null;
+      // Never let the next ring land on the active token (e.g. odd wrap states).
+      if (token && token.w && token.h && this._tokenVisible(token) && !wanted.has(token.id)) {
+        wanted.set(token.id, {
+          token, role: "next", ...targets.next,
+          origin: null, showRing: true, showStart: false
+        });
+      }
+    }
+
+    for (const tokenId of [...this._markers.keys()]) {
+      if (!wanted.has(tokenId)) this._removeMarker(tokenId);
+    }
+    for (const [tokenId, state] of wanted) this._upsertMarker(state);
+  }
+
+  // True only when the token is genuinely visible to this client right now
+  // (vision / fog / hidden). The ground layer is detached from the token, so —
+  // unlike the above-token child overlays — it will not auto-hide; we must mirror
+  // token.visible explicitly or a ring would leak a position through fog.
+  _tokenVisible(token) {
+    if (!token || token.destroyed) return false;
+    if (token.visible === false) return false;
+    if (token.document?.hidden && !game.user.isGM) return false;
+    return true;
+  }
+
+  // The stored turn-start origin, validated against the *current* active turn so a
+  // stale flag from a previous turn never paints under the wrong creature.
+  _resolveStartOrigin(combat, activeTarget) {
+    if (!activeTarget) return null;
+    const flag = combat.getFlag(MODULE_ID, FLAGS.turnStart);
+    if (!flag || flag.combatantId !== activeTarget.combatantId) return null;
+    if (flag.round !== (Number(combat.round) || 1)) return null;
+    if (!Number.isFinite(flag.cx) || !Number.isFinite(flag.cy)) return null;
+    return { cx: flag.cx, cy: flag.cy };
+  }
+
+  _upsertMarker(state) {
+    const { token, role, disposition, origin, showRing, showStart } = state;
+    let marker = this._markers.get(token.id);
+    if (marker && marker.root.destroyed) { this._markers.delete(token.id); marker = null; }
+    if (!marker) {
+      marker = this._createMarker();
+      this._markers.set(token.id, marker);
+    }
+
+    const layer = this._ensureGroundLayer();
+    if (layer && marker.root.parent !== layer) {
+      try { layer.addChild(marker.root); } catch { return; }
+    }
+
+    marker.token = token;
+    marker.origin = origin ?? null;
+    marker.showStart = Boolean(showStart);
+    const shape = this._getShape();
+    const fidelity = this._getFidelity();
+    // `hasOrigin` is in the key so the echo geometry rebuilds when an origin first
+    // becomes available (or clears) for an otherwise-unchanged active marker.
+    const key = `${role}/${disposition}/${shape}/${fidelity}/${Math.round(token.w)}x${Math.round(token.h)}/r${showRing ? 1 : 0}/s${showStart ? 1 : 0}/o${origin ? 1 : 0}`;
+    if (marker.key !== key) {
+      marker.key = key;
+      marker.role = role;
+      marker.disposition = disposition;
+      marker.shape = shape;
+      marker.fidelity = fidelity;
+      marker.showRing = Boolean(showRing);
+      marker.w = token.w;
+      marker.h = token.h;
+      this._drawMarker(marker);
+    }
+    // Position is synced every tick; do an immediate sync so a freshly-built
+    // marker doesn't flash at the origin for a frame.
+    this._syncMarker(marker, 0);
+  }
+
+  _createMarker() {
+    const root = new PIXI.Container();
+    root.eventMode = "none";
+    root.interactiveChildren = false;
+
+    const connector = new PIXI.Graphics();   // scene-space line origin -> token
+    root.addChild(connector);
+
+    const echoWrap = new PIXI.Container();    // anchored at the start origin
+    const echo = new PIXI.Graphics();
+    echoWrap.addChild(echo);
+    root.addChild(echoWrap);
+
+    const ringWrap = new PIXI.Container();    // anchored at the token centre
+    const glow = new PIXI.Graphics();
+    const frame = new PIXI.Graphics();
+    const brackets = new PIXI.Graphics();
+    const sweep = new PIXI.Container();
+    const sweepGfx = new PIXI.Graphics();
+    sweep.addChild(sweepGfx);
+    ringWrap.addChild(glow, frame, brackets, sweep);
+
+    const chipBg = new PIXI.Graphics();
+    const chip = new PIXI.Text("", {
+      fontFamily: '"Bahnschrift", "Segoe UI", Arial, sans-serif',
+      fontSize: 10,
+      fontWeight: "bold",
+      fill: "#02070b",
+      letterSpacing: 1.4,
+      align: "center",
+      trim: true
+    });
+    chip.anchor.set(0.5, 0.5);
+    ringWrap.addChild(chipBg, chip);
+    root.addChild(ringWrap);
+
+    return {
+      root, connector, echoWrap, echo, ringWrap, glow, frame, brackets, sweep, sweepGfx, chipBg, chip,
+      token: null, role: null, disposition: null, shape: null, fidelity: null,
+      w: 0, h: 0, origin: null, key: null,
+      phase: Math.random() * Math.PI * 2, sweepR: 0
+    };
+  }
+
+  // Draws the static geometry of a ground marker around its own local origin.
+  // The tick loop only repositions ringWrap, rotates the sweep, pulses alpha and
+  // redraws the (cheap) connector — so this runs only on a data/size change.
+  _drawMarker(marker) {
+    const { glow, frame, brackets, sweepGfx, sweep, chipBg, chip, echo, role, shape, w, h } = marker;
+    const colors = getDispositionColors(marker.disposition);
+    const accent = colors.base;
+    const hi = colors.hi;
+    const high = marker.fidelity !== "balanced";
+    const isCircle = shape === "circle";
+    const isActive = role === "active";
+    const r = Math.min(w, h) / 2;
+
+    glow.clear(); glow.filters = null;
+    frame.clear(); brackets.clear(); sweepGfx.clear();
+    sweep.visible = false; sweep.alpha = 0; sweep.rotation = 0;
+    chipBg.clear(); chip.text = ""; chip.visible = false;
+    echo.clear();
+
+    // Start echo — a faint desaturated copy of the ring at the origin (active only).
+    // Drawn independently of the ring so the start toggle can be on with the turn
+    // toggle off.
+    if (isActive && marker.showStart && marker.origin) {
+      echo.lineStyle({ width: 1.6, color: accent, alpha: 0.42, alignment: 0.5 });
+      if (isCircle) echo.drawCircle(0, 0, r * 0.82);
+      else echo.drawPolygon(this._groundFramePoints(w, h, Math.min(w, h) * 0.09));
+      echo.lineStyle({ width: 0.8, color: hi, alpha: 0.22, alignment: 1 });
+      if (isCircle) echo.drawCircle(0, 0, r * 0.82 - 1.2);
+      echo.beginFill(accent, 0.32);   // centre tick so an unmoved creature still reads
+      echo.drawCircle(0, 0, Math.max(2, r * 0.1));
+      echo.endFill();
+    }
+
+    if (!marker.showRing) return;
+
+    // Soft outer glow (high fidelity only), brighter and wider for the active ring.
+    if (high) {
+      const gA = isActive ? 0.22 : 0.12;
+      const expand = isActive ? 5 : 3;
+      glow.lineStyle({ width: isActive ? 7 : 5, color: hi, alpha: gA, alignment: 0.5 });
+      if (isCircle) glow.drawCircle(0, 0, r + expand);
+      else glow.drawPolygon(this._groundFramePoints(w, h, -expand));
+      try { const blur = new PIXI.BlurFilter(isActive ? 5 : 3.5); blur.quality = 2; glow.filters = [blur]; } catch {}
+    }
+
+    // Accent ring + inner hairline.
+    const ringA = isActive ? 0.92 : 0.6;
+    const ringW = isActive ? 2.6 : 1.8;
+    frame.lineStyle({ width: ringW, color: accent, alpha: ringA, alignment: 0.5 });
+    if (isCircle) frame.drawCircle(0, 0, r);
+    else frame.drawPolygon(this._groundFramePoints(w, h, 0));
+    frame.lineStyle({ width: 0.9, color: hi, alpha: isActive ? 0.3 : 0.18, alignment: 1 });
+    if (isCircle) frame.drawCircle(0, 0, r - (isActive ? 1.6 : 1.2));
+    else frame.drawPolygon(this._groundFramePoints(w, h, isActive ? 1.6 : 1.2));
+
+    // Corner bracket ticks — reuse the same tactical L-marks as the status frames,
+    // drawn in token-local space (centred), so re-centre by offsetting w/2,h/2.
+    brackets.position.set(-w / 2, -h / 2);
+    this._drawBrackets(brackets, w, h, r, w / 2, h / 2, isCircle, accent, isActive ? 0.85 : 0.55);
+
+    // Rotating holo sweep — active ring only (the "acting now" cue).
+    if (isActive) {
+      this._buildGroundSweep(marker, sweepGfx, r, isCircle, high, colors);
+      sweep.visible = true;
+    }
+
+    // "NEXT" chip — next ring only.
+    if (role === "next") {
+      const fontSize = clamp(Math.round(Math.max(w, h) * 0.1), 8, 13);
+      chip.style.fontSize = fontSize;
+      chip.text = localize("GLUNI.TurnMarker.Next").toUpperCase();
+      chip.visible = true;
+      const padX = fontSize * 0.6, padY = fontSize * 0.3;
+      const cw = chip.width + padX * 2, ch = chip.height + padY * 2;
+      const cy = -r - ch * 0.7;
+      const cx = -cw / 2;
+      const notch = clamp(ch * 0.42, 3, 7);
+      chipBg.beginFill(0x000000, 0.4);
+      chipBg.drawPolygon(this._chipPoints(cx, cy + 1, cw, ch, notch));
+      chipBg.endFill();
+      chipBg.beginFill(accent, 0.95);
+      chipBg.drawPolygon(this._chipPoints(cx, cy, cw, ch, notch));
+      chipBg.endFill();
+      chipBg.lineStyle({ width: 0.8, color: hi, alpha: 0.6 });
+      chipBg.drawPolygon(this._chipPoints(cx, cy, cw, ch, notch));
+      chip.position.set(0, cy + ch / 2);
+    }
+  }
+
+  // Angled-corner ground frame centred on (0,0); `inset` shrinks it inward.
+  _groundFramePoints(w, h, inset) {
+    const n = clamp(Math.min(w, h) * 0.16, 5, 16);
+    const x0 = -w / 2 + inset, y0 = -h / 2 + inset, x1 = w / 2 - inset, y1 = h / 2 - inset;
+    return [
+      x0 + n, y0, x1, y0, x1, y1 - n, x1 - n, y1, x0, y1, x0, y0 + n
+    ];
+  }
+
+  _buildGroundSweep(marker, g, r, isCircle, high, colors) {
+    g.clear();
+    const stops = high
+      ? [
+          { col: colors.base, a: 0.0, span: 0.55 },
+          { col: colors.base, a: 0.5, span: 0.3 },
+          { col: colors.hi, a: 0.85, span: 0.1 },
+          { col: TOKEN_OVERLAY_PALETTE.white, a: 1.0, span: 0.05 }
+        ]
+      : [
+          { col: colors.base, a: 0.5, span: 0.4 },
+          { col: colors.hi, a: 0.9, span: 0.1 }
+        ];
+    const sweepR = isCircle ? r : Math.min(r, Math.hypot(marker.w, marker.h) / 2);
+    marker.sweepR = sweepR;
+    const arc = high ? Math.PI * 0.85 : Math.PI * 0.55;
+    const segCount = high ? 20 : 12;
+    for (let s = 0; s < segCount; s++) {
+      const t0 = s / segCount, t1 = (s + 1) / segCount;
+      const stop = this._sweepStop(stops, t0);
+      g.lineStyle({ width: (high ? 3 : 2.4), color: stop.col, alpha: stop.a * (0.4 + 0.6 * t0) });
+      const a0 = -arc + arc * t0, a1 = -arc + arc * t1;
+      g.moveTo(Math.cos(a0) * sweepR, Math.sin(a0) * sweepR);
+      g.lineTo(Math.cos(a1) * sweepR, Math.sin(a1) * sweepR);
+    }
+  }
+
+  // Per-frame: place the ring at the token centre, rotate/pulse it, and redraw the
+  // start connector (origin -> live token centre) so it tracks movement in real
+  // time. `dt` seconds; `dt === 0` is a one-shot positional sync after a rebuild.
+  _syncMarker(marker, dt) {
+    const token = marker.token;
+    if (!token || token.destroyed || !token.center) return;
+    // Mirror the token's live visibility every frame: the ground layer is detached
+    // from the token, so a token slipping into fog mid-move would otherwise leave
+    // its ring (and origin echo) glowing on the floor and leak a position.
+    const visible = this._tokenVisible(token);
+    if (marker.root.visible !== visible) marker.root.visible = visible;
+    if (!visible) return;
+    const cx = token.center.x, cy = token.center.y;
+    marker.ringWrap.position.set(cx, cy);
+
+    const intensity = this._markerIntensity;
+    const motion = intensity !== "reduced";
+    const t = this._time;
+    const isActive = marker.role === "active";
+
+    if (isActive && marker.sweep && !marker.sweep.destroyed) {
+      if (motion) {
+        const speed = intensity === "cinematic" ? 2.4 : 1.6;
+        const shimmer = 0.6 + 0.4 * Math.sin((t * 2 * Math.PI / (intensity === "cinematic" ? 0.7 : 1.0)) + marker.phase);
+        marker.sweep.alpha = (marker.fidelity === "balanced" ? 0.6 : 0.85) * shimmer;
+        if (marker.shape === "circle") marker.sweep.rotation = (t * speed) % (Math.PI * 2);
+        else marker.sweep.rotation = 0;
+      } else {
+        marker.sweep.alpha = 0.5;
+        marker.sweep.rotation = 0;
+      }
+    }
+
+    // Gentle breathing pulse on the ring frame.
+    if (motion) {
+      const period = isActive ? 1.6 : 3.0;
+      const pulse = 0.5 + 0.5 * Math.sin((t * 2 * Math.PI / period) + marker.phase);
+      marker.frame.alpha = (isActive ? 0.78 : 0.62) + (isActive ? 0.22 : 0.18) * pulse;
+      if (marker.glow) marker.glow.alpha = 0.6 + 0.4 * pulse;
+    } else {
+      marker.frame.alpha = 1;
+      if (marker.glow) marker.glow.alpha = 1;
+    }
+
+    // Start echo + connector (active only). Both anchor to the stored origin and
+    // share the active token's visibility (already gated upstream).
+    const origin = isActive ? marker.origin : null;
+    if (origin) {
+      marker.echoWrap.visible = true;
+      marker.echoWrap.position.set(origin.cx, origin.cy);
+      const moved = Math.hypot(cx - origin.cx, cy - origin.cy);
+      const connectorOn = this._markerConnector && moved > Math.max(8, Math.min(token.w, token.h) * 0.25);
+      this._drawConnector(marker, origin, cx, cy, connectorOn, motion);
+    } else {
+      marker.echoWrap.visible = false;
+      marker.connector.clear();
+    }
+  }
+
+  _drawConnector(marker, origin, cx, cy, on, motion) {
+    const g = marker.connector;
+    g.clear();
+    if (!on) return;
+    const colors = getDispositionColors(marker.disposition);
+    const dx = cx - origin.cx, dy = cy - origin.cy;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+
+    // Faint full-length guide line.
+    g.lineStyle({ width: 1, color: colors.base, alpha: 0.22 });
+    g.moveTo(origin.cx, origin.cy);
+    g.lineTo(cx, cy);
+
+    // Flowing bright dashes travelling origin -> token.
+    const dash = Math.max(6, len * 0.06);
+    const gap = dash * 1.6;
+    const stride = dash + gap;
+    const flow = motion ? (this._time * Math.max(28, len * 0.5)) % stride : 0;
+    g.lineStyle({ width: 2, color: colors.hi, alpha: 0.85 });
+    for (let d = flow - stride; d < len; d += stride) {
+      const s = Math.max(0, d), e = Math.min(len, d + dash);
+      if (e <= s) continue;
+      g.moveTo(origin.cx + ux * s, origin.cy + uy * s);
+      g.lineTo(origin.cx + ux * e, origin.cy + uy * e);
+    }
+  }
+
+  _removeMarker(tokenId) {
+    const marker = this._markers.get(tokenId);
+    if (!marker) return;
+    if (!marker.root.destroyed) {
+      try { if (marker.glow) marker.glow.filters = null; } catch {}
+      if (marker.root.parent) marker.root.parent.removeChild(marker.root);
+      marker.root.destroy({ children: true });
+    }
+    this._markers.delete(tokenId);
+  }
+
+  _clearMarkers() {
+    for (const tokenId of [...this._markers.keys()]) this._removeMarker(tokenId);
+    if (this._groundLayer && !this._groundLayer.destroyed) {
+      try { this._groundLayer.destroy({ children: true }); } catch {}
+    }
+    this._groundLayer = null;
   }
 
   _getShape() {
@@ -5077,6 +5671,7 @@ class TokenOverlayManager {
 
   _clearAll() {
     for (const tokenId of [...this._entries.keys()]) this._removeEntry(tokenId);
+    this._clearMarkers();
     this._stopTick();
   }
 
@@ -5097,6 +5692,17 @@ class TokenOverlayManager {
   _onTick(dt) {
     const dts = (typeof dt === "number" ? dt : 1) / 60;
     this._time += dts;
+
+    // Ground turn-markers: reposition + animate each marker. Cheap — at most the
+    // active + next tokens. Intensity/connector flags are cached during refresh()
+    // (setting changes trigger forceRedraw), so no per-frame settings reads here.
+    if (this._markers.size) {
+      for (const marker of this._markers.values()) {
+        if (marker.root.destroyed) continue;
+        this._syncMarker(marker, dts);
+      }
+    }
+
     for (const entry of this._entries.values()) {
       if (entry.container.destroyed) continue;
 
