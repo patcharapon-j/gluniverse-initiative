@@ -924,7 +924,7 @@ class GLUniverseInitiativeOverlay {
 
     const settings = this.getRenderSettings();
     const view = this.buildViewModel(combat, settings);
-    this.detectStatusTransitions(view);
+    this.detectStatusTransitions();
     const turnKey = view.normal.map(item => item.key ?? `${item.type}:${item.round}`).join("|");
     const isTurnChange = this.lastTurnKey && turnKey !== this.lastTurnKey;
     const previousRenderedRound = this.lastRenderedRound;
@@ -1761,6 +1761,7 @@ class GLUniverseInitiativeOverlay {
       }
       this.pendingSlideInIds.add(combatant.id);
       this.statusAnimationRecentlyQueued(combatant.id, "delay");
+      this.broadcastStatusAnimation(combatant.id, "delay");
       await combatant.setFlag(MODULE_ID, FLAGS.manualDelayed, true);
       if (this.combat?.combatant?.id === combatant.id) await this.combat.nextTurn();
       this.broadcastRefresh();
@@ -2162,6 +2163,11 @@ class GLUniverseInitiativeOverlay {
     this.pendingSlideInIds.add(combatant.id);
     this.statusAnimationRecentlyQueued(combatant.id, "guardBreak");
     this.showBreakSplash(combatant.name);
+    // The broken card is moved before the active turn, so it falls outside the
+    // forward-looking window on other clients and their local detection can't
+    // see it. Broadcast the splash + entrance so every player gets the cue.
+    this.broadcastBreakSplash(combatant.name);
+    this.broadcastStatusAnimation(combatant.id, "guardBreak");
 
     const payload = {
       round: combat.round ?? 1,
@@ -2928,21 +2934,41 @@ class GLUniverseInitiativeOverlay {
 
   playPendingSlideIns() {
     if (!this.pendingSlideInIds.size || !this.root) return;
-    for (const id of this.pendingSlideInIds) {
+    // Iterate a snapshot so we can drop entries that played while leaving the
+    // rest pending. A transition detected while the card was outside this
+    // client's window (full-roster detection) keeps its cue until the card
+    // actually renders, so the entrance still plays when it scrolls into view.
+    for (const id of [...this.pendingSlideInIds]) {
       const card = this.root.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
-      if (!card) {
+      if (!card) continue;
+      const statusKind = this.pendingStatusFlashes.get(id);
+      // A cue queued while the card was off-window may have gone stale by the
+      // time the card scrolls in (status reverted). Re-check the live flag —
+      // delay/guard-break are flag-based and replicate to every client — and
+      // drop the cue rather than flash a status the combatant no longer has.
+      // (A GM-local slide-in without a tracked kind always plays.)
+      const combatant = statusKind ? this.combat?.combatants?.get?.(id) : null;
+      const stale = (statusKind === "delay" && !(combatant && this.isDelayed(combatant)))
+        || (statusKind === "guardBreak" && !(combatant && getGuardBreakState(combatant)));
+      if (stale) {
         this.pendingStatusFlashes.delete(id);
+        this.pendingSlideInIds.delete(id);
         continue;
       }
-      const statusKind = this.pendingStatusFlashes.get(id);
       const status = STATUS_ANIMATION[statusKind];
       if (status) this.playInlineStatusFlash(card, localize(status.label).toUpperCase(), status.colorClass);
-      if (statusKind === "delay") this.pulseTagEnter(card, ".gluni-delayed-tag");
+      if (statusKind === "delay") {
+        this.pulseTagEnter(card, ".gluni-delayed-tag");
+        // Mirror the dying/break entrance richness: wipe the time-shift field in
+        // and settle the card with a blue energy pulse rather than a bare slide.
+        card.classList.add("gluni-card--delay-entering");
+        window.setTimeout(() => card.classList.remove("gluni-card--delay-entering"), 700);
+      }
       this.pendingStatusFlashes.delete(id);
+      this.pendingSlideInIds.delete(id);
       card.classList.add("gluni-card--slide-in");
       window.setTimeout(() => card.classList.remove("gluni-card--slide-in"), 400);
     }
-    this.pendingSlideInIds.clear();
   }
 
   playPendingDyingWipes() {
@@ -2961,51 +2987,76 @@ class GLUniverseInitiativeOverlay {
     this.pendingDyingWipeIds.clear();
   }
 
-  detectStatusTransitions(view) {
-    const hadSnapshot = this.statusSnapshotInitialized;
-    const currentDying = new Set();
-    const currentDelayed = new Set();
-    const currentBroken = new Set();
-    const allCards = [...view.normal, ...view.delayed];
-    for (const item of allCards) {
-      if (item.type !== "combatant") continue;
-      if (item.dying) currentDying.add(item.id);
-      if (item.delayed) currentDelayed.add(item.id);
-      if (item.guardBroken) currentBroken.add(item.id);
+  // Status sets are computed from the FULL combatant list (respecting this
+  // client's visibility), never the windowed view. A combatant that scrolls
+  // out of the visible window and back in must not read as a fresh status
+  // transition (which previously replayed the break splash on every turn).
+  collectStatusSets() {
+    const dying = new Set();
+    const delayed = new Set();
+    const broken = new Set();
+    const combat = this.combat;
+    if (!combat) return { dying, delayed, broken };
+
+    const showDefeated = Boolean(game.settings.get(MODULE_ID, SETTINGS.showDefeated));
+    const combatants = combat.combatants?.contents ?? Array.from(combat.combatants ?? []);
+    for (const entry of combatants) {
+      const combatant = Array.isArray(entry) ? entry[1] : entry;
+      if (!combatant || isAdhocCombatant(combatant)) continue;
+
+      const visibility = this.resolveVisibility(combatant);
+      // Hidden/mystery combatants must never leak a status through detection.
+      if (!game.user.isGM && visibility.playerMode === VISIBILITY.hidden) continue;
+      if (!game.user.isGM && visibility.playerMode === VISIBILITY.mystery) continue;
+
+      const skipped = Boolean(combatant.defeated && !showDefeated);
+      if (skipped) continue;
+
+      if (getGuardBreakState(combatant)) broken.add(combatant.id);
+      if (this.isDelayed(combatant)) delayed.add(combatant.id);
+      if (getDyingState(combatant)) dying.add(combatant.id);
     }
+    return { dying, delayed, broken };
+  }
+
+  detectStatusTransitions() {
+    const hadSnapshot = this.statusSnapshotInitialized;
+    const isPrimaryGM = game.user.isGM && this.isPrimaryActiveGM();
+    const { dying: currentDying, delayed: currentDelayed, broken: currentBroken } = this.collectStatusSets();
+
     for (const id of currentDying) {
       if (this.lastDyingIds.has(id)) continue;
 
       const queuedLocally = !this.statusAnimationRecentlyQueued(id, "dying");
       if (queuedLocally) this.pendingDyingWipeIds.add(id);
-      if (queuedLocally && hadSnapshot && game.user.isGM && this.isPrimaryActiveGM()) {
+      if (queuedLocally && hadSnapshot && isPrimaryGM) {
         this.broadcastStatusAnimation(id, "dying");
       }
     }
     const edge = game.settings.get(MODULE_ID, SETTINGS.edge) || "right";
     for (const id of currentDelayed) {
       if (this.lastDelayedIds.has(id)) continue;
-      if (!this.statusAnimationRecentlyQueued(id, "delay")) {
-        const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
-        if (cardEl) {
-          this.createStatusFlashGhost(cardEl, localize("GLUNI.Delayed").toUpperCase(), "delay", edge);
-        }
-        this.pendingSlideInIds.add(id);
+      if (this.statusAnimationRecentlyQueued(id, "delay")) continue;
+      const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
+      if (cardEl) {
+        this.createStatusFlashGhost(cardEl, localize("GLUNI.Delayed").toUpperCase(), "delay", edge);
       }
+      this.pendingSlideInIds.add(id);
+      // Drive the on-card swipe directly so the entrance plays even when the
+      // card was off-screen before (no ghost), e.g. on player clients.
+      this.pendingStatusFlashes.set(id, "delay");
+      if (hadSnapshot && isPrimaryGM) this.broadcastStatusAnimation(id, "delay");
     }
     for (const id of currentBroken) {
       if (this.lastBrokenIds.has(id)) continue;
-      if (!this.statusAnimationRecentlyQueued(id, "guardBreak")) {
-        const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
-        if (cardEl) {
-          this.createStatusFlashGhost(cardEl, localize("GLUNI.GuardBreak").toUpperCase(), "break", edge);
-        }
-        this.pendingSlideInIds.add(id);
-        if (hadSnapshot) {
-          const combatant = this.combat?.combatants?.get(id);
-          if (combatant) this.showBreakSplash(combatant.name);
-        }
+      if (this.statusAnimationRecentlyQueued(id, "guardBreak")) continue;
+      const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
+      if (cardEl) {
+        this.createStatusFlashGhost(cardEl, localize("GLUNI.GuardBreak").toUpperCase(), "break", edge);
       }
+      this.pendingSlideInIds.add(id);
+      this.pendingStatusFlashes.set(id, "guardBreak");
+      if (hadSnapshot && isPrimaryGM) this.broadcastStatusAnimation(id, "guardBreak");
     }
     this.lastDyingIds = currentDying;
     this.lastDelayedIds = currentDelayed;
@@ -3221,7 +3272,7 @@ function getItemSlug(item) {
 }
 
 function renderDyingRepeatText(dying) {
-  const text = `${localize("GLUNI.Dying").toUpperCase()} ${dying.value}/${dying.max}`;
+  const text = `${localize("GLUNI.Dying").toUpperCase()} ${dying.value}`;
   const line = Array.from({ length: 5 }, () => `<span>${escapeHTML(text)}</span>`).join("");
   return Array.from({ length: 6 }, (_, index) => `
     <div class="gluni-card-dying-repeat-line${index % 2 ? " gluni-card-dying-repeat-line--alt" : ""}">
@@ -4123,7 +4174,7 @@ void main(void){
   float ang=atan(d.y,d.x);
   float warp=0.16*gluFbm(vec2(ang*1.2+3.0,1.7))+0.08*gluFbm(vec2(ang*3.3,5.0))-0.12;
   float wdist=dist+warp;
-  float scale=mix(8.0,4.0,smoothstep(0.0,0.8,dist));   // large shards -> few cracks
+  float scale=mix(5.0,2.6,smoothstep(0.0,0.8,dist));   // large shards -> few cracks
   float ce=gluVoroEdge(vec2(uv.x*uAspect,uv.y)*scale+7.0);
   // Analytic AA: the Voronoi edge field changes by ~scale per uv unit, so one
   // screen pixel spans ~scale*uTexel of field. Widen the smoothstep band to at
@@ -4133,7 +4184,7 @@ void main(void){
   float edge=1.0-smoothstep(0.0,aaWidth,ce);           // crisp lines; uThick tunes weight
   float shatterT=clamp(uTime*1.4,0.0,1.0);
   float front=smoothstep(0.05,-0.06, wdist-(0.05+1.2*shatterT));
-  float coverage=smoothstep(0.95,0.12,wdist)*front;    // tight, leaves edges clear
+  float coverage=smoothstep(1.18,0.1,wdist)*front;     // reaches further across the art
   float crack=edge*coverage;
   float settled=smoothstep(0.55,1.0,shatterT);
   float flow=pow(0.5+0.5*sin(dist*18.0-uTime*3.0),8.0); // sharp, sparse pulses
@@ -4358,7 +4409,7 @@ class CardFXManager {
       this.renderer = new PIXI.Renderer({ width: 256, height: 160, backgroundAlpha: 0, antialias: true });
       this.sprite = new PIXI.Sprite(PIXI.Texture.WHITE);
       const mk = frag => {
-        const f = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: 0, uAspect: 1, uClipCircle: 0, uThick: 0.05, uTexel: 0, uImpact: [0.65, 0.34] });
+        const f = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: 0, uAspect: 1, uClipCircle: 0, uThick: 0.09, uTexel: 0, uImpact: [0.65, 0.34] });
         f.padding = 0;
         return f;
       };
@@ -4789,8 +4840,9 @@ class TokenOverlayManager {
     const high = marker.fidelity !== "balanced";
     const isActive = role === "active";
     const base = Math.max(w, h);
-    // Disc reaches well beyond the token footprint so it never hides under the art.
-    const discR = base * (isActive ? 1.0 : 0.85);
+    // Disc sits just outside the token footprint — a tight pedestal that hugs the
+    // art rather than a wide halo on the floor.
+    const discR = base * (isActive ? 0.68 : 0.58);
     marker.discR = discR;
 
     glow.clear(); glow.filters = null;
@@ -5313,7 +5365,7 @@ class TokenOverlayManager {
       if (!entry.fxMesh || entry.fxMesh.destroyed || entry.fxFilterMode !== mode) {
         destroyFxMesh(entry.fxMesh);
         const frag = mode === "broken" ? FX_FRAG_BREAK : mode === "dying" ? FX_FRAG_DYING : FX_FRAG_DELAY;
-        const mesh = makeFxMesh(frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uThick: 0.045, uTexel: 0, uImpact: [0.5, 0.5] });
+        const mesh = makeFxMesh(frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uThick: 0.08, uTexel: 0, uImpact: [0.5, 0.5] });
         entry.fxMesh = mesh;
         entry.fxShader = mesh.shader;
         entry.fxFilterMode = mode;
@@ -5643,6 +5695,11 @@ class TokenOverlayManager {
 
     const diamond = (px, py, rr) => [px, py - rr, px + rr, py, px, py + rr, px - rr, py];
 
+    // Triangle halves of a diamond, split at its waist — a lit upper facet over
+    // a shadowed lower facet reads as a cut gem rather than a flat fill.
+    const upperFacet = (px, py, rr) => [px, py - rr, px + rr, py, px - rr, py];
+    const lowerFacet = (px, py, rr) => [px - rr, py, px + rr, py, px, py + rr];
+
     for (let i = 0; i < max; i++) {
       const px = startX + i * stepX;
       const filled = i < value;
@@ -5653,18 +5710,33 @@ class TokenOverlayManager {
       g.endFill();
       if (filled) {
         const col = critical || last ? P.dyingHot : P.dying;
-        g.beginFill(col, 0.96);
-        g.drawPolygon(diamond(px, y, pipR));
+        // soft coloured halo so the gem glows off the plate
+        g.beginFill(col, critical || last ? 0.3 : 0.2);
+        g.drawPolygon(diamond(px, y, pipR + 2.2));
         g.endFill();
+        // shadowed lower facet, then the lit upper facet
+        g.beginFill(P.dyingDeep, 0.95);
+        g.drawPolygon(lowerFacet(px, y, pipR));
+        g.endFill();
+        g.beginFill(col, 0.97);
+        g.drawPolygon(upperFacet(px, y, pipR));
+        g.endFill();
+        // crisp facet edges + waistline
         g.lineStyle({ width: 0.8, color: P.white, alpha: 0.6 });
         g.drawPolygon(diamond(px, y, pipR));
+        g.moveTo(px - pipR, y); g.lineTo(px + pipR, y);
         g.lineStyle(0);
-        g.beginFill(P.white, 0.5);   // bright core
-        g.drawPolygon(diamond(px, y, pipR * 0.4));
+        // bright specular glint on the top facet
+        g.beginFill(P.white, 0.85);
+        g.drawPolygon(diamond(px, y - pipR * 0.42, pipR * 0.26));
         g.endFill();
       } else {
-        g.beginFill(P.dyingDeep, 0.22);
+        g.beginFill(P.dyingDeep, 0.26);
         g.drawPolygon(diamond(px, y, pipR));
+        g.endFill();
+        // faint sheen on the upper facet hints at the unspent gem
+        g.beginFill(P.dying, 0.16);
+        g.drawPolygon(upperFacet(px, y, pipR));
         g.endFill();
         g.lineStyle({ width: 0.8, color: P.dying, alpha: 0.5 });
         g.drawPolygon(diamond(px, y, pipR));
