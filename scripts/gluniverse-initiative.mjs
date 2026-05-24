@@ -3930,11 +3930,9 @@ class CardFXManager {
       // New or replaced canvas (the rail rebuilds innerHTML each render): keep
       // the seed/impact stable so the effect doesn't re-randomize, and only
       // reset the clock when the effect type actually changed.
-      const ctx = cv.getContext("2d");
-      if (ctx) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; }
       this.entries.set(key, {
         canvas: cv,
-        ctx,
+        ctx: cv.getContext("2d"),
         mode,
         seed: prev?.seed ?? Math.random() * 100,
         impact: prev?.impact ?? [0.42 + Math.random() * 0.36, 0.18 + Math.random() * 0.42],
@@ -3979,7 +3977,14 @@ class CardFXManager {
       if (!cw || !ch) continue;
       const pw = Math.max(1, Math.round(cw * dpr));
       const ph = Math.max(1, Math.round(ch * dpr));
-      if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+      if (cv.width !== pw || cv.height !== ph) {
+        // Resizing the backing store resets the 2D context to its defaults
+        // (smoothing quality "low"), so reapply the high-quality downscale
+        // filter every time we resize — including the first frame.
+        cv.width = pw; cv.height = ph;
+        entry.ctx.imageSmoothingEnabled = true;
+        entry.ctx.imageSmoothingQuality = "high";
+      }
       // Render the procedural FX at a supersample factor and downsample on blit.
       // MSAA can't smooth shader-generated edges (the cracks), so this is what
       // actually de-aliases them; the cards are small so the extra fragments are
