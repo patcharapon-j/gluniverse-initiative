@@ -2934,13 +2934,27 @@ class GLUniverseInitiativeOverlay {
 
   playPendingSlideIns() {
     if (!this.pendingSlideInIds.size || !this.root) return;
-    for (const id of this.pendingSlideInIds) {
+    // Iterate a snapshot so we can drop entries that played while leaving the
+    // rest pending. A transition detected while the card was outside this
+    // client's window (full-roster detection) keeps its cue until the card
+    // actually renders, so the entrance still plays when it scrolls into view.
+    for (const id of [...this.pendingSlideInIds]) {
       const card = this.root.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
-      if (!card) {
+      if (!card) continue;
+      const statusKind = this.pendingStatusFlashes.get(id);
+      // A cue queued while the card was off-window may have gone stale by the
+      // time the card scrolls in (status reverted). Re-check the live flag —
+      // delay/guard-break are flag-based and replicate to every client — and
+      // drop the cue rather than flash a status the combatant no longer has.
+      // (A GM-local slide-in without a tracked kind always plays.)
+      const combatant = statusKind ? this.combat?.combatants?.get?.(id) : null;
+      const stale = (statusKind === "delay" && !(combatant && this.isDelayed(combatant)))
+        || (statusKind === "guardBreak" && !(combatant && getGuardBreakState(combatant)));
+      if (stale) {
         this.pendingStatusFlashes.delete(id);
+        this.pendingSlideInIds.delete(id);
         continue;
       }
-      const statusKind = this.pendingStatusFlashes.get(id);
       const status = STATUS_ANIMATION[statusKind];
       if (status) this.playInlineStatusFlash(card, localize(status.label).toUpperCase(), status.colorClass);
       if (statusKind === "delay") {
@@ -2951,10 +2965,10 @@ class GLUniverseInitiativeOverlay {
         window.setTimeout(() => card.classList.remove("gluni-card--delay-entering"), 700);
       }
       this.pendingStatusFlashes.delete(id);
+      this.pendingSlideInIds.delete(id);
       card.classList.add("gluni-card--slide-in");
       window.setTimeout(() => card.classList.remove("gluni-card--slide-in"), 400);
     }
-    this.pendingSlideInIds.clear();
   }
 
   playPendingDyingWipes() {
