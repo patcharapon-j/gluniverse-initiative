@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Turn-impact + mystery scramble — prototype</title>
+<style>
+  :root{--gluni-cyan:#5eeaff;--gluni-white:#f3fbff;--gluni-violet:#b497ff;--gluni-ink:#02070b;--gluni-line:rgba(244,252,255,0.10);--gluni-text-dim:rgba(243,251,255,0.62)}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;padding:42px 30px 70px;font-family:"Bahnschrift","Share Tech Mono",Consolas,monospace;color:var(--gluni-white);
+    background:radial-gradient(circle at 30% 18%,rgba(94,234,255,0.05),transparent 42%),repeating-linear-gradient(0deg,rgba(255,255,255,0.016) 0 1px,transparent 1px 46px),repeating-linear-gradient(90deg,rgba(255,255,255,0.016) 0 1px,transparent 1px 46px),#05090d;
+    display:grid;gap:26px;justify-items:center}
+  h1{font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:var(--gluni-text-dim);font-weight:950;margin:4px 0 0}
+  .row{display:flex;gap:46px;flex-wrap:wrap;justify-content:center}
+  .cell{width:236px;text-align:center}
+  .cell h2{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--gluni-cyan);font-weight:950;margin:0 0 10px}
+  .cell.violet h2{color:var(--gluni-violet)}
+  .caption{font-size:9px;color:var(--gluni-text-dim);margin-top:10px;line-height:1.5}
+  .card{position:relative;width:214px;height:90px;margin:0 auto;overflow:hidden;background:linear-gradient(120deg,rgba(10,18,24,.55),rgba(2,7,11,.55)),linear-gradient(165deg,#2c3648,#0c1118);box-shadow:inset 0 0 0 1px var(--gluni-line);clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);display:flex;align-items:flex-end}
+  .card.active{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--gluni-cyan) 60%,var(--gluni-line)),0 0 24px rgba(94,234,255,.28)}
+  .card.active::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--gluni-cyan);box-shadow:0 0 14px var(--gluni-cyan);z-index:9}
+  .card.mystery{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--gluni-violet) 60%,var(--gluni-line)),0 0 20px rgba(180,151,255,.26)}
+  .card.mystery::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--gluni-violet);box-shadow:0 0 12px var(--gluni-violet);z-index:9}
+  .card .qmark{position:absolute;inset:0;display:grid;place-items:center;color:var(--gluni-violet);background:radial-gradient(circle at 50% 48%,color-mix(in srgb,var(--gluni-violet) 24%,transparent),transparent 46%),var(--gluni-ink);font-size:54px;font-weight:950;text-shadow:0 0 18px color-mix(in srgb,var(--gluni-violet) 80%,transparent)}
+  .card canvas{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:4}
+  .card .name{position:relative;z-index:9;padding:0 0 9px 13px;font-size:14px;font-weight:850;text-shadow:0 1px 3px rgba(0,0,0,.85)}
+  button{margin-top:6px;font:inherit;font-size:9px;letter-spacing:.1em;font-weight:950;color:#02070b;background:linear-gradient(180deg,#9ad8ff,#5eeaff);border:0;padding:6px 12px;cursor:pointer;clip-path:polygon(4px 0,100% 0,100% 100%,0 100%,0 4px)}
+  .note{max-width:560px;text-align:center;font-size:10px;color:var(--gluni-text-dim);line-height:1.6}
+</style>
+</head>
+<body>
+  <h1>New effects — exact module shaders (overlay)</h1>
+  <div class="row">
+    <div class="cell">
+      <h2>Active card — shimmer + turn impact</h2>
+      <div class="card active"><canvas data-fx="shimmer"></canvas><div class="name">Iron Colossus</div></div>
+      <button id="reactivate">Re-activate</button>
+      <p class="caption">holographic sweep loop, with a one-shot shockwave that fires as the card becomes active</p>
+    </div>
+    <div class="cell violet">
+      <h2>Mystery card — scramble</h2>
+      <div class="card mystery"><div class="qmark">?</div><canvas data-fx="scramble"></canvas><div class="name">Unknown</div></div>
+      <p class="caption">digital static / glitch lines; the glowing &ldquo;?&rdquo; reads through the partial-alpha noise</p>
+    </div>
+  </div>
+  <p class="note">Same GLSL as the module's <code>FX_FRAG_SHIMMER</code> / <code>FX_FRAG_SCRAMBLE</code>. Raw WebGL here for a no-dependency demo; in Foundry it runs through <code>PIXI.Filter</code>.</p>
+
+<script>
+const VERT=`attribute vec2 a_pos;varying vec2 vTextureCoord;void main(){vTextureCoord=a_pos*0.5+0.5;gl_Position=vec4(a_pos,0.0,1.0);}`;
+const SHIMMER=`precision highp float;varying vec2 vTextureCoord;uniform float uTime,uAspect;
+void main(void){vec2 uv=vTextureCoord;
+float band=sin((uv.x*1.4+uv.y*0.6)*3.14159-uTime*1.6);float sweep=smoothstep(0.86,1.0,band);
+vec3 cyan=vec3(0.37,0.92,1.0),violet=vec3(0.71,0.59,1.0),magenta=vec3(1.0,0.40,0.70);
+float ph=0.5+0.5*sin(uTime*0.8+uv.x*2.0);vec3 tint=mix(mix(cyan,violet,ph),magenta,smoothstep(0.6,1.0,ph));
+float a=sweep*0.42;
+vec2 d=(uv-vec2(0.5));d.x*=uAspect;float dist=length(d);
+float it=clamp(uTime/0.7,0.0,1.0);float fade=1.0-it;
+float ring=smoothstep(0.07,0.0,abs(dist-it*0.95))*fade;
+float flash=fade*fade*0.45*smoothstep(0.0,0.08,uTime);
+vec3 impactCol=mix(cyan,vec3(1.0),0.5);float ia=clamp(ring*0.9+flash,0.0,1.0);
+vec3 col=mix(tint,impactCol,ia);a=clamp(a+ia,0.0,1.0);
+gl_FragColor=vec4(col*a,a);}`;
+const SCRAMBLE=`precision highp float;varying vec2 vTextureCoord;uniform float uTime,uSeed,uAspect;
+float gluH(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+uSeed)*43758.5453);}
+void main(void){vec2 uv=vTextureCoord;float rows=14.0;float row=floor(uv.y*rows);float t=floor(uTime*12.0);
+float g=gluH(vec2(row,t));float glitch=step(0.82,g)*(gluH(vec2(row,t+1.0))-0.5)*0.3;
+vec2 suv=uv;suv.x+=glitch;
+float blocks=gluH(floor(suv*vec2(34.0,rows))+t*0.5);float scan=0.5+0.5*sin(uv.y*rows*6.2831);
+float noise=gluH(floor(suv*120.0)+t);float intensity=mix(0.25,0.6,blocks)*mix(0.6,1.0,scan);
+vec3 violet=vec3(0.71,0.59,1.0),cyan=vec3(0.37,0.92,1.0);vec3 col=mix(violet,cyan,step(0.7,noise));
+float a=intensity*0.5+step(0.93,noise)*0.4+step(0.82,g)*0.15;a=clamp(a,0.0,1.0);
+gl_FragColor=vec4(col*a,a);}`;
+function compile(gl,t,s){const sh=gl.createShader(t);gl.shaderSource(sh,s);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(sh),s);return null;}return sh;}
+function setup(cv,frag){const gl=cv.getContext("webgl",{premultipliedAlpha:true,alpha:true,antialias:true});if(!gl)return null;
+const p=gl.createProgram();const vs=compile(gl,gl.VERTEX_SHADER,VERT),fs=compile(gl,gl.FRAGMENT_SHADER,frag);if(!vs||!fs)return null;
+gl.attachShader(p,vs);gl.attachShader(p,fs);gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(p));return null;}
+gl.useProgram(p);const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(p,"a_pos");gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+return{gl,uTime:gl.getUniformLocation(p,"uTime"),uSeed:gl.getUniformLocation(p,"uSeed"),uAspect:gl.getUniformLocation(p,"uAspect")};}
+function size(cv){const dpr=Math.min(window.devicePixelRatio||1,2);const w=cv.clientWidth*dpr|0,h=cv.clientHeight*dpr|0;if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}}
+const fxs=[];
+document.querySelectorAll("canvas[data-fx]").forEach(cv=>{const isShim=cv.dataset.fx==="shimmer";const s=setup(cv,isShim?SHIMMER:SCRAMBLE);if(s)fxs.push({cv,s,seed:Math.random()*100,t0:performance.now()});});
+document.getElementById("reactivate").addEventListener("click",()=>{const o=fxs[0];if(o)o.t0=performance.now();});
+function frame(now){for(const o of fxs){size(o.cv);const {gl}=o.s;gl.viewport(0,0,o.cv.width,o.cv.height);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
+gl.uniform1f(o.s.uTime,(now-o.t0)/1000);gl.uniform1f(o.s.uSeed,o.seed);gl.uniform1f(o.s.uAspect,o.cv.width/o.cv.height);
+gl.drawArrays(gl.TRIANGLES,0,3);}requestAnimationFrame(frame);}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

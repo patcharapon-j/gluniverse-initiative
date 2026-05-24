@@ -982,11 +982,14 @@ class GLUniverseInitiativeOverlay {
 
     // High-fidelity WebGL portrait FX layer (replaces the CSS crack/vein bg).
     // Falls back to the CSS background when unsupported or fidelity is balanced.
-    const useFX = !card.adhoc && !card.mystery && Boolean(card.portrait)
-      && cardFX?.supported && getVisualFidelity() === "high";
-    const fxMode = useFX
-      ? (card.guardBroken ? "break" : card.dying ? "dying" : card.active ? "shimmer" : null)
-      : null;
+    const fxReady = !card.adhoc && cardFX?.supported && getVisualFidelity() === "high";
+    let fxMode = null;
+    if (fxReady) {
+      if (card.mystery) fxMode = "scramble";
+      else if (card.portrait) {
+        fxMode = card.guardBroken ? "break" : card.dying ? "dying" : card.active ? "shimmer" : null;
+      }
+    }
 
     return `
       <article class="${classes}" data-gluni-key="${escapeAttr(card.key)}" data-combatant-id="${card.id}" data-round-offset="${card.roundOffset}"${style}>
@@ -1017,7 +1020,7 @@ class GLUniverseInitiativeOverlay {
           : ""}
         ${card.dying
           ? `
-            ${fxMode === "dying" ? "" : `<div class="gluni-card-dying-bg" aria-hidden="true"></div>`}
+            ${fxMode === "dying" || fxMode === "scramble" ? "" : `<div class="gluni-card-dying-bg" aria-hidden="true"></div>`}
             <div class="gluni-card-dying-repeat" aria-hidden="true">
               ${renderDyingRepeatText(card.dying)}
             </div>
@@ -1025,7 +1028,7 @@ class GLUniverseInitiativeOverlay {
           : ""}
         ${card.guardBroken
           ? `
-            ${fxMode === "break" ? "" : `<div class="gluni-card-guard-break-bg" aria-hidden="true"></div>`}
+            ${fxMode === "break" || fxMode === "scramble" ? "" : `<div class="gluni-card-guard-break-bg" aria-hidden="true"></div>`}
             <div class="gluni-card-guard-break-repeat" aria-hidden="true">
               ${renderGuardBreakRepeatText()}
             </div>
@@ -3781,13 +3784,50 @@ uniform sampler2D uSampler;
 uniform float uTime, uSeed, uAspect;
 void main(void){
   vec2 uv=vTextureCoord;
+  // steady holographic sweep
   float band=sin((uv.x*1.4+uv.y*0.6)*3.14159 - uTime*1.6);
   float sweep=smoothstep(0.86,1.0,band);
   vec3 cyan=vec3(0.37,0.92,1.0), violet=vec3(0.71,0.59,1.0), magenta=vec3(1.0,0.40,0.70);
   float ph=0.5+0.5*sin(uTime*0.8+uv.x*2.0);
   vec3 tint=mix(mix(cyan,violet,ph), magenta, smoothstep(0.6,1.0,ph));
   float a=sweep*0.42;
-  gl_FragColor=vec4(tint*a, a);
+
+  // one-shot turn-change impact: an energy shockwave that expands from the
+  // centre and a brief flash, both fading over the first ~0.7s of activation.
+  vec2 d=(uv-vec2(0.5)); d.x*=uAspect; float dist=length(d);
+  float it=clamp(uTime/0.7,0.0,1.0);
+  float fade=(1.0-it);
+  float ring=smoothstep(0.07,0.0,abs(dist-it*0.95))*fade;
+  float flash=fade*fade*0.45*smoothstep(0.0,0.08,uTime);
+  vec3 impactCol=mix(cyan, vec3(1.0), 0.5);
+  float ia=clamp(ring*0.9+flash,0.0,1.0);
+  vec3 col=mix(tint, impactCol, ia);
+  a=clamp(a+ia,0.0,1.0);
+  gl_FragColor=vec4(col*a, a);
+}`;
+
+const FX_FRAG_SCRAMBLE = `
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform float uTime, uSeed, uAspect;
+float gluH(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7))+uSeed)*43758.5453); }
+void main(void){
+  vec2 uv=vTextureCoord;
+  float rows=14.0;
+  float row=floor(uv.y*rows);
+  float t=floor(uTime*12.0);
+  // occasional horizontal glitch shift per scanline row
+  float g=gluH(vec2(row,t));
+  float glitch=step(0.82,g)*(gluH(vec2(row,t+1.0))-0.5)*0.3;
+  vec2 suv=uv; suv.x+=glitch;
+  float blocks=gluH(floor(suv*vec2(34.0,rows))+t*0.5);
+  float scan=0.5+0.5*sin(uv.y*rows*6.2831);
+  float noise=gluH(floor(suv*120.0)+t);
+  float intensity=mix(0.25,0.6,blocks)*mix(0.6,1.0,scan);
+  vec3 violet=vec3(0.71,0.59,1.0), cyan=vec3(0.37,0.92,1.0);
+  vec3 col=mix(violet, cyan, step(0.7,noise));
+  float a=intensity*0.5 + step(0.93,noise)*0.4 + step(0.82,g)*0.15;
+  gl_FragColor=vec4(col*clamp(a,0.0,1.0), clamp(a,0.0,1.0));
 }`;
 
 class CardFXManager {
@@ -3814,7 +3854,12 @@ class CardFXManager {
         f.padding = 0;
         return f;
       };
-      this.filters = { break: mk(FX_FRAG_BREAK), dying: mk(FX_FRAG_DYING), shimmer: mk(FX_FRAG_SHIMMER) };
+      this.filters = {
+        break: mk(FX_FRAG_BREAK),
+        dying: mk(FX_FRAG_DYING),
+        shimmer: mk(FX_FRAG_SHIMMER),
+        scramble: mk(FX_FRAG_SCRAMBLE)
+      };
       this.supported = true;
     } catch (err) {
       console.warn(`${MODULE_ID} | Card portrait FX unavailable, falling back to CSS`, err);
