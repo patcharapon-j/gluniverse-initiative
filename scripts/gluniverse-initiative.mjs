@@ -10,7 +10,10 @@ const SETTINGS = {
   position: "position",
   uiScale: "uiScale",
   tokenOverlayShape: "tokenOverlayShape",
-  visualFidelity: "visualFidelity"
+  visualFidelity: "visualFidelity",
+  turnMarkerEnabled: "turnMarkerEnabled",
+  startMarkerEnabled: "startMarkerEnabled",
+  startConnectorEnabled: "startConnectorEnabled"
 };
 
 const TOKEN_OVERLAY_PALETTE = {
@@ -28,6 +31,21 @@ const TOKEN_OVERLAY_PALETTE = {
   magenta: 0xff66b3
 };
 
+// Ground turn-marker disposition colours. `base` is synced to the initiative
+// card's per-disposition accent (--gluni-cyan / --gluni-white / --gluni-red /
+// --gluni-violet) so a token's ground ring reads as the same theme as its rail
+// card. `hi` is the brighter accent used for sweeps, glow and bright edges.
+const DISPOSITION_PALETTE = {
+  friendly: { base: 0x5eeaff, hi: 0xb9f7ff },   // --gluni-cyan
+  hostile: { base: 0xff335f, hi: 0xff8aa3 },    // --gluni-red
+  neutral: { base: 0xf3fbff, hi: 0xffffff },    // --gluni-white
+  secret: { base: 0xb497ff, hi: 0xe0d4ff }      // --gluni-violet
+};
+
+function getDispositionColors(disposition) {
+  return DISPOSITION_PALETTE[disposition] ?? DISPOSITION_PALETTE.neutral;
+}
+
 const FLAGS = {
   visibility: "visibility",
   manualDelayed: "manualDelayed",
@@ -35,7 +53,8 @@ const FLAGS = {
   breakGauge: "breakGauge",
   portraitFrame: "portraitFrame",
   adhoc: "adhoc",
-  adhocActor: "adhocActor"
+  adhocActor: "adhocActor",
+  turnStart: "turnStart"
 };
 
 // Break gauge: a GM-managed resource bar that depletes toward a guard break.
@@ -83,6 +102,13 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.VisualFidelity.Hint": "Higher fidelity uses real frosted glass and motion blur for the most premium look. Step down to Balanced for lighter GPU load while staying premium.",
   "GLUNI.Settings.VisualFidelity.High": "High (best looking)",
   "GLUNI.Settings.VisualFidelity.Balanced": "Balanced (lighter)",
+  "GLUNI.Settings.TurnMarker.Name": "Turn marker on tokens",
+  "GLUNI.Settings.TurnMarker.Hint": "Draw a cinematic ground ring beneath the current and next combatant's tokens, coloured by disposition.",
+  "GLUNI.Settings.StartMarker.Name": "Starting-location marker",
+  "GLUNI.Settings.StartMarker.Hint": "Mark where the active combatant's token began its turn, so players can see how far it has moved.",
+  "GLUNI.Settings.StartConnector.Name": "Starting-location trail",
+  "GLUNI.Settings.StartConnector.Hint": "Draw a flowing connector line from the starting-location marker to the active token. Requires the starting-location marker.",
+  "GLUNI.TurnMarker.Next": "Next",
   "GLUNI.Settings.VisibleCount.Hint": "Number of normal initiative combatants to show from the current turn forward.",
   "GLUNI.Settings.VisibleCount.Name": "Visible combatants",
   "GLUNI.Controls.Auto": "Auto",
@@ -287,11 +313,15 @@ Hooks.once("ready", () => {
   overlay.mount();
   overlay.render();
   tokenOverlays = new TokenOverlayManager();
+  refreshNativeTurnMarkerSuppression();
 });
 
 Hooks.on("createCombat", () => overlay?.renderSoon());
 Hooks.on("preDeleteCombat", combat => overlay?.removeAllPF2eGuardBreakEffects(combat));
-Hooks.on("deleteCombat", () => overlay?.renderSoon());
+Hooks.on("deleteCombat", () => {
+  overlay?.renderSoon();
+  refreshNativeTurnMarkerSuppression();
+});
 Hooks.on("updateCombat", (combat, changed) => overlay?.onCombatUpdate(combat, changed));
 Hooks.on("createCombatant", () => overlay?.renderSoon());
 Hooks.on("preDeleteCombatant", combatant => overlay?.removePF2eGuardBreakEffect(combatant));
@@ -320,7 +350,11 @@ Hooks.on("renderTokenHUD", (hud, html, data) => {
 Hooks.on("combatRound", (_combat, updateData) => {
   if (typeof updateData?.round === "number") overlay?.showRoundSplash(updateData.round);
 });
-Hooks.on("canvasReady", () => tokenOverlays?.refresh());
+Hooks.on("canvasReady", () => {
+  tokenOverlays?.refresh();
+  refreshNativeTurnMarkerSuppression();
+});
+Hooks.on("refreshToken", token => hideNativeTurnMarker(token));
 
 function registerSettings() {
   const rerender = () => overlay?.renderSoon();
@@ -332,7 +366,7 @@ function registerSettings() {
     config: true,
     type: Boolean,
     default: true,
-    onChange: rerender
+    onChange: () => { rerender(); refreshNativeTurnMarkerSuppression(); }
   });
 
   game.settings.register(MODULE_ID, SETTINGS.edge, {
@@ -433,6 +467,36 @@ function registerSettings() {
       overlay?.renderSoon();
       tokenOverlays?.forceRedraw();
     }
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.turnMarkerEnabled, {
+    name: localize("GLUNI.Settings.TurnMarker.Name"),
+    hint: localize("GLUNI.Settings.TurnMarker.Hint"),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true,
+    onChange: () => { tokenOverlays?.forceRedraw(); refreshNativeTurnMarkerSuppression(); }
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.startMarkerEnabled, {
+    name: localize("GLUNI.Settings.StartMarker.Name"),
+    hint: localize("GLUNI.Settings.StartMarker.Hint"),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true,
+    onChange: () => tokenOverlays?.forceRedraw()
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.startConnectorEnabled, {
+    name: localize("GLUNI.Settings.StartConnector.Name"),
+    hint: localize("GLUNI.Settings.StartConnector.Hint"),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true,
+    onChange: () => tokenOverlays?.forceRedraw()
   });
 
   game.settings.register(MODULE_ID, SETTINGS.position, {
@@ -715,7 +779,115 @@ class GLUniverseInitiativeOverlay {
       this.clearActiveGuardBreakSoon();
     }
 
+    if (typeof changed?.turn === "number" || typeof changed?.round === "number" || changed?.started === true) {
+      this.captureTurnStartPosition(combat);
+    }
+
+    if (changed?.started !== undefined) refreshNativeTurnMarkerSuppression();
+
     this.renderSoon();
+  }
+
+  // Records where the newly-active combatant's token sits at the moment its turn
+  // begins, so every client can draw the "started here" ground marker. Written to
+  // a single Combat flag by the primary active GM only — with multiple GMs logged
+  // in, exactly one writes it (no races); everyone else reads it. Survives reload
+  // because it lives on the Combat document.
+  captureTurnStartPosition(combat) {
+    if (!combat?.started || !game.user.isGM || !this.isPrimaryActiveGM()) return;
+
+    const combatant = combat.combatant;
+    const token = combatant ? getCombatantTokenObject(combatant) : null;
+    const existing = combat.getFlag(MODULE_ID, FLAGS.turnStart) ?? null;
+
+    if (!token || !token.center) {
+      // No locatable token (off-scene / tokenless ad hoc): clear any stale origin
+      // so a previous turn's marker doesn't linger on the wrong creature.
+      if (existing) combat.unsetFlag(MODULE_ID, FLAGS.turnStart).catch(() => {});
+      return;
+    }
+
+    const round = Number(combat.round) || 1;
+    const turn = Number.isInteger(combat.turn) ? combat.turn : 0;
+    if (
+      existing &&
+      existing.combatantId === combatant.id &&
+      existing.round === round &&
+      existing.turn === turn
+    ) return;
+
+    combat.setFlag(MODULE_ID, FLAGS.turnStart, {
+      combatantId: combatant.id,
+      tokenId: token.id,
+      cx: token.center.x,
+      cy: token.center.y,
+      round,
+      turn
+    }).catch(() => {});
+  }
+
+  // Resolves the active and next ground-marker targets for THIS client, reusing
+  // buildCombatantCard so visibility (hidden -> omitted, mystery -> secret colour)
+  // and disposition are resolved exactly as the rail does. Scans far enough to
+  // find the next actor regardless of the visibleCount setting, wraps rounds, and
+  // skips defeated/delayed/hidden combatants silently (no perceivable gap).
+  getTurnMarkerTargets(combat) {
+    const result = { active: null, next: null };
+    if (!combat?.started) return result;
+
+    const sourceTurns = Array.isArray(combat.turns) && combat.turns.length
+      ? combat.turns
+      : combat.combatants?.contents ?? Array.from(combat.combatants ?? []);
+    const turns = Array.from(sourceTurns)
+      .map(entry => Array.isArray(entry) ? entry[1] : entry)
+      .filter(Boolean);
+    if (!turns.length) return result;
+
+    const showDefeated = Boolean(game.settings.get(MODULE_ID, SETTINGS.showDefeated));
+    const currentTurn = Number.isInteger(combat.turn) ? combat.turn : 0;
+    const activeId = combat.combatant?.id ?? turns[currentTurn]?.id ?? null;
+    const currentRound = Number(combat.round) || 1;
+
+    const eligible = combatant => {
+      if (!combatant) return false;
+      if (combatant.defeated && !showDefeated) return false;
+      if (this.isDelayed(combatant)) return false;
+      return true;
+    };
+
+    const toTarget = (combatant, displayRound, active) => {
+      const card = this.buildCombatantCard(combatant, {
+        active,
+        delayed: false,
+        roundOffset: displayRound - currentRound,
+        displayRound,
+        key: `marker:${combatant.id}`
+      });
+      if (!card) return null;   // hidden from this client
+      return { combatantId: combatant.id, disposition: card.disposition, mystery: card.mystery };
+    };
+
+    const maxScan = turns.length * 4;
+    for (let step = 0; step < maxScan; step++) {
+      const absoluteIndex = currentTurn + step;
+      const turnIndex = modulo(absoluteIndex, turns.length);
+      const combatant = turns[turnIndex];
+      const displayRound = currentRound + Math.floor(absoluteIndex / turns.length);
+
+      if (step === 0) {
+        if (combatant?.id === activeId && eligible(combatant) && shouldShowAdhocOnRound(combatant, displayRound)) {
+          result.active = toTarget(combatant, displayRound, true);
+        }
+        continue;
+      }
+
+      if (!eligible(combatant) || !shouldShowAdhocOnRound(combatant, displayRound)) continue;
+      if (combatant.id === activeId) continue;   // single combatant: no distinct next
+      const next = toTarget(combatant, displayRound, false);
+      if (next) { result.next = next; break; }
+    }
+
+    return result;
   }
 
   render() {
@@ -3875,6 +4047,142 @@ void main(void){
   gl_FragColor=vec4(col*a, a);
 }`;
 
+// Ground turn-indicator. A cinematic energy disc drawn BENEATH the token, larger
+// than the token footprint so it reads as a glowing pedestal rather than a status
+// frame on the art. Procedural and disposition-coloured (uColor / uColorHi):
+// a clear centre (token shows through), a bright torus band, drifting concentric
+// rings, rotating radial ticks, an orbiting comet sweep with a white-hot head and
+// flowing fbm energy. The "next" ring (uActive < 0.5) is NOT just a dimmer copy —
+// it switches to a thin, cool, marching dashed perimeter ("on deck" / queued read)
+// so it's formally distinct from the active plasma pedestal. uReduced freezes
+// motion for the reduced animation tier.
+const FX_FRAG_TURN = `
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform float uTime, uSeed, uActive, uReduced, uHigh;
+uniform vec3 uColor, uColorHi;
+${FX_GLSL_NOISE}
+#define TAU 6.28318530718
+void main(void){
+  vec2 uv = vTextureCoord - 0.5;
+  float dist = length(uv) * 2.0;            // 0 centre .. ~1 at sprite edge
+  float ang = atan(uv.y, uv.x);
+  float spin = uReduced > 0.5 ? 1.7 : uTime;   // frozen-but-posed when reduced
+
+  // Energy torus: clear centre (token shows), bright mid, soft outer fade.
+  float rMid = 0.66;
+  float band = smoothstep(0.32, rMid, dist) * (1.0 - smoothstep(rMid, 0.99, dist));
+
+  // Drifting concentric hairline rings.
+  float rings = pow(0.5 + 0.5 * sin(dist * 50.0 - spin * 2.0), 6.0) * band;
+
+  // Rotating radial ticks around the outer band.
+  float ticks = pow(0.5 + 0.5 * cos(ang * 40.0 + spin * 1.4), 16.0)
+              * smoothstep(0.5, 0.72, dist) * (1.0 - smoothstep(0.78, 0.99, dist));
+
+  // Orbiting comet sweep with a bright leading head.
+  float head = mod(ang - spin * 1.15, TAU);
+  float sweep = pow(smoothstep(2.4, 0.0, head), 1.4) * band;
+  float headGlow = pow(smoothstep(0.45, 0.0, head), 2.0) * band;
+
+  // Flowing fbm energy so the band shimmers like plasma.
+  float flow = gluFbm(vec2(ang * 3.0 + spin * 0.5, dist * 5.0 - spin));
+  float energy = (0.4 + 0.6 * flow) * band;
+
+  // A whisper of inner glow keeps the centre subtly lit without hiding the art.
+  float core = (1.0 - smoothstep(0.0, rMid, dist)) * 0.14;
+
+  float ringsW = uHigh > 0.5 ? 0.95 : 0.6;
+  float ticksW = uHigh > 0.5 ? 0.85 : 0.5;
+
+  // --- ACTIVE: the full plasma pedestal -------------------------------------
+  float activeI = band * (0.45 + 0.6 * energy)
+                + rings * ringsW + ticks * ticksW + sweep * 0.7 + core;
+
+  // --- NEXT: a thin, marching dashed perimeter ("queued") -------------------
+  // A narrow outer band broken into rotating angular dashes so it reads as a
+  // dotted "on deck" outline rather than a dim version of the active disc.
+  float nextBand = smoothstep(0.60, 0.70, dist) * (1.0 - smoothstep(0.80, 0.92, dist));
+  float dashes = 0.5 + 0.5 * sin(ang * 22.0 - spin * 0.6);
+  dashes = smoothstep(0.45, 0.75, dashes);          // gaps between marching dashes
+  float nextI = nextBand * dashes * (0.7 + 0.3 * flow) + ticks * ticksW * 0.45;
+
+  float intensity = mix(nextI, activeI, step(0.5, uActive));
+
+  float pulse = uReduced > 0.5 ? 1.0 : (0.85 + 0.15 * sin(uTime * (uActive > 0.5 ? 3.0 : 1.6)));
+  intensity *= pulse;
+
+  // Active leans bright/white-hot at its highlights; next stays cool, close to its
+  // base hue so it never competes with the live token's glowing pedestal.
+  vec3 activeCol = mix(uColor, uColorHi, clamp(rings + ticks + sweep * 0.5 + headGlow, 0.0, 1.0));
+  activeCol = mix(activeCol, vec3(1.0), clamp(headGlow * 0.85, 0.0, 1.0));   // white-hot comet tip
+  vec3 nextCol = mix(uColor, uColorHi, clamp(dashes * 0.4, 0.0, 1.0));
+  vec3 col = mix(nextCol, activeCol, step(0.5, uActive));
+
+  float a = clamp(intensity, 0.0, 1.0) * (uActive > 0.5 ? 0.96 : 0.8);
+  a *= smoothstep(1.0, 0.9, dist);          // clip to the disc; corners transparent
+  gl_FragColor = vec4(col * a, a);
+}`;
+
+function rgbFloat(hex) {
+  return [((hex >> 16) & 0xff) / 255, ((hex >> 8) & 0xff) / 255, (hex & 0xff) / 255];
+}
+
+// Vertex shader for rendering the procedural FX as a world-space Mesh instead of a
+// screen-space Filter. A filter samples the object's SCREEN bounds, so its UVs
+// (and thus the procedural pattern) rescale as you zoom — the effect never stays
+// locked to the token. A Mesh transforms its own geometry by the projection +
+// translation matrices and reads UVs straight from the geometry (always 0..1), so
+// the effect tracks the token perfectly at every zoom level. The varying is named
+// `vTextureCoord` so the existing FX_FRAG_* fragment shaders work unchanged.
+const FX_VERT_MESH = `
+attribute vec2 aVertexPosition;
+attribute vec2 aUvs;
+uniform mat3 translationMatrix;
+uniform mat3 projectionMatrix;
+varying vec2 vTextureCoord;
+void main(void){
+  vTextureCoord = aUvs;
+  gl_Position = vec4((projectionMatrix * translationMatrix * vec3(aVertexPosition, 1.0)).xy, 0.0, 1.0);
+}`;
+
+// Builds a quad Mesh carrying one of the FX_FRAG_* fragment shaders. Size is set
+// later via setFxMeshQuad so the geometry can be resized in place without
+// recompiling the shader program (PIXI caches the program by source).
+function makeFxMesh(frag, uniforms) {
+  const geometry = new PIXI.Geometry()
+    .addAttribute("aVertexPosition", [0, 0, 1, 0, 1, 1, 0, 1], 2)
+    .addAttribute("aUvs", [0, 0, 1, 0, 1, 1, 0, 1], 2)
+    .addIndex([0, 1, 2, 0, 2, 3]);
+  const shader = PIXI.Shader.from(FX_VERT_MESH, frag, uniforms);
+  const mesh = new PIXI.Mesh(geometry, shader);
+  mesh.eventMode = "none";
+  return mesh;
+}
+
+// Resizes the quad in place (local coordinates). `centered` anchors it on its own
+// origin (for the centred ground disc); otherwise it spans the top-left corner
+// (for the token-local status overlays drawn in 0..w / 0..h space).
+function setFxMeshQuad(mesh, w, h, centered) {
+  const x0 = centered ? -w / 2 : 0;
+  const y0 = centered ? -h / 2 : 0;
+  const x1 = x0 + w;
+  const y1 = y0 + h;
+  const buf = mesh.geometry.getBuffer("aVertexPosition");
+  const d = buf.data;
+  d[0] = x0; d[1] = y0; d[2] = x1; d[3] = y0;
+  d[4] = x1; d[5] = y1; d[6] = x0; d[7] = y1;
+  buf.update();
+}
+
+function destroyFxMesh(mesh) {
+  if (!mesh || mesh.destroyed) return;
+  const shader = mesh.shader;
+  if (mesh.parent) mesh.parent.removeChild(mesh);
+  try { mesh.destroy({ children: true, geometry: true }); } catch {}
+  try { shader?.destroy?.(); } catch {}   // PIXI.Mesh.destroy leaves the shader alone
+}
+
 class CardFXManager {
   constructor() {
     this.supported = false;
@@ -4034,6 +4342,13 @@ class TokenOverlayManager {
     this._ticking = false;
     this._tickFn = this._onTick.bind(this);
     this._time = 0;
+    // Ground turn-markers (active ring / next ring / start echo + connector) live
+    // in their own layer beneath the token art, separate from the above-token
+    // status overlays in `_entries`.
+    this._markers = new Map();     // tokenId -> ground marker entry
+    this._groundLayer = null;
+    this._markerIntensity = "default";
+    this._markerConnector = true;
   }
 
   refresh() {
@@ -4073,8 +4388,11 @@ class TokenOverlayManager {
       this._upsert(state.token, mode, state.gauge, state.dying);
     }
 
-    if (this._entries.size > 0 && !this._ticking) this._startTick();
-    else if (this._entries.size === 0) this._stopTick();
+    this._refreshMarkers(combat);
+
+    const active = this._entries.size > 0 || this._markers.size > 0;
+    if (active && !this._ticking) this._startTick();
+    else if (!active) this._stopTick();
   }
 
   // Break gauge for a combatant, respecting player visibility so a hidden or
@@ -4107,7 +4425,438 @@ class TokenOverlayManager {
       entry.shape = null;
       entry.fidelity = null;
     }
+    for (const marker of this._markers.values()) marker.key = null;
     this.refresh();
+  }
+
+  // ---- ground turn-markers ----------------------------------------------
+
+  _getIntensity() {
+    try { return game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default"; }
+    catch { return "default"; }
+  }
+
+  _markerSettings() {
+    const get = key => { try { return Boolean(game.settings.get(MODULE_ID, key)); } catch { return false; } };
+    return {
+      turn: get(SETTINGS.turnMarkerEnabled),
+      start: get(SETTINGS.startMarkerEnabled),
+      connector: get(SETTINGS.startConnectorEnabled)
+    };
+  }
+
+  // The shared layer that hosts every ground marker. It lives in the primary
+  // canvas group (where the token *art* lives — token children would sit above
+  // the art) and is biased just below the token sort layer so rings read as
+  // painted on the floor. Recreated on demand after a canvas teardown.
+  _ensureGroundLayer() {
+    const primary = canvas?.primary;
+    if (!primary) return null;
+    if (this._groundLayer && !this._groundLayer.destroyed && this._groundLayer.parent === primary) {
+      return this._groundLayer;
+    }
+    try { if (this._groundLayer && !this._groundLayer.destroyed) this._groundLayer.destroy({ children: true }); } catch {}
+
+    const layer = new PIXI.Container();
+    layer.eventMode = "none";
+    layer.interactiveChildren = false;
+    layer.sortableChildren = false;
+    const tokenSort = globalThis.PrimaryCanvasGroup?.SORT_LAYERS?.TOKENS ?? 700;
+    layer.elevation = 0;
+    layer.sortLayer = tokenSort - 1;   // beneath tokens, above tiles/drawings
+    layer.sort = 0;
+    layer.zIndex = tokenSort - 1;
+    primary.addChild(layer);
+    primary.sortDirty = true;
+    this._groundLayer = layer;
+    return layer;
+  }
+
+  _refreshMarkers(combat) {
+    const settings = this._markerSettings();
+    this._markerIntensity = this._getIntensity();
+    this._markerConnector = settings.connector;
+    if (!settings.turn && !settings.start) { this._clearMarkers(); return; }
+
+    const layer = this._ensureGroundLayer();
+    if (!layer) { this._clearMarkers(); return; }
+
+    const targets = overlay?.getTurnMarkerTargets?.(combat) ?? { active: null, next: null };
+    const origin = settings.start ? this._resolveStartOrigin(combat, targets.active) : null;
+
+    const wanted = new Map();   // tokenId -> { token, role, disposition, mystery, origin, showRing, showStart }
+    // The active token hosts both the ring and the start echo, so it is wanted if
+    // EITHER toggle is on; each piece is drawn independently.
+    if ((settings.turn || settings.start) && targets.active) {
+      const combatant = combat.combatants?.get?.(targets.active.combatantId);
+      const token = combatant ? getCombatantTokenObject(combatant) : null;
+      if (token && token.w && token.h && this._tokenVisible(token)) {
+        wanted.set(token.id, {
+          token, role: "active", ...targets.active,
+          origin, showRing: settings.turn, showStart: settings.start
+        });
+      }
+    }
+    if (settings.turn && targets.next) {
+      const combatant = combat.combatants?.get?.(targets.next.combatantId);
+      const token = combatant ? getCombatantTokenObject(combatant) : null;
+      // Never let the next ring land on the active token (e.g. odd wrap states).
+      if (token && token.w && token.h && this._tokenVisible(token) && !wanted.has(token.id)) {
+        wanted.set(token.id, {
+          token, role: "next", ...targets.next,
+          origin: null, showRing: true, showStart: false
+        });
+      }
+    }
+
+    for (const tokenId of [...this._markers.keys()]) {
+      if (!wanted.has(tokenId)) this._removeMarker(tokenId);
+    }
+    for (const [tokenId, state] of wanted) this._upsertMarker(state);
+  }
+
+  // True only when the token is genuinely visible to this client right now
+  // (vision / fog / hidden). The ground layer is detached from the token, so —
+  // unlike the above-token child overlays — it will not auto-hide; we must mirror
+  // token.visible explicitly or a ring would leak a position through fog.
+  _tokenVisible(token) {
+    if (!token || token.destroyed) return false;
+    if (token.visible === false) return false;
+    if (token.document?.hidden && !game.user.isGM) return false;
+    return true;
+  }
+
+  // The stored turn-start origin, validated against the *current* active turn so a
+  // stale flag from a previous turn never paints under the wrong creature.
+  _resolveStartOrigin(combat, activeTarget) {
+    if (!activeTarget) return null;
+    const flag = combat.getFlag(MODULE_ID, FLAGS.turnStart);
+    if (!flag || flag.combatantId !== activeTarget.combatantId) return null;
+    if (flag.round !== (Number(combat.round) || 1)) return null;
+    if (!Number.isFinite(flag.cx) || !Number.isFinite(flag.cy)) return null;
+    return { cx: flag.cx, cy: flag.cy };
+  }
+
+  _upsertMarker(state) {
+    const { token, role, disposition, origin, showRing, showStart } = state;
+    let marker = this._markers.get(token.id);
+    if (marker && marker.root.destroyed) { this._markers.delete(token.id); marker = null; }
+    if (!marker) {
+      marker = this._createMarker();
+      this._markers.set(token.id, marker);
+    }
+
+    const layer = this._ensureGroundLayer();
+    if (layer && marker.root.parent !== layer) {
+      try { layer.addChild(marker.root); } catch { return; }
+    }
+
+    marker.token = token;
+    marker.origin = origin ?? null;
+    marker.showStart = Boolean(showStart);
+    const shape = this._getShape();
+    const fidelity = this._getFidelity();
+    // `hasOrigin` is in the key so the echo geometry rebuilds when an origin first
+    // becomes available (or clears) for an otherwise-unchanged active marker.
+    const key = `${role}/${disposition}/${shape}/${fidelity}/${Math.round(token.w)}x${Math.round(token.h)}/r${showRing ? 1 : 0}/s${showStart ? 1 : 0}/o${origin ? 1 : 0}`;
+    if (marker.key !== key) {
+      marker.key = key;
+      marker.role = role;
+      marker.disposition = disposition;
+      marker.shape = shape;
+      marker.fidelity = fidelity;
+      marker.showRing = Boolean(showRing);
+      marker.w = token.w;
+      marker.h = token.h;
+      this._drawMarker(marker);
+    }
+    // Position is synced every tick; do an immediate sync so a freshly-built
+    // marker doesn't flash at the origin for a frame.
+    this._syncMarker(marker, 0);
+  }
+
+  _createMarker() {
+    const root = new PIXI.Container();
+    root.eventMode = "none";
+    root.interactiveChildren = false;
+
+    const connector = new PIXI.Graphics();   // scene-space line origin -> token
+    root.addChild(connector);
+
+    const echoWrap = new PIXI.Container();    // anchored at the start origin
+    const echo = new PIXI.Graphics();
+    echoWrap.addChild(echo);
+    root.addChild(echoWrap);
+
+    const ringWrap = new PIXI.Container();    // anchored at the token centre
+
+    // Shader energy disc (the star of the show). Rendered as a world-space Mesh
+    // (built lazily in _setupMarkerFx) so it stays locked to the token under zoom;
+    // the holder keeps its z-slot. Falls back to the hand-drawn ring below when
+    // meshes/shaders are unavailable.
+    const fxHolder = new PIXI.Container();
+    ringWrap.addChild(fxHolder);
+
+    // Hand-drawn fallback ring (used only when shaders are unavailable).
+    const glow = new PIXI.Graphics();
+    const frame = new PIXI.Graphics();
+    ringWrap.addChild(glow, frame);
+
+    const chipBg = new PIXI.Graphics();
+    const chip = new PIXI.Text("", {
+      fontFamily: '"Bahnschrift", "Segoe UI", Arial, sans-serif',
+      fontSize: 10,
+      fontWeight: "bold",
+      fill: "#02070b",
+      letterSpacing: 1.4,
+      align: "center",
+      trim: true
+    });
+    chip.anchor.set(0.5, 0.5);
+    ringWrap.addChild(chipBg, chip);
+    root.addChild(ringWrap);
+
+    return {
+      root, connector, echoWrap, echo, ringWrap, glow, frame, chipBg, chip,
+      fxHolder, fxMesh: null, fxShader: null, fxOn: false, fxStart: 0, discR: 0,
+      token: null, role: null, disposition: null, shape: null, fidelity: null,
+      w: 0, h: 0, origin: null, key: null,
+      phase: Math.random() * Math.PI * 2
+    };
+  }
+
+  // Draws a ground marker around its own local origin. The disc is a procedural
+  // WebGL energy field sized LARGER than the token so it reads as a glowing
+  // pedestal the art sits on (not a frame on the art). The tick loop only
+  // repositions ringWrap, advances the shader clock and redraws the connector —
+  // so this runs only on a data/size change.
+  _drawMarker(marker) {
+    const { glow, frame, chipBg, chip, echo, role, w, h } = marker;
+    const colors = getDispositionColors(marker.disposition);
+    const accent = colors.base;
+    const hi = colors.hi;
+    const high = marker.fidelity !== "balanced";
+    const isActive = role === "active";
+    const base = Math.max(w, h);
+    // Disc reaches well beyond the token footprint so it never hides under the art.
+    const discR = base * (isActive ? 1.0 : 0.85);
+    marker.discR = discR;
+
+    glow.clear(); glow.filters = null;
+    frame.clear();
+    chipBg.clear(); chip.text = ""; chip.visible = false;
+    echo.clear();
+
+    // Start echo — a faint shader-less ring at the origin (active only). Drawn
+    // independently of the disc so the start toggle works with the turn toggle off.
+    if (isActive && marker.showStart && marker.origin) {
+      const er = base * 0.7;
+      echo.lineStyle({ width: 2, color: accent, alpha: 0.5, alignment: 0.5 });
+      echo.drawCircle(0, 0, er);
+      echo.lineStyle({ width: 1, color: hi, alpha: 0.28, alignment: 1 });
+      echo.drawCircle(0, 0, er - 2);
+      echo.lineStyle({ width: 1, color: accent, alpha: 0.35 });   // crosshair ticks
+      for (let i = 0; i < 4; i++) {
+        const a = i * Math.PI / 2;
+        echo.moveTo(Math.cos(a) * (er - 5), Math.sin(a) * (er - 5));
+        echo.lineTo(Math.cos(a) * (er + 5), Math.sin(a) * (er + 5));
+      }
+      echo.beginFill(accent, 0.4);
+      echo.drawCircle(0, 0, Math.max(2.5, base * 0.05));
+      echo.endFill();
+    }
+
+    if (!marker.showRing) {
+      marker.fxOn = false;
+      if (marker.fxMesh) marker.fxMesh.visible = false;
+      return;
+    }
+
+    // Shader energy disc — the primary visual.
+    marker.fxOn = this._setupMarkerFx(marker, discR * 2, colors, isActive, high);
+
+    // Hand-drawn fallback (only when the shader is unavailable). Active = solid
+    // glowing rings; next = a thin dashed perimeter, mirroring the shader's
+    // "live pedestal vs queued outline" distinction.
+    if (!marker.fxOn) {
+      if (isActive) {
+        if (high) {
+          glow.lineStyle({ width: 9, color: hi, alpha: 0.22, alignment: 0.5 });
+          glow.drawCircle(0, 0, discR * 0.86);
+          try { const blur = new PIXI.BlurFilter(6); blur.quality = 2; glow.filters = [blur]; } catch {}
+        }
+        frame.lineStyle({ width: 3, color: accent, alpha: 0.92, alignment: 0.5 });
+        frame.drawCircle(0, 0, discR * 0.82);
+        frame.lineStyle({ width: 1, color: hi, alpha: 0.3 });
+        frame.drawCircle(0, 0, discR * 0.62);
+      } else {
+        const r = discR * 0.82;
+        const segs = 22;
+        frame.lineStyle({ width: 2, color: accent, alpha: 0.62, alignment: 0.5 });
+        for (let i = 0; i < segs; i++) {
+          const a0 = (i / segs) * Math.PI * 2;
+          const a1 = a0 + (Math.PI * 2 / segs) * 0.5;   // half-on, half-off dashes
+          frame.moveTo(Math.cos(a0) * r, Math.sin(a0) * r);
+          frame.arc(0, 0, r, a0, a1);
+        }
+      }
+    }
+
+    // "NEXT" chip — next ring only, above the disc.
+    if (role === "next") {
+      const fontSize = clamp(Math.round(base * 0.13), 9, 16);
+      chip.style.fontSize = fontSize;
+      chip.text = localize("GLUNI.TurnMarker.Next").toUpperCase();
+      chip.visible = true;
+      const padX = fontSize * 0.62, padY = fontSize * 0.32;
+      const cw = chip.width + padX * 2, ch = chip.height + padY * 2;
+      const cy = -discR * 0.86 - ch * 0.6;
+      const cx = -cw / 2;
+      const notch = clamp(ch * 0.42, 3, 7);
+      chipBg.beginFill(0x000000, 0.45);
+      chipBg.drawPolygon(this._chipPoints(cx, cy + 1, cw, ch, notch));
+      chipBg.endFill();
+      chipBg.beginFill(accent, 0.95);
+      chipBg.drawPolygon(this._chipPoints(cx, cy, cw, ch, notch));
+      chipBg.endFill();
+      chipBg.lineStyle({ width: 1, color: hi, alpha: 0.65 });
+      chipBg.drawPolygon(this._chipPoints(cx, cy, cw, ch, notch));
+      chip.position.set(0, cy + ch / 2);
+    }
+  }
+
+  // Builds/updates the FX_FRAG_TURN energy disc as a world-space Mesh so it stays
+  // locked to the token under zoom. Returns false (hiding the mesh) when meshes are
+  // unavailable, so the hand-drawn ring fallback is used instead.
+  _setupMarkerFx(marker, size, colors, isActive, high) {
+    if (!globalThis.PIXI?.Mesh || !globalThis.PIXI?.Geometry || !globalThis.PIXI?.Shader) return false;
+    try {
+      if (!marker.fxMesh || marker.fxMesh.destroyed) {
+        const mesh = makeFxMesh(FX_FRAG_TURN, {
+          uTime: 0, uSeed: Math.random() * 100, uActive: 1, uReduced: 0, uHigh: 1,
+          uColor: [1, 1, 1], uColorHi: [1, 1, 1]
+        });
+        marker.fxMesh = mesh;
+        marker.fxShader = mesh.shader;
+        marker.fxStart = this._time;
+        marker.fxHolder.addChild(mesh);
+      }
+      const u = marker.fxShader.uniforms;
+      u.uColor = rgbFloat(colors.base);
+      u.uColorHi = rgbFloat(colors.hi);
+      u.uActive = isActive ? 1 : 0;
+      u.uHigh = high ? 1 : 0;
+      setFxMeshQuad(marker.fxMesh, size, size, true);
+      marker.fxMesh.visible = true;
+      return true;
+    } catch (err) {
+      console.warn(`${MODULE_ID} | Turn-marker shader unavailable, using fallback`, err);
+      if (marker.fxMesh) marker.fxMesh.visible = false;
+      return false;
+    }
+  }
+
+  // Per-frame: place the ring at the token centre, rotate/pulse it, and redraw the
+  // start connector (origin -> live token centre) so it tracks movement in real
+  // time. `dt` seconds; `dt === 0` is a one-shot positional sync after a rebuild.
+  _syncMarker(marker, dt) {
+    const token = marker.token;
+    if (!token || token.destroyed || !token.center) return;
+    // Mirror the token's live visibility every frame: the ground layer is detached
+    // from the token, so a token slipping into fog mid-move would otherwise leave
+    // its ring (and origin echo) glowing on the floor and leak a position.
+    const visible = this._tokenVisible(token);
+    if (marker.root.visible !== visible) marker.root.visible = visible;
+    if (!visible) return;
+    const cx = token.center.x, cy = token.center.y;
+    marker.ringWrap.position.set(cx, cy);
+
+    const intensity = this._markerIntensity;
+    const motion = intensity !== "reduced";
+    const t = this._time;
+    const isActive = marker.role === "active";
+
+    // Drive the shader disc (rotation / shimmer / pulse all live in the shader).
+    if (marker.fxOn && marker.fxShader && marker.fxMesh?.visible) {
+      const speed = intensity === "cinematic" ? 1.5 : 1.0;
+      marker.fxShader.uniforms.uTime = (t - marker.fxStart) * speed;
+      marker.fxShader.uniforms.uReduced = motion ? 0 : 1;
+    } else {
+      // Hand-drawn fallback ring: a gentle breathing pulse.
+      if (motion) {
+        const period = isActive ? 1.6 : 3.0;
+        const pulse = 0.5 + 0.5 * Math.sin((t * 2 * Math.PI / period) + marker.phase);
+        marker.frame.alpha = (isActive ? 0.8 : 0.62) + (isActive ? 0.2 : 0.18) * pulse;
+        if (marker.glow) marker.glow.alpha = 0.6 + 0.4 * pulse;
+      } else {
+        marker.frame.alpha = 1;
+        if (marker.glow) marker.glow.alpha = 1;
+      }
+    }
+
+    // Start echo + connector (active only). Both anchor to the stored origin and
+    // share the active token's visibility (already gated upstream).
+    const origin = isActive ? marker.origin : null;
+    if (origin) {
+      marker.echoWrap.visible = true;
+      marker.echoWrap.position.set(origin.cx, origin.cy);
+      const moved = Math.hypot(cx - origin.cx, cy - origin.cy);
+      const connectorOn = this._markerConnector && moved > Math.max(8, Math.min(token.w, token.h) * 0.25);
+      this._drawConnector(marker, origin, cx, cy, connectorOn, motion);
+    } else {
+      marker.echoWrap.visible = false;
+      marker.connector.clear();
+    }
+  }
+
+  _drawConnector(marker, origin, cx, cy, on, motion) {
+    const g = marker.connector;
+    g.clear();
+    if (!on) return;
+    const colors = getDispositionColors(marker.disposition);
+    const dx = cx - origin.cx, dy = cy - origin.cy;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+
+    // Faint full-length guide line.
+    g.lineStyle({ width: 1, color: colors.base, alpha: 0.22 });
+    g.moveTo(origin.cx, origin.cy);
+    g.lineTo(cx, cy);
+
+    // Flowing bright dashes travelling origin -> token.
+    const dash = Math.max(6, len * 0.06);
+    const gap = dash * 1.6;
+    const stride = dash + gap;
+    const flow = motion ? (this._time * Math.max(28, len * 0.5)) % stride : 0;
+    g.lineStyle({ width: 2, color: colors.hi, alpha: 0.85 });
+    for (let d = flow - stride; d < len; d += stride) {
+      const s = Math.max(0, d), e = Math.min(len, d + dash);
+      if (e <= s) continue;
+      g.moveTo(origin.cx + ux * s, origin.cy + uy * s);
+      g.lineTo(origin.cx + ux * e, origin.cy + uy * e);
+    }
+  }
+
+  _removeMarker(tokenId) {
+    const marker = this._markers.get(tokenId);
+    if (!marker) return;
+    if (!marker.root.destroyed) {
+      try { if (marker.glow) marker.glow.filters = null; } catch {}
+      destroyFxMesh(marker.fxMesh);
+      marker.fxMesh = null;
+      marker.fxShader = null;
+      if (marker.root.parent) marker.root.parent.removeChild(marker.root);
+      marker.root.destroy({ children: true });
+    }
+    this._markers.delete(tokenId);
+  }
+
+  _clearMarkers() {
+    for (const tokenId of [...this._markers.keys()]) this._removeMarker(tokenId);
+    if (this._groundLayer && !this._groundLayer.destroyed) {
+      try { this._groundLayer.destroy({ children: true }); } catch {}
+    }
+    this._groundLayer = null;
   }
 
   _getShape() {
@@ -4188,17 +4937,12 @@ class TokenOverlayManager {
     container.addChild(cracks);
 
     // Shader-driven interior FX (fracture for break, energy scan for delay).
-    // A white sprite carrying a PIXI.Filter; the same shader language as the
-    // initiative cards. Created lazily so a filter failure falls back to the
-    // hand-drawn Graphics cracks/pattern below.
-    let fxSprite = null;
-    try {
-      if (globalThis.PIXI?.Sprite && globalThis.PIXI?.Texture?.WHITE) {
-        fxSprite = new PIXI.Sprite(PIXI.Texture.WHITE);
-        fxSprite.visible = false;
-        container.addChild(fxSprite);
-      }
-    } catch { fxSprite = null; }
+    // Rendered as a world-space Mesh (built lazily in _setupTokenFx) so the
+    // procedural pattern stays locked to the token under zoom rather than swimming
+    // like a screen-space filter. The holder keeps its z-slot; a mesh failure
+    // falls back to the hand-drawn Graphics cracks/pattern below.
+    const fxHolder = new PIXI.Container();
+    container.addChild(fxHolder);
 
     // Animated holo edge sweep (BREAK only). Pre-drawn once; the tick loop
     // only rotates / fades it. Lives in its own container so rotation pivots
@@ -4253,7 +4997,7 @@ class TokenOverlayManager {
     return {
       container, glow, wash, frame, brackets, cracks, sweep, sweepGfx, pillBg, label,
       dyingPips, gaugeGfx, gaugeText,
-      fxSprite, fxFilter: null, fxFilterMode: null, fxOn: false, fxStart: 0,
+      fxHolder, fxMesh: null, fxShader: null, fxFilterMode: null, fxOn: false, fxStart: 0,
       mode: null, w: 0, h: 0, shape: null, fidelity: null, gauge: null, gaugeKey: "",
       dying: null, dyingKey: "",
       gaugeAnim: null, gaugeGeom: null,
@@ -4408,35 +5152,33 @@ class TokenOverlayManager {
     }
   }
 
-  // Attaches the shader interior to the token overlay sprite (break fracture /
-  // delay energy scan). Returns false (and hides the sprite) when filters are
-  // unavailable, so _redraw falls back to the hand-drawn Graphics.
+  // Builds/updates the shader interior (break fracture / dying veins / delay scan)
+  // as a world-space Mesh so the pattern stays locked to the token under zoom.
+  // Returns false (hiding the mesh) when meshes are unavailable, so _redraw falls
+  // back to the hand-drawn Graphics.
   _setupTokenFx(entry, mode, w, h, isCircle) {
-    const sprite = entry.fxSprite;
-    if (!sprite) return false;
+    if (!globalThis.PIXI?.Mesh || !globalThis.PIXI?.Geometry || !globalThis.PIXI?.Shader) return false;
     try {
-      if (!entry.fxFilter || entry.fxFilterMode !== mode) {
-        if (!globalThis.PIXI?.Filter) { sprite.visible = false; return false; }
+      if (!entry.fxMesh || entry.fxMesh.destroyed || entry.fxFilterMode !== mode) {
+        destroyFxMesh(entry.fxMesh);
         const frag = mode === "broken" ? FX_FRAG_BREAK : mode === "dying" ? FX_FRAG_DYING : FX_FRAG_DELAY;
-        const filter = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uThick: 0.045, uImpact: [0.5, 0.5] });
-        filter.padding = 0;
-        entry.fxFilter = filter;
+        const mesh = makeFxMesh(frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uThick: 0.045, uTexel: 0, uImpact: [0.5, 0.5] });
+        entry.fxMesh = mesh;
+        entry.fxShader = mesh.shader;
         entry.fxFilterMode = mode;
         entry.fxStart = this._time;   // (re)start the fracture intro on assign
+        entry.fxHolder.addChild(mesh);
       }
-      const filter = entry.fxFilter;
-      filter.uniforms.uAspect = h > 0 ? w / h : 1;
-      filter.uniforms.uClipCircle = isCircle ? 1 : 0;
-      filter.uniforms.uImpact = [0.5, 0.5];
-      sprite.width = w;
-      sprite.height = h;
-      sprite.filters = [filter];
-      sprite.visible = true;
+      const u = entry.fxShader.uniforms;
+      u.uAspect = h > 0 ? w / h : 1;
+      u.uClipCircle = isCircle ? 1 : 0;
+      u.uImpact = [0.5, 0.5];
+      setFxMeshQuad(entry.fxMesh, w, h, false);
+      entry.fxMesh.visible = true;
       return true;
     } catch (err) {
       console.warn(`${MODULE_ID} | Token FX shader unavailable, using fallback`, err);
-      sprite.visible = false;
-      entry.fxFilter = null;
+      if (entry.fxMesh) entry.fxMesh.visible = false;
       return false;
     }
   }
@@ -4457,7 +5199,7 @@ class TokenOverlayManager {
       wash.clear(); frame.clear(); brackets.clear(); cracks.clear();
       sweepGfx.clear(); sweep.visible = false; sweep.alpha = 0;
       pillBg.clear(); label.text = ""; dyingPips.clear();
-      if (entry.fxSprite) entry.fxSprite.visible = false;
+      if (entry.fxMesh) entry.fxMesh.visible = false;
       entry.fxOn = false;
       return;
     }
@@ -5066,9 +5808,9 @@ class TokenOverlayManager {
     if (!entry.container.destroyed) {
       // Drop any blur filter we attached so the GPU resource is released.
       try { if (entry.glow) entry.glow.filters = null; } catch {}
-      try { if (entry.fxSprite) entry.fxSprite.filters = null; } catch {}
-      try { entry.fxFilter?.destroy?.(); } catch {}
-      entry.fxFilter = null;
+      destroyFxMesh(entry.fxMesh);
+      entry.fxMesh = null;
+      entry.fxShader = null;
       if (entry.container.parent) entry.container.parent.removeChild(entry.container);
       entry.container.destroy({ children: true });
     }
@@ -5077,6 +5819,7 @@ class TokenOverlayManager {
 
   _clearAll() {
     for (const tokenId of [...this._entries.keys()]) this._removeEntry(tokenId);
+    this._clearMarkers();
     this._stopTick();
   }
 
@@ -5097,6 +5840,17 @@ class TokenOverlayManager {
   _onTick(dt) {
     const dts = (typeof dt === "number" ? dt : 1) / 60;
     this._time += dts;
+
+    // Ground turn-markers: reposition + animate each marker. Cheap — at most the
+    // active + next tokens. Intensity/connector flags are cached during refresh()
+    // (setting changes trigger forceRedraw), so no per-frame settings reads here.
+    if (this._markers.size) {
+      for (const marker of this._markers.values()) {
+        if (marker.root.destroyed) continue;
+        this._syncMarker(marker, dts);
+      }
+    }
+
     for (const entry of this._entries.values()) {
       if (entry.container.destroyed) continue;
 
@@ -5127,8 +5881,8 @@ class TokenOverlayManager {
       const high = entry.fidelity !== "balanced";
 
       // Advance the shader interior clock (fracture / energy scan).
-      if (entry.fxOn && entry.fxFilter && entry.fxSprite?.visible) {
-        entry.fxFilter.uniforms.uTime = this._time - entry.fxStart;
+      if (entry.fxOn && entry.fxShader && entry.fxMesh?.visible) {
+        entry.fxShader.uniforms.uTime = this._time - entry.fxStart;
       }
 
       if (isBreak) {
@@ -5206,6 +5960,50 @@ function getCombatantTokenObject(combatant) {
     if (tokenId && document?.id === tokenId) return true;
     return !tokenId && combatant.actor?.id && token.actor?.id === combatant.actor.id;
   }) ?? null;
+}
+
+// While our cinematic turn ring is active we hide Foundry v13's built-in turn
+// marker so the two don't stack under the active token. We only suppress it when
+// OUR ring is actually drawing (module enabled + turn marker on + combat running),
+// so turning our ring off restores the native one. This hides the rendered object
+// rather than mutating the world setting, so it's fully reversible.
+function shouldSuppressNativeTurnMarker() {
+  try {
+    return Boolean(
+      overlay?.enabled &&
+      game.combat?.started &&
+      game.settings.get(MODULE_ID, SETTINGS.turnMarkerEnabled)
+    );
+  } catch { return false; }
+}
+
+function getNativeTurnMarkers(token) {
+  const markers = [];
+  if (token?.turnMarker) markers.push(token.turnMarker);
+  for (const child of token?.children ?? []) {
+    if (child && child !== token.turnMarker && /TurnMarker/.test(child.constructor?.name ?? "")) {
+      markers.push(child);
+    }
+  }
+  return markers;
+}
+
+function hideNativeTurnMarker(token) {
+  if (!token || !shouldSuppressNativeTurnMarker()) return;
+  for (const marker of getNativeTurnMarkers(token)) {
+    try { marker.visible = false; marker.renderable = false; } catch {}
+  }
+}
+
+// Re-evaluate every token: hide native markers while suppressing, or ask Foundry
+// to redraw them (so the native marker returns) once we stop.
+function refreshNativeTurnMarkerSuppression() {
+  const tokens = globalThis.canvas?.tokens?.placeables ?? [];
+  const suppress = shouldSuppressNativeTurnMarker();
+  for (const token of tokens) {
+    if (suppress) hideNativeTurnMarker(token);
+    else { try { token.renderFlags?.set?.({ refreshTurnMarker: true }); } catch {} }
+  }
 }
 
 function getDisposition(combatant, mystery) {
