@@ -9,6 +9,13 @@
   --gluni-break-deep:  #ff6f1a;
   --gluni-dying:       #b497ff;
   --gluni-dying-hot:   #efd7ff;
+  /* D&D 5e death saves — success green, failure red, calm stable teal. */
+  --gluni-save-success:     #57e08b;
+  --gluni-save-success-hot: #b6ffd0;
+  --gluni-save-failure:     #ff5d6c;
+  --gluni-save-failure-hot: #ffc0c6;
+  --gluni-stable:           #4ad9c0;
+  --gluni-stable-hot:       #b6fff2;
   --gluni-violet:      #b497ff;
   --gluni-ink:         #02070b;
   --gluni-line:        rgba(244, 252, 255, 0.10);
@@ -5274,5 +5281,247 @@
   .gluni-break-splash--shake .gluni-break-splash-inner,
   .gluni-break-splash--cinematic.gluni-break-splash--shake .gluni-break-splash-inner {
     animation-name: gluni-break-deck-in !important;
+  }
+}
+
+/* =====================================================================
+   D&D 5e DEATH SAVES
+   ---------------------------------------------------------------------
+   Mirrors the PF2e "dying" visual language (diamond pips, glow, pulse,
+   dramatic card frame) but splits the readout into two stacked rows of
+   three pips: successes (green) and failures (red). Failures escalate
+   toward death and reuse the existing .gluni-card--dying[-high|-critical]
+   frame/accent/sheen/alert animations unchanged. Three successes flips
+   the combatant to STABLE (calm teal) via .gluni-card--stable, which
+   overrides the dramatic dying treatment with a quiet breathe.
+   ===================================================================== */
+
+/* ---- two-row pip readout --------------------------------------------- */
+.gluni-deathsave-pips {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.gluni-deathsave-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 9px;
+}
+
+.gluni-deathsave-pip {
+  position: relative;
+  flex: 0 0 auto;
+  display: block;
+  width: 9px;
+  aspect-ratio: 1 / 1;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(243, 251, 255, 0.12), transparent 54%),
+    linear-gradient(145deg, rgba(243, 251, 255, 0.18), rgba(18, 22, 22, 0.76));
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.24),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.68),
+    0 1px 2px rgba(0, 0, 0, 0.58);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+
+.gluni-deathsave-pip::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  clip-path: inherit;
+  opacity: 0.5;
+  filter: blur(0.2px);
+}
+
+/* Empty pips: dim tint toward their row colour. */
+.gluni-deathsave-pip--success {
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--gluni-save-success) 16%, transparent), transparent 54%),
+    linear-gradient(145deg, rgba(243, 251, 255, 0.18), rgba(18, 22, 22, 0.76));
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.24),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.68),
+    0 1px 2px rgba(0, 0, 0, 0.58),
+    0 0 5px color-mix(in srgb, var(--gluni-save-success) 18%, transparent);
+}
+
+.gluni-deathsave-pip--success::before {
+  background: color-mix(in srgb, var(--gluni-save-success-hot) 24%, transparent);
+}
+
+.gluni-deathsave-pip--failure {
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--gluni-save-failure) 16%, transparent), transparent 54%),
+    linear-gradient(145deg, rgba(243, 251, 255, 0.18), rgba(18, 22, 22, 0.76));
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.24),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.68),
+    0 1px 2px rgba(0, 0, 0, 0.58),
+    0 0 5px color-mix(in srgb, var(--gluni-save-failure) 18%, transparent);
+}
+
+.gluni-deathsave-pip--failure::before {
+  background: color-mix(in srgb, var(--gluni-save-failure-hot) 24%, transparent);
+}
+
+/* Filled success pip: green gradient, soft glow. */
+.gluni-deathsave-pip--success.gluni-deathsave-pip--filled {
+  background:
+    linear-gradient(145deg, var(--gluni-save-success-hot), var(--gluni-save-success) 58%, #1c6b41);
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.78),
+    inset -1px -1px 0 rgba(8, 46, 28, 0.82),
+    0 1px 2px rgba(0, 0, 0, 0.7),
+    0 0 8px color-mix(in srgb, var(--gluni-save-success-hot) 82%, transparent),
+    0 0 16px color-mix(in srgb, var(--gluni-save-success) 56%, transparent);
+}
+
+.gluni-deathsave-pip--success.gluni-deathsave-pip--filled::before {
+  background: color-mix(in srgb, var(--gluni-save-success-hot) 86%, var(--gluni-white));
+  opacity: 0.82;
+}
+
+/* Filled failure pip: red gradient, hotter glow + subtle pulse. */
+.gluni-deathsave-pip--failure.gluni-deathsave-pip--filled {
+  background:
+    linear-gradient(145deg, var(--gluni-save-failure-hot), var(--gluni-save-failure) 58%, #7a1822);
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.78),
+    inset -1px -1px 0 rgba(58, 12, 18, 0.82),
+    0 1px 2px rgba(0, 0, 0, 0.7),
+    0 0 10px color-mix(in srgb, var(--gluni-save-failure-hot) 86%, transparent),
+    0 0 22px color-mix(in srgb, var(--gluni-save-failure) 64%, transparent);
+  animation: gluni-deathsave-fail-pulse 1.1s ease-in-out infinite;
+}
+
+.gluni-deathsave-pip--failure.gluni-deathsave-pip--filled::before {
+  background: color-mix(in srgb, var(--gluni-save-failure-hot) 86%, var(--gluni-white));
+  opacity: 0.82;
+}
+
+@keyframes gluni-deathsave-fail-pulse {
+  0%, 100% {
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.78),
+      inset -1px -1px 0 rgba(58, 12, 18, 0.82),
+      0 1px 2px rgba(0, 0, 0, 0.7),
+      0 0 10px color-mix(in srgb, var(--gluni-save-failure-hot) 86%, transparent),
+      0 0 22px color-mix(in srgb, var(--gluni-save-failure) 64%, transparent);
+    transform: scale(1);
+  }
+
+  50% {
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.92),
+      inset -1px -1px 0 rgba(58, 12, 18, 0.82),
+      0 1px 2px rgba(0, 0, 0, 0.7),
+      0 0 14px color-mix(in srgb, var(--gluni-save-failure-hot) 96%, transparent),
+      0 0 28px color-mix(in srgb, var(--gluni-save-failure) 78%, transparent);
+    transform: scale(1.08);
+  }
+}
+
+/* ---- STABLE card override (3 successes) ------------------------------
+   No -high/-critical class is present when stable, so only base
+   .gluni-card--dying applies. Recolour to calm teal and stop the
+   urgent infinite accent-pulse / sheen with a slow gentle breathe. */
+.gluni-card--stable {
+  --gluni-accent: var(--gluni-stable);
+  animation: none;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--gluni-stable) 56%, var(--gluni-line) 44%),
+    0 0 18px color-mix(in srgb, var(--gluni-stable) 26%, transparent);
+}
+
+/* Calm the portrait so a stabilised character no longer looks like it
+   is actively dying (lift brightness/saturation, drop the violet hue). */
+.gluni-card--stable .gluni-card-portrait,
+.gluni-card--stable.gluni-card--active .gluni-card-portrait {
+  filter: contrast(1.04) saturate(0.74) brightness(0.92);
+}
+
+.gluni-card--stable .gluni-card-accent {
+  background: var(--gluni-stable-hot);
+  box-shadow:
+    0 0 10px color-mix(in srgb, var(--gluni-stable) 70%, transparent),
+    0 0 22px color-mix(in srgb, var(--gluni-stable-hot) 34%, transparent);
+  animation: gluni-stable-accent-breathe 3.6s ease-in-out infinite;
+}
+
+.gluni-card--stable .gluni-card-sheen {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--gluni-stable) 12%,
+    var(--gluni-stable-hot) 50%,
+    var(--gluni-stable) 88%,
+    transparent
+  );
+  box-shadow:
+    0 0 10px color-mix(in srgb, var(--gluni-stable) 70%, transparent),
+    0 0 22px color-mix(in srgb, var(--gluni-stable-hot) 34%, transparent);
+}
+
+/* Even when active, do not run the urgent dying sheen sweep. */
+.gluni-card--stable.gluni-card--active .gluni-card-sheen {
+  animation: none;
+  opacity: 0.5;
+}
+
+/* Recolour the ambient background + repeat text toward calm teal. */
+.gluni-card--stable .gluni-card-dying-bg {
+  background:
+    linear-gradient(135deg, rgba(2, 7, 11, 0.22), rgba(2, 7, 11, 0.04)),
+    radial-gradient(circle at 78% 20%, color-mix(in srgb, var(--gluni-stable-hot) 24%, transparent), transparent 38%),
+    radial-gradient(ellipse at 12% 80%, color-mix(in srgb, var(--gluni-stable) 12%, transparent), transparent 42%);
+  opacity: 0.7;
+}
+
+.gluni-card--stable .gluni-card-dying-bg::after {
+  animation: none;
+  opacity: 0.4;
+}
+
+.gluni-card--stable .gluni-card-dying-repeat {
+  color: color-mix(in srgb, var(--gluni-stable-hot) 86%, var(--gluni-white));
+  opacity: 0.18;
+  text-shadow:
+    0 0 10px color-mix(in srgb, var(--gluni-stable) 92%, transparent),
+    0 0 24px color-mix(in srgb, var(--gluni-stable-hot) 52%, transparent);
+}
+
+@keyframes gluni-stable-accent-breathe {
+  0%, 100% {
+    box-shadow:
+      0 0 10px color-mix(in srgb, var(--gluni-stable) 64%, transparent),
+      0 0 22px color-mix(in srgb, var(--gluni-stable-hot) 30%, transparent);
+  }
+
+  50% {
+    box-shadow:
+      0 0 14px color-mix(in srgb, var(--gluni-stable) 78%, transparent),
+      0 0 28px color-mix(in srgb, var(--gluni-stable-hot) 40%, transparent);
+  }
+}
+
+/* ---- STABLE tag ------------------------------------------------------ */
+.gluni-dying-tag--stable {
+  color: #042620;
+  background: linear-gradient(90deg, var(--gluni-stable), var(--gluni-stable-hot), var(--gluni-stable));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--gluni-white) 46%, transparent),
+    0 0 14px color-mix(in srgb, var(--gluni-stable) 60%, transparent);
+  animation: none;
+}
+
+/* ---- reduced motion: mirror the dying convention -------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .gluni-deathsave-pip--failure.gluni-deathsave-pip--filled,
+  .gluni-card--stable .gluni-card-accent,
+  .gluni-card--stable .gluni-card-dying-bg::after {
+    animation: none !important;
   }
 }

@@ -25,6 +25,12 @@ const TOKEN_OVERLAY_PALETTE = {
   dying: 0xb497ff,
   dyingHot: 0xefd7ff,
   dyingDeep: 0x6a3fb0,
+  saveSuccess: 0x57e08b,
+  saveSuccessHot: 0xb6ffd0,
+  saveFailure: 0xff5d6c,
+  saveFailureHot: 0xffc0c6,
+  stable: 0x4ad9c0,
+  stableHot: 0xb6fff2,
   ink: 0x02070b,
   white: 0xf3fbff,
   violet: 0xb497ff,
@@ -168,6 +174,10 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.PF2e.BreakEffect.Description": "<p>Your guard has been broken. You take a -2 status penalty to AC and all saving throws, and you lose all resistances.</p>",
   "GLUNI.Dying": "Dying",
   "GLUNI.Dying.Aria": "Dying {value} of {max}",
+  "GLUNI.DeathSaves": "Death Saves",
+  "GLUNI.DeathSaves.Stable": "Stable",
+  "GLUNI.DeathSaves.Success.Aria": "Death save successes {value} of {max}",
+  "GLUNI.DeathSaves.Failure.Aria": "Death save failures {value} of {max}",
   "GLUNI.PortraitConfig.ActiveCard": "Active card",
   "GLUNI.PortraitConfig.Button": "Frame",
   "GLUNI.PortraitConfig.Expanded": "Expanded",
@@ -1154,7 +1164,7 @@ class GLUniverseInitiativeOverlay {
       adhoc,
       guardBroken: !adhoc && Boolean(getGuardBreakState(combatant)),
       breakGauge: mystery || adhoc ? null : getBreakGaugeState(combatant),
-      dying: mystery || adhoc ? null : getPF2eDyingState(combatant),
+      dying: mystery || adhoc ? null : getDyingState(combatant),
       name: mystery ? localize("GLUNI.Unknown") : adhoc?.name ?? combatant.name,
       initiative: combatant.initiative,
       portrait,
@@ -1188,6 +1198,8 @@ class GLUniverseInitiativeOverlay {
       card.guardBroken ? "gluni-card--guard-broken" : "",
       card.dying ? "gluni-card--dying" : "",
       card.dying ? `gluni-card--dying-${card.dying.severity}` : "",
+      card.dying?.kind === "deathsaves" ? "gluni-card--deathsaves" : "",
+      card.dying?.stable ? "gluni-card--stable" : "",
       card.mystery ? "gluni-card--mystery" : "",
       card.defeated ? "gluni-card--defeated" : "",
       `gluni-card--${card.disposition}`,
@@ -1201,7 +1213,7 @@ class GLUniverseInitiativeOverlay {
     const fxReady = !card.adhoc && !card.mystery && Boolean(card.portrait)
       && cardFX?.supported && getVisualFidelity() === "high";
     const fxMode = fxReady
-      ? (card.guardBroken ? "break" : card.dying ? "dying" : null)
+      ? (card.guardBroken ? "break" : card.dying && !card.dying.stable ? "dying" : null)
       : null;
 
     return `
@@ -1235,7 +1247,7 @@ class GLUniverseInitiativeOverlay {
           ? `
             ${fxMode === "dying" ? "" : `<div class="gluni-card-dying-bg" aria-hidden="true"></div>`}
             <div class="gluni-card-dying-repeat" aria-hidden="true">
-              ${renderDyingRepeatText(card.dying)}
+              ${card.dying.kind === "deathsaves" ? renderDeathSaveRepeatText(card.dying) : renderDyingRepeatText(card.dying)}
             </div>
           `
           : ""}
@@ -1252,13 +1264,15 @@ class GLUniverseInitiativeOverlay {
           <div class="gluni-card-kicker">
             ${card.active ? `<span class="gluni-active-tag">TURN</span>` : ""}
             ${card.guardBroken ? `<span class="gluni-guard-break-tag">${localize("GLUNI.GuardBreak").toUpperCase()}</span>` : ""}
-            ${card.dying ? `<span class="gluni-dying-tag">${localize("GLUNI.Dying").toUpperCase()} ${card.dying.value}</span>` : ""}
+            ${card.dying ? (card.dying.kind === "deathsaves"
+              ? `<span class="gluni-dying-tag${card.dying.stable ? " gluni-dying-tag--stable" : ""}">${(card.dying.stable ? localize("GLUNI.DeathSaves.Stable") : localize("GLUNI.DeathSaves")).toUpperCase()}</span>`
+              : `<span class="gluni-dying-tag">${localize("GLUNI.Dying").toUpperCase()} ${card.dying.value}</span>`) : ""}
             ${card.adhoc ? `<span class="gluni-adhoc-tag">${escapeHTML(card.adhoc.label).toUpperCase()}</span>` : ""}
             ${card.adhoc?.oneShot ? `<span class="gluni-adhoc-tag gluni-adhoc-tag--oneshot">${localize("GLUNI.AdHoc.OneShot").toUpperCase()} ${formatRound(card.adhoc.round)}</span>` : ""}
             ${card.delayed ? `<span class="gluni-delayed-tag">${localize("GLUNI.Delayed").toUpperCase()}</span>` : ""}
           </div>
           <h3>${escapeHTML(card.name)}</h3>
-          ${card.dying ? renderDyingPips(card.dying) : ""}
+          ${card.dying ? (card.dying.kind === "deathsaves" ? renderDeathSavePips(card.dying) : renderDyingPips(card.dying)) : ""}
           ${card.breakGauge ? renderBreakGaugeBar(card.breakGauge) : ""}
         </div>
         <span class="gluni-initiative-badge">${formatInitiative(card.initiative)}</span>
@@ -2867,7 +2881,10 @@ class GLUniverseInitiativeOverlay {
       const card = this.root.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
       if (!card || !card.classList.contains("gluni-card--dying")) continue;
       card.classList.add("gluni-card--dying-entering");
-      this.playInlineStatusFlash(card, localize("GLUNI.Dying").toUpperCase(), "dying");
+      const flashLabel = card.classList.contains("gluni-card--deathsaves")
+        ? localize("GLUNI.DeathSaves")
+        : localize("GLUNI.Dying");
+      this.playInlineStatusFlash(card, flashLabel.toUpperCase(), "dying");
       this.pulseTagEnter(card, ".gluni-dying-tag");
       window.setTimeout(() => card.classList.remove("gluni-card--dying-entering"), 640);
     }
@@ -3040,7 +3057,42 @@ function getPF2eDyingState(combatant) {
   const ratio = clamp(value / max, 0, 1.5);
   const severity = ratio >= 1 ? "critical" : ratio >= 0.67 ? "high" : "low";
 
-  return { value, max, doomed, hasDiehard, severity };
+  return { kind: "dying", value, max, doomed, hasDiehard, severity };
+}
+
+// D&D 5e death-save state, parallel to getPF2eDyingState. Triggers when a
+// character-type actor is at 0 HP (downed), reading the two opposed death-save
+// counters (system.attributes.death.success/failure, each capped at 3 by the
+// rules). `value`/`max` mirror the PF2e shape (failures = proximity to death)
+// so token label/repeat code that reads them keeps working; render code that
+// wants both rows branches on `kind === "deathsaves"`.
+function getDnd5eDeathState(combatant) {
+  if (game.system?.id !== "dnd5e") return null;
+
+  const actor = combatant?.actor;
+  if (!actor || actor.type !== "character") return null;
+
+  // HP is a nullable field in 5e (initial null); `null <= 0` is true in JS, so
+  // require a finite number before treating the actor as downed.
+  const hp = Number(actor.system?.attributes?.hp?.value);
+  if (!Number.isFinite(hp) || hp > 0) return null;
+
+  const death = actor.system?.attributes?.death ?? {};
+  const successes = clamp(Math.round(Number(death.success) || 0), 0, 3);
+  const failures = clamp(Math.round(Number(death.failure) || 0), 0, 3);
+  // No persisted `stable` field exists in 5e; 3 successes is the only signal.
+  const stable = successes >= 3 && failures < 3;
+  const ratio = failures / 3;
+  const severity = stable ? "stable" : ratio >= 1 ? "critical" : ratio >= 0.67 ? "high" : "low";
+
+  return { kind: "deathsaves", value: failures, max: 3, successes, failures, stable, severity };
+}
+
+// System dispatcher for the per-combatant dying/death-save view-model. Returns
+// the PF2e dying object, the 5e death-save object, or null. Each underlying
+// function self-gates by system id, so only one ever returns non-null.
+function getDyingState(combatant) {
+  return getPF2eDyingState(combatant) ?? getDnd5eDeathState(combatant);
 }
 
 function getActorAttributeValue(actor, attribute, property = "value") {
@@ -3295,6 +3347,35 @@ function renderDyingPips(dying) {
   }).join("");
 
   return `<div class="gluni-dying-pips" role="img" aria-label="${escapeAttr(label)}">${pips}</div>`;
+}
+
+// Two-row pip readout for 5e death saves: a calming successes row and an
+// escalating failures row, each three pips wide.
+function renderDeathSavePips(state) {
+  const successes = clamp(Math.round(Number(state.successes) || 0), 0, 3);
+  const failures = clamp(Math.round(Number(state.failures) || 0), 0, 3);
+  const row = (kind, value, ariaKey) => {
+    const label = formatLocalized(ariaKey, { value, max: 3 });
+    const pips = Array.from({ length: 3 }, (_unused, index) => {
+      const filled = index < value;
+      return `<span class="gluni-deathsave-pip gluni-deathsave-pip--${kind}${filled ? " gluni-deathsave-pip--filled" : ""}" aria-hidden="true"></span>`;
+    }).join("");
+    return `<div class="gluni-deathsave-row gluni-deathsave-row--${kind}" role="img" aria-label="${escapeAttr(label)}">${pips}</div>`;
+  };
+  return `<div class="gluni-deathsave-pips">
+    ${row("success", successes, "GLUNI.DeathSaves.Success.Aria")}
+    ${row("failure", failures, "GLUNI.DeathSaves.Failure.Aria")}
+  </div>`;
+}
+
+function renderDeathSaveRepeatText(state) {
+  const text = (state.stable ? localize("GLUNI.DeathSaves.Stable") : localize("GLUNI.DeathSaves")).toUpperCase();
+  const line = Array.from({ length: 5 }, () => `<span>${escapeHTML(text)}</span>`).join("");
+  return Array.from({ length: 6 }, (_, index) => `
+    <div class="gluni-card-dying-repeat-line${index % 2 ? " gluni-card-dying-repeat-line--alt" : ""}">
+      ${line}
+    </div>
+  `).join("");
 }
 
 function getPortraitScaleCap(path) {
@@ -4407,10 +4488,10 @@ class TokenOverlayManager {
     return gauge;
   }
 
-  // PF2e dying state for a combatant, gated by player visibility so a hidden or
-  // mystery actor never leaks its dying value to non-GM clients.
+  // Dying / death-save state for a combatant, gated by player visibility so a
+  // hidden or mystery actor never leaks its state to non-GM clients.
   _dyingFor(combatant) {
-    const dying = getPF2eDyingState(combatant);
+    const dying = getDyingState(combatant);
     if (!dying) return null;
     if (!game.user.isGM) {
       const mode = overlay?.resolveVisibility?.(combatant)?.playerMode;
@@ -4890,7 +4971,7 @@ class TokenOverlayManager {
     const shape = this._getShape();
     const fidelity = this._getFidelity();
     const gaugeKey = gauge ? `${gauge.value}/${gauge.max}/${gauge.mode}` : "";
-    const dyingKey = dying ? `${dying.value}/${dying.max}/${dying.severity}` : "";
+    const dyingKey = dying ? `${dying.kind ?? "dying"}/${dying.value}/${dying.max}/${dying.severity}/${dying.successes ?? ""}` : "";
     if (
       entry.mode !== mode ||
       entry.w !== token.w ||
@@ -5219,8 +5300,11 @@ class TokenOverlayManager {
     // Dying escalates toward a hot magenta at death's door so the token reads as
     // critical without needing the player to parse the pip count.
     const critical = isDying && entry.dying?.severity === "critical";
-    const accent = isBreak ? P.broken : isDying ? (critical ? P.magenta : P.dying) : P.delayed;
-    const hi = isBreak ? P.brokenHot : isDying ? P.dyingHot : P.delayedHi;
+    // A stabilized 5e combatant (3 successes) reads calm teal instead of the
+    // urgent violet/magenta of an actively dying one.
+    const stableSave = isDying && entry.dying?.stable === true;
+    const accent = isBreak ? P.broken : isDying ? (stableSave ? P.stable : critical ? P.magenta : P.dying) : P.delayed;
+    const hi = isBreak ? P.brokenHot : isDying ? (stableSave ? P.stableHot : P.dyingHot) : P.delayedHi;
 
     // Shader interior (fracture / energy scan). When active, the hand-drawn
     // cracks/pattern below are skipped; the frame, brackets and label stay.
@@ -5330,9 +5414,11 @@ class TokenOverlayManager {
     label.text = isBreak
       ? "BREAK"
       : isDying
-        ? `${localize("GLUNI.Dying").toUpperCase()} ${entry.dying.value}/${entry.dying.max}`
+        ? (entry.dying.kind === "deathsaves"
+            ? (stableSave ? localize("GLUNI.DeathSaves.Stable").toUpperCase() : `${localize("GLUNI.DeathSaves").toUpperCase()} ${entry.dying.failures}/3`)
+            : `${localize("GLUNI.Dying").toUpperCase()} ${entry.dying.value}/${entry.dying.max}`)
         : "DELAYED";
-    label.style.fill = isBreak ? "#02070b" : isDying ? "#1a0033" : "#4aa3ff";
+    label.style.fill = isBreak ? "#02070b" : isDying ? (stableSave ? "#04201c" : "#1a0033") : "#4aa3ff";
 
     const padX = fontSize * 0.6;
     const padY = fontSize * 0.32;
@@ -5359,8 +5445,8 @@ class TokenOverlayManager {
       pillBg.lineStyle({ width: 0.8, color: P.brokenHot, alpha: 0.55 });
       pillBg.drawPolygon(this._chipPoints(chipX, chipY, chipW, chipH, chipNotch));
     } else if (isDying) {
-      // Solid violet (magenta when critical) chip with near-black text.
-      const chipCol = critical ? P.magenta : P.dying;
+      // Solid violet (magenta when critical, teal when stable) chip with near-black text.
+      const chipCol = stableSave ? P.stable : critical ? P.magenta : P.dying;
       if (high) {
         pillBg.lineStyle({ width: 3, color: chipCol, alpha: 0.24 });
         pillBg.drawPolygon(this._chipPoints(chipX - 1, chipY - 1, chipW + 2, chipH + 2, chipNotch));
@@ -5372,7 +5458,7 @@ class TokenOverlayManager {
       pillBg.beginFill(chipCol, 0.95);
       pillBg.drawPolygon(this._chipPoints(chipX, chipY, chipW, chipH, chipNotch));
       pillBg.endFill();
-      pillBg.lineStyle({ width: 0.8, color: P.dyingHot, alpha: 0.7 });
+      pillBg.lineStyle({ width: 0.8, color: stableSave ? P.stableHot : P.dyingHot, alpha: 0.7 });
       pillBg.drawPolygon(this._chipPoints(chipX, chipY, chipW, chipH, chipNotch));
     } else {
       // Outlined blue chip with blue text.
@@ -5391,7 +5477,71 @@ class TokenOverlayManager {
 
     // ---- dying pip row (above the chip) -----------------------------------
     dyingPips.clear();
-    if (isDying) this._drawDyingPips(entry, w, h, chipY);
+    if (isDying) {
+      if (entry.dying?.kind === "deathsaves") this._drawDeathSavePips(entry, w, h, chipY);
+      else this._drawDyingPips(entry, w, h, chipY);
+    }
+  }
+
+  // Two short diamond rows above the chip for 5e death saves: a teal successes
+  // row stacked over a red failures row, each three pips wide.
+  _drawDeathSavePips(entry, w, h, chipTopY) {
+    const g = entry.dyingPips;
+    const state = entry.dying;
+    if (!state) return;
+    const P = TOKEN_OVERLAY_PALETTE;
+    const successes = clamp(Math.round(state.successes) || 0, 0, 3);
+    const failures = clamp(Math.round(state.failures) || 0, 0, 3);
+
+    const base = Math.max(w, h);
+    let pipR = clamp(base * 0.045, 2.2, 5.2);
+    let gap = clamp(base * 0.04, 1.8, 5);
+    const maxRow = w * 0.94;
+    if ((pipR * 2 + gap) * 3 - gap > maxRow) {
+      const scale = maxRow / ((pipR * 2 + gap) * 3 - gap);
+      pipR *= scale;
+      gap *= scale;
+    }
+    const stepX = pipR * 2 + gap;
+    const totalW = stepX * 3 - gap;
+    const startX = (w - totalW) / 2 + pipR;
+    const rowGap = Math.max(1.6, base * 0.02);
+    const failY = chipTopY - pipR - Math.max(2, base * 0.022);
+    const succY = failY - (pipR * 2 + rowGap);
+
+    const diamond = (px, py, rr) => [px, py - rr, px + rr, py, px, py + rr, px - rr, py];
+
+    const drawRow = (value, y, litCol, litHot, deepCol) => {
+      for (let i = 0; i < 3; i++) {
+        const px = startX + i * stepX;
+        const filled = i < value;
+        g.beginFill(P.ink, 0.55);
+        g.drawPolygon(diamond(px, y + 0.5, pipR + 1.2));
+        g.endFill();
+        if (filled) {
+          const last = i === value - 1;
+          g.beginFill(last ? litHot : litCol, 0.96);
+          g.drawPolygon(diamond(px, y, pipR));
+          g.endFill();
+          g.lineStyle({ width: 0.8, color: P.white, alpha: 0.6 });
+          g.drawPolygon(diamond(px, y, pipR));
+          g.lineStyle(0);
+          g.beginFill(P.white, 0.5);
+          g.drawPolygon(diamond(px, y, pipR * 0.4));
+          g.endFill();
+        } else {
+          g.beginFill(deepCol, 0.22);
+          g.drawPolygon(diamond(px, y, pipR));
+          g.endFill();
+          g.lineStyle({ width: 0.8, color: litCol, alpha: 0.5 });
+          g.drawPolygon(diamond(px, y, pipR));
+          g.lineStyle(0);
+        }
+      }
+    };
+
+    drawRow(successes, succY, P.saveSuccess, P.saveSuccessHot, P.saveSuccess);
+    drawRow(failures, failY, P.saveFailure, P.saveFailureHot, P.dyingDeep);
   }
 
   // A compact row of diamond pips above the dying chip — one per dying level,
