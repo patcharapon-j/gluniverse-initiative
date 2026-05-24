@@ -924,7 +924,7 @@ class GLUniverseInitiativeOverlay {
 
     const settings = this.getRenderSettings();
     const view = this.buildViewModel(combat, settings);
-    this.detectStatusTransitions(view);
+    this.detectStatusTransitions();
     const turnKey = view.normal.map(item => item.key ?? `${item.type}:${item.round}`).join("|");
     const isTurnChange = this.lastTurnKey && turnKey !== this.lastTurnKey;
     const previousRenderedRound = this.lastRenderedRound;
@@ -1761,6 +1761,7 @@ class GLUniverseInitiativeOverlay {
       }
       this.pendingSlideInIds.add(combatant.id);
       this.statusAnimationRecentlyQueued(combatant.id, "delay");
+      this.broadcastStatusAnimation(combatant.id, "delay");
       await combatant.setFlag(MODULE_ID, FLAGS.manualDelayed, true);
       if (this.combat?.combatant?.id === combatant.id) await this.combat.nextTurn();
       this.broadcastRefresh();
@@ -2162,6 +2163,11 @@ class GLUniverseInitiativeOverlay {
     this.pendingSlideInIds.add(combatant.id);
     this.statusAnimationRecentlyQueued(combatant.id, "guardBreak");
     this.showBreakSplash(combatant.name);
+    // The broken card is moved before the active turn, so it falls outside the
+    // forward-looking window on other clients and their local detection can't
+    // see it. Broadcast the splash + entrance so every player gets the cue.
+    this.broadcastBreakSplash(combatant.name);
+    this.broadcastStatusAnimation(combatant.id, "guardBreak");
 
     const payload = {
       round: combat.round ?? 1,
@@ -2967,51 +2973,76 @@ class GLUniverseInitiativeOverlay {
     this.pendingDyingWipeIds.clear();
   }
 
-  detectStatusTransitions(view) {
-    const hadSnapshot = this.statusSnapshotInitialized;
-    const currentDying = new Set();
-    const currentDelayed = new Set();
-    const currentBroken = new Set();
-    const allCards = [...view.normal, ...view.delayed];
-    for (const item of allCards) {
-      if (item.type !== "combatant") continue;
-      if (item.dying) currentDying.add(item.id);
-      if (item.delayed) currentDelayed.add(item.id);
-      if (item.guardBroken) currentBroken.add(item.id);
+  // Status sets are computed from the FULL combatant list (respecting this
+  // client's visibility), never the windowed view. A combatant that scrolls
+  // out of the visible window and back in must not read as a fresh status
+  // transition (which previously replayed the break splash on every turn).
+  collectStatusSets() {
+    const dying = new Set();
+    const delayed = new Set();
+    const broken = new Set();
+    const combat = this.combat;
+    if (!combat) return { dying, delayed, broken };
+
+    const showDefeated = Boolean(game.settings.get(MODULE_ID, SETTINGS.showDefeated));
+    const combatants = combat.combatants?.contents ?? Array.from(combat.combatants ?? []);
+    for (const entry of combatants) {
+      const combatant = Array.isArray(entry) ? entry[1] : entry;
+      if (!combatant || isAdhocCombatant(combatant)) continue;
+
+      const visibility = this.resolveVisibility(combatant);
+      // Hidden/mystery combatants must never leak a status through detection.
+      if (!game.user.isGM && visibility.playerMode === VISIBILITY.hidden) continue;
+      if (!game.user.isGM && visibility.playerMode === VISIBILITY.mystery) continue;
+
+      const skipped = Boolean(combatant.defeated && !showDefeated);
+      if (skipped) continue;
+
+      if (getGuardBreakState(combatant)) broken.add(combatant.id);
+      if (this.isDelayed(combatant)) delayed.add(combatant.id);
+      if (getDyingState(combatant)) dying.add(combatant.id);
     }
+    return { dying, delayed, broken };
+  }
+
+  detectStatusTransitions() {
+    const hadSnapshot = this.statusSnapshotInitialized;
+    const isPrimaryGM = game.user.isGM && this.isPrimaryActiveGM();
+    const { dying: currentDying, delayed: currentDelayed, broken: currentBroken } = this.collectStatusSets();
+
     for (const id of currentDying) {
       if (this.lastDyingIds.has(id)) continue;
 
       const queuedLocally = !this.statusAnimationRecentlyQueued(id, "dying");
       if (queuedLocally) this.pendingDyingWipeIds.add(id);
-      if (queuedLocally && hadSnapshot && game.user.isGM && this.isPrimaryActiveGM()) {
+      if (queuedLocally && hadSnapshot && isPrimaryGM) {
         this.broadcastStatusAnimation(id, "dying");
       }
     }
     const edge = game.settings.get(MODULE_ID, SETTINGS.edge) || "right";
     for (const id of currentDelayed) {
       if (this.lastDelayedIds.has(id)) continue;
-      if (!this.statusAnimationRecentlyQueued(id, "delay")) {
-        const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
-        if (cardEl) {
-          this.createStatusFlashGhost(cardEl, localize("GLUNI.Delayed").toUpperCase(), "delay", edge);
-        }
-        this.pendingSlideInIds.add(id);
+      if (this.statusAnimationRecentlyQueued(id, "delay")) continue;
+      const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
+      if (cardEl) {
+        this.createStatusFlashGhost(cardEl, localize("GLUNI.Delayed").toUpperCase(), "delay", edge);
       }
+      this.pendingSlideInIds.add(id);
+      // Drive the on-card swipe directly so the entrance plays even when the
+      // card was off-screen before (no ghost), e.g. on player clients.
+      this.pendingStatusFlashes.set(id, "delay");
+      if (hadSnapshot && isPrimaryGM) this.broadcastStatusAnimation(id, "delay");
     }
     for (const id of currentBroken) {
       if (this.lastBrokenIds.has(id)) continue;
-      if (!this.statusAnimationRecentlyQueued(id, "guardBreak")) {
-        const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
-        if (cardEl) {
-          this.createStatusFlashGhost(cardEl, localize("GLUNI.GuardBreak").toUpperCase(), "break", edge);
-        }
-        this.pendingSlideInIds.add(id);
-        if (hadSnapshot) {
-          const combatant = this.combat?.combatants?.get(id);
-          if (combatant) this.showBreakSplash(combatant.name);
-        }
+      if (this.statusAnimationRecentlyQueued(id, "guardBreak")) continue;
+      const cardEl = this.root?.querySelector(`.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`);
+      if (cardEl) {
+        this.createStatusFlashGhost(cardEl, localize("GLUNI.GuardBreak").toUpperCase(), "break", edge);
       }
+      this.pendingSlideInIds.add(id);
+      this.pendingStatusFlashes.set(id, "guardBreak");
+      if (hadSnapshot && isPrimaryGM) this.broadcastStatusAnimation(id, "guardBreak");
     }
     this.lastDyingIds = currentDying;
     this.lastDelayedIds = currentDelayed;
