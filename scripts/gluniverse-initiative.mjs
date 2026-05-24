@@ -19,6 +19,9 @@ const TOKEN_OVERLAY_PALETTE = {
   broken: 0xffb12d,
   brokenHot: 0xffe070,
   brokenDeep: 0xff6f1a,
+  dying: 0xb497ff,
+  dyingHot: 0xefd7ff,
+  dyingDeep: 0x6a3fb0,
   ink: 0x02070b,
   white: 0xf3fbff,
   violet: 0xb497ff,
@@ -3825,7 +3828,7 @@ void main(void){
 const FX_FRAG_DYING = `
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
-uniform float uTime, uSeed, uAspect;
+uniform float uTime, uSeed, uAspect, uClipCircle;
 float gluHashD(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7))+uSeed)*43758.5453); }
 float gluVNoiseD(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
   return mix(mix(gluHashD(i),gluHashD(i+vec2(1.0,0.0)),f.x),
@@ -3845,6 +3848,7 @@ void main(void){
   vec3 violet=vec3(0.71,0.59,1.0), vhot=vec3(0.94,0.84,1.0);
   vec3 col=mix(violet,vhot,veins);
   float a=clamp(veins*0.62,0.0,1.0);
+  if(uClipCircle>0.5){ vec2 cc=uv-vec2(0.5); cc.x*=uAspect; a*=smoothstep(0.5,0.47,length(cc)); }
   gl_FragColor=vec4(col*a, a);
 }`;
 
@@ -4032,13 +4036,14 @@ class TokenOverlayManager {
     for (const combatant of combat.combatants ?? []) {
       const delayed = overlay.isDelayed(combatant);
       const broken = Boolean(getGuardBreakState(combatant));
+      const dying = this._dyingFor(combatant);
       const gauge = this._gaugeFor(combatant);
-      if (!delayed && !broken && !gauge) continue;
+      if (!delayed && !broken && !dying && !gauge) continue;
 
       const token = getCombatantTokenObject(combatant);
       if (!token || !token.w || !token.h) continue;
 
-      wanted.set(token.id, { token, delayed, broken, gauge });
+      wanted.set(token.id, { token, delayed, broken, dying, gauge });
     }
 
     for (const tokenId of [...this._entries.keys()]) {
@@ -4046,8 +4051,10 @@ class TokenOverlayManager {
     }
 
     for (const [tokenId, state] of wanted) {
-      const mode = state.broken ? "broken" : state.delayed ? "delayed" : "gauge";
-      this._upsert(state.token, mode, state.gauge);
+      // Dying outranks the other states — proximity to death is the most urgent
+      // thing to surface on the token.
+      const mode = state.dying ? "dying" : state.broken ? "broken" : state.delayed ? "delayed" : "gauge";
+      this._upsert(state.token, mode, state.gauge, state.dying);
     }
 
     if (this._entries.size > 0 && !this._ticking) this._startTick();
@@ -4064,6 +4071,18 @@ class TokenOverlayManager {
       if (mode === VISIBILITY.hidden || mode === VISIBILITY.mystery) return null;
     }
     return gauge;
+  }
+
+  // PF2e dying state for a combatant, gated by player visibility so a hidden or
+  // mystery actor never leaks its dying value to non-GM clients.
+  _dyingFor(combatant) {
+    const dying = getPF2eDyingState(combatant);
+    if (!dying) return null;
+    if (!game.user.isGM) {
+      const mode = overlay?.resolveVisibility?.(combatant)?.playerMode;
+      if (mode === VISIBILITY.hidden || mode === VISIBILITY.mystery) return null;
+    }
+    return dying;
   }
 
   forceRedraw() {
@@ -4086,7 +4105,7 @@ class TokenOverlayManager {
     return fidelity === "balanced" ? "balanced" : "high";
   }
 
-  _upsert(token, mode, gauge = null) {
+  _upsert(token, mode, gauge = null, dying = null) {
     let entry = this._entries.get(token.id);
 
     if (entry && entry.container.destroyed) {
@@ -4106,13 +4125,15 @@ class TokenOverlayManager {
     const shape = this._getShape();
     const fidelity = this._getFidelity();
     const gaugeKey = gauge ? `${gauge.value}/${gauge.max}/${gauge.mode}` : "";
+    const dyingKey = dying ? `${dying.value}/${dying.max}/${dying.severity}` : "";
     if (
       entry.mode !== mode ||
       entry.w !== token.w ||
       entry.h !== token.h ||
       entry.shape !== shape ||
       entry.fidelity !== fidelity ||
-      entry.gaugeKey !== gaugeKey
+      entry.gaugeKey !== gaugeKey ||
+      entry.dyingKey !== dyingKey
     ) {
       entry.mode = mode;
       entry.w = token.w;
@@ -4121,6 +4142,8 @@ class TokenOverlayManager {
       entry.fidelity = fidelity;
       entry.gauge = gauge;
       entry.gaugeKey = gaugeKey;
+      entry.dying = dying;
+      entry.dyingKey = dyingKey;
       this._redraw(entry);
     }
   }
@@ -4185,6 +4208,10 @@ class TokenOverlayManager {
     label.anchor.set(0.5, 0.5);
     container.addChild(label);
 
+    // Dying pip row — diamonds above the chip showing dying value vs max.
+    const dyingPips = new PIXI.Graphics();
+    container.addChild(dyingPips);
+
     // Break gauge bar — drawn above the token, independent of status mode.
     const gaugeGfx = new PIXI.Graphics();
     container.addChild(gaugeGfx);
@@ -4209,9 +4236,10 @@ class TokenOverlayManager {
 
     return {
       container, glow, wash, frame, brackets, cracks, sweep, sweepGfx, pillBg, label,
-      gaugeGfx, gaugeText,
+      dyingPips, gaugeGfx, gaugeText,
       fxSprite, fxFilter: null, fxFilterMode: null, fxOn: false, fxStart: 0,
       mode: null, w: 0, h: 0, shape: null, fidelity: null, gauge: null, gaugeKey: "",
+      dying: null, dyingKey: "",
       gaugeAnim: null, gaugeGeom: null,
       phase: Math.random() * Math.PI * 2,
       seed: Math.random() * 99999,
@@ -4373,7 +4401,7 @@ class TokenOverlayManager {
     try {
       if (!entry.fxFilter || entry.fxFilterMode !== mode) {
         if (!globalThis.PIXI?.Filter) { sprite.visible = false; return false; }
-        const frag = mode === "broken" ? FX_FRAG_BREAK : FX_FRAG_DELAY;
+        const frag = mode === "broken" ? FX_FRAG_BREAK : mode === "dying" ? FX_FRAG_DYING : FX_FRAG_DELAY;
         const filter = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uThick: 0.045, uImpact: [0.5, 0.5] });
         filter.padding = 0;
         entry.fxFilter = filter;
@@ -4398,7 +4426,7 @@ class TokenOverlayManager {
   }
 
   _redraw(entry) {
-    const { glow, wash, frame, brackets, cracks, sweep, sweepGfx, pillBg, label,
+    const { glow, wash, frame, brackets, cracks, sweep, sweepGfx, pillBg, label, dyingPips,
             mode, w, h, shape, seed } = entry;
     const P = TOKEN_OVERLAY_PALETTE;
 
@@ -4406,19 +4434,21 @@ class TokenOverlayManager {
     // present whether or not the token also shows a delay/break overlay.
     this._drawGauge(entry);
 
-    // Gauge-only tokens (marked but neither delayed nor broken) skip the heavy
+    // Gauge-only tokens (marked but neither delayed/broken/dying) skip the heavy
     // status frame entirely — clear any leftover status graphics and bail.
-    if (mode !== "broken" && mode !== "delayed") {
+    if (mode !== "broken" && mode !== "delayed" && mode !== "dying") {
       glow.clear(); glow.filters = null;
       wash.clear(); frame.clear(); brackets.clear(); cracks.clear();
       sweepGfx.clear(); sweep.visible = false; sweep.alpha = 0;
-      pillBg.clear(); label.text = "";
+      pillBg.clear(); label.text = ""; dyingPips.clear();
       if (entry.fxSprite) entry.fxSprite.visible = false;
       entry.fxOn = false;
       return;
     }
 
     const isBreak = mode === "broken";
+    const isDying = mode === "dying";
+    const isDelay = mode === "delayed";
     const isCircle = shape === "circle";
     const high = entry.fidelity !== "balanced";
     const cx = w / 2, cy = h / 2;
@@ -4428,8 +4458,11 @@ class TokenOverlayManager {
     entry.cx = cx;
     entry.cy = cy;
 
-    const accent = isBreak ? P.broken : P.delayed;
-    const hi = isBreak ? P.brokenHot : P.delayedHi;
+    // Dying escalates toward a hot magenta at death's door so the token reads as
+    // critical without needing the player to parse the pip count.
+    const critical = isDying && entry.dying?.severity === "critical";
+    const accent = isBreak ? P.broken : isDying ? (critical ? P.magenta : P.dying) : P.delayed;
+    const hi = isBreak ? P.brokenHot : isDying ? P.dyingHot : P.delayedHi;
 
     // Shader interior (fracture / energy scan). When active, the hand-drawn
     // cracks/pattern below are skipped; the frame, brackets and label stay.
@@ -4443,6 +4476,10 @@ class TokenOverlayManager {
         wash.beginFill(P.broken, 0.06); wash.drawCircle(cx, cy, r - 2); wash.endFill();
         wash.beginFill(P.brokenDeep, 0.04); wash.drawCircle(cx + r * 0.18, cy - r * 0.12, r * 0.5); wash.endFill();
         wash.beginFill(P.brokenHot, 0.035); wash.drawCircle(cx - r * 0.22, cy + r * 0.18, r * 0.4); wash.endFill();
+      } else if (isDying) {
+        wash.beginFill(accent, critical ? 0.08 : 0.06); wash.drawCircle(cx, cy, r - 2); wash.endFill();
+        wash.beginFill(P.dyingDeep, 0.05); wash.drawCircle(cx + r * 0.2, cy - r * 0.14, r * 0.5); wash.endFill();
+        wash.beginFill(P.dyingHot, 0.03); wash.drawCircle(cx - r * 0.2, cy + r * 0.2, r * 0.4); wash.endFill();
       } else {
         wash.beginFill(P.delayed, 0.05); wash.drawCircle(cx, cy, r - 2); wash.endFill();
         wash.beginFill(P.delayedHi, 0.035); wash.drawCircle(cx + r * 0.25, cy - r * 0.15, r * 0.45); wash.endFill();
@@ -4452,11 +4489,13 @@ class TokenOverlayManager {
       wash.lineStyle(0);
     } else {
       const pts = this._framePoints(w, h, 2);
-      wash.beginFill(accent, isBreak ? 0.06 : 0.05);
+      wash.beginFill(accent, isBreak ? 0.06 : isDying && critical ? 0.07 : 0.05);
       wash.drawPolygon(pts);
       wash.endFill();
       if (isBreak) {
         wash.beginFill(P.brokenDeep, 0.04); wash.drawCircle(cx + w * 0.16, cy - h * 0.12, r * 0.5); wash.endFill();
+      } else if (isDying) {
+        wash.beginFill(P.dyingDeep, 0.045); wash.drawCircle(cx + w * 0.16, cy - h * 0.12, r * 0.5); wash.endFill();
       } else {
         wash.beginFill(P.delayedHi, 0.03); wash.drawCircle(cx + w * 0.18, cy - h * 0.12, r * 0.45); wash.endFill();
       }
@@ -4465,13 +4504,13 @@ class TokenOverlayManager {
       wash.lineStyle(0);
     }
 
-    if (!isBreak && !entry.fxOn) this._drawDelayPattern(wash, cx, cy, r, w, h, isCircle, rng);
+    if (isDelay && !entry.fxOn) this._drawDelayPattern(wash, cx, cy, r, w, h, isCircle, rng);
 
     // ---- soft outer glow (high only; balanced skips the blur layers) ------
     glow.clear();
     glow.filters = null;
     if (high) {
-      const gAlpha = isBreak ? 0.20 : 0.13;
+      const gAlpha = isBreak ? 0.20 : isDying ? (critical ? 0.22 : 0.16) : 0.13;
       const expand = isBreak ? 4 : 3;
       glow.lineStyle({ width: isBreak ? 8 : 6, color: hi, alpha: gAlpha, alignment: 0 });
       if (isCircle) glow.drawCircle(cx, cy, r + expand);
@@ -4530,8 +4569,12 @@ class TokenOverlayManager {
     label.style.fontSize = fontSize;
     label.style.fontWeight = "bold";
     label.style.letterSpacing = fontSize > 10 ? 1.5 : 1;
-    label.text = isBreak ? "BREAK" : "DELAYED";
-    label.style.fill = isBreak ? "#02070b" : "#4aa3ff";
+    label.text = isBreak
+      ? "BREAK"
+      : isDying
+        ? `${localize("GLUNI.Dying").toUpperCase()} ${entry.dying.value}/${entry.dying.max}`
+        : "DELAYED";
+    label.style.fill = isBreak ? "#02070b" : isDying ? "#1a0033" : "#4aa3ff";
 
     const padX = fontSize * 0.6;
     const padY = fontSize * 0.32;
@@ -4557,6 +4600,22 @@ class TokenOverlayManager {
       pillBg.endFill();
       pillBg.lineStyle({ width: 0.8, color: P.brokenHot, alpha: 0.55 });
       pillBg.drawPolygon(this._chipPoints(chipX, chipY, chipW, chipH, chipNotch));
+    } else if (isDying) {
+      // Solid violet (magenta when critical) chip with near-black text.
+      const chipCol = critical ? P.magenta : P.dying;
+      if (high) {
+        pillBg.lineStyle({ width: 3, color: chipCol, alpha: 0.24 });
+        pillBg.drawPolygon(this._chipPoints(chipX - 1, chipY - 1, chipW + 2, chipH + 2, chipNotch));
+        pillBg.lineStyle(0);
+      }
+      pillBg.beginFill(0x000000, 0.42);
+      pillBg.drawPolygon(this._chipPoints(chipX, chipY + 1, chipW, chipH, chipNotch));
+      pillBg.endFill();
+      pillBg.beginFill(chipCol, 0.95);
+      pillBg.drawPolygon(this._chipPoints(chipX, chipY, chipW, chipH, chipNotch));
+      pillBg.endFill();
+      pillBg.lineStyle({ width: 0.8, color: P.dyingHot, alpha: 0.7 });
+      pillBg.drawPolygon(this._chipPoints(chipX, chipY, chipW, chipH, chipNotch));
     } else {
       // Outlined blue chip with blue text.
       pillBg.lineStyle(0);
@@ -4571,6 +4630,69 @@ class TokenOverlayManager {
     }
 
     label.position.set(w / 2, chipY + chipH / 2);
+
+    // ---- dying pip row (above the chip) -----------------------------------
+    dyingPips.clear();
+    if (isDying) this._drawDyingPips(entry, w, h, chipY);
+  }
+
+  // A compact row of diamond pips above the dying chip — one per dying level,
+  // the first `value` lit and escalating to a hot fill at the final (death)
+  // level. Gives an at-a-glance read of how close the actor is to dying out.
+  _drawDyingPips(entry, w, h, chipTopY) {
+    const g = entry.dyingPips;
+    const dying = entry.dying;
+    if (!dying) return;
+    const P = TOKEN_OVERLAY_PALETTE;
+    const max = clamp(Math.round(dying.max) || 4, 1, 9);
+    const value = clamp(Math.round(dying.value) || 0, 0, max);
+    const critical = dying.severity === "critical";
+
+    const base = Math.max(w, h);
+    let pipR = clamp(base * 0.05, 2.5, 6);            // half-diagonal of each diamond
+    let gap = clamp(base * 0.045, 2, 6);
+    // Shrink to fit the row within the token width when there are many levels.
+    const maxRow = w * 0.94;
+    if ((pipR * 2 + gap) * max - gap > maxRow) {
+      const scale = maxRow / ((pipR * 2 + gap) * max - gap);
+      pipR *= scale;
+      gap *= scale;
+    }
+    const stepX = pipR * 2 + gap;
+    const totalW = stepX * max - gap;
+    const startX = (w - totalW) / 2 + pipR;
+    const y = chipTopY - pipR - Math.max(2, base * 0.022);
+
+    const diamond = (px, py, rr) => [px, py - rr, px + rr, py, px, py + rr, px - rr, py];
+
+    for (let i = 0; i < max; i++) {
+      const px = startX + i * stepX;
+      const filled = i < value;
+      const last = i === max - 1;
+      // dark plate beneath each pip so it stays legible over the portrait
+      g.beginFill(P.ink, 0.55);
+      g.drawPolygon(diamond(px, y + 0.5, pipR + 1.2));
+      g.endFill();
+      if (filled) {
+        const col = critical || last ? P.dyingHot : P.dying;
+        g.beginFill(col, 0.96);
+        g.drawPolygon(diamond(px, y, pipR));
+        g.endFill();
+        g.lineStyle({ width: 0.8, color: P.white, alpha: 0.6 });
+        g.drawPolygon(diamond(px, y, pipR));
+        g.lineStyle(0);
+        g.beginFill(P.white, 0.5);   // bright core
+        g.drawPolygon(diamond(px, y, pipR * 0.4));
+        g.endFill();
+      } else {
+        g.beginFill(P.dyingDeep, 0.22);
+        g.drawPolygon(diamond(px, y, pipR));
+        g.endFill();
+        g.lineStyle({ width: 0.8, color: P.dying, alpha: 0.5 });
+        g.drawPolygon(diamond(px, y, pipR));
+        g.lineStyle(0);
+      }
+    }
   }
 
   // Clipped-corner chip outline (top-left + bottom-right notched, matching the
@@ -4984,7 +5106,7 @@ class TokenOverlayManager {
       }
 
       // Gauge-only entries have no animated status frame to drive.
-      if (entry.mode !== "broken" && entry.mode !== "delayed") continue;
+      if (entry.mode !== "broken" && entry.mode !== "delayed" && entry.mode !== "dying") continue;
       const isBreak = entry.mode === "broken";
       const high = entry.fidelity !== "balanced";
 
@@ -5018,6 +5140,18 @@ class TokenOverlayManager {
             entry.sweep.position.set(entry.cx, entry.cy + bob);
           }
         }
+      } else if (entry.mode === "dying") {
+        // DYING: an ominous heartbeat — faster and more insistent the closer the
+        // actor is to death (critical), but never the frantic break sweep.
+        const crit = entry.dying?.severity === "critical";
+        const period = crit ? 0.9 : 1.7;
+        const t = 0.5 + 0.5 * Math.sin((this._time * 2 * Math.PI / period) + entry.phase);
+        entry.frame.alpha = (crit ? 0.68 : 0.58) + 0.34 * t;
+        if (entry.brackets) entry.brackets.alpha = 0.5 + 0.4 * t;
+        if (entry.glow) entry.glow.alpha = (crit ? 0.6 : 0.5) + 0.45 * t;
+        // Pip row holds steady normally; pulses only at death's door so the
+        // value-vs-max read stays clear while still screaming "critical".
+        if (entry.dyingPips) entry.dyingPips.alpha = crit ? 0.6 + 0.4 * t : 1;
       } else {
         // DELAYED stays calm: slow gentle pulse, no sweep.
         const t = 0.5 + 0.5 * Math.sin((this._time * 2 * Math.PI / 3.5) + entry.phase);
