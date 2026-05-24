@@ -795,6 +795,43 @@ class GLUniverseInitiativeOverlay {
     if (isDelayReturn) this.pendingDelayReturnId = null;
     tokenOverlays?.refresh();
     cardFX?.sync(this.root);
+    this.animateGaugeChanges();
+  }
+
+  // The gauge markup is rebuilt on every render, so a plain CSS width transition
+  // never animates (each fill mounts at its final width). Compare the new ratio
+  // against the last one we saw for this combatant and, when it changed, snap the
+  // fill back to the old width, force a reflow, then let it transition to the new
+  // one — and flash the bar so a value change reads clearly.
+  animateGaugeChanges() {
+    if (!this.root) return;
+    if (!this._lastGaugeRatios) this._lastGaugeRatios = new Map();
+    const seen = new Set();
+    this.root.querySelectorAll(".gluni-card[data-combatant-id]").forEach(cardEl => {
+      const track = cardEl.querySelector(".gluni-break-gauge-track");
+      if (!track) return;
+      const id = cardEl.dataset.combatantId;
+      const key = cardEl.dataset.gluniKey || id;
+      seen.add(key);
+      const ratio = clamp(Number(track.dataset.ratio) || 0, 0, 1);
+      const prev = this._lastGaugeRatios.get(key);
+      this._lastGaugeRatios.set(key, ratio);
+      if (prev === undefined || prev === ratio) return;
+      const fill = track.querySelector(".gluni-break-gauge-fill");
+      if (fill) {
+        fill.style.transition = "none";
+        fill.style.width = `${(clamp(prev, 0, 1) * 100).toFixed(2)}%`;
+        void fill.offsetWidth;                       // force reflow before re-enabling transition
+        fill.style.transition = "";
+        fill.style.width = `${(ratio * 100).toFixed(2)}%`;
+      }
+      track.classList.remove("gluni-break-gauge-track--down", "gluni-break-gauge-track--up");
+      void track.offsetWidth;                        // restart the flash keyframe
+      track.classList.add(ratio < prev ? "gluni-break-gauge-track--down" : "gluni-break-gauge-track--up");
+    });
+    for (const key of this._lastGaugeRatios.keys()) {
+      if (!seen.has(key)) this._lastGaugeRatios.delete(key);
+    }
   }
 
   getRenderSettings() {
@@ -1923,7 +1960,7 @@ class GLUniverseInitiativeOverlay {
     await Promise.allSettled(combatants.map(combatant => this.removePF2eGuardBreakEffect(combatant)));
   }
 
-  async applyGuardBreak(combatant) {
+  async applyGuardBreak(combatant, { syncGauge = true } = {}) {
     const combat = this.combat;
     if (!game.user.isGM || !combat?.started || !combatant || isAdhocCombatant(combatant)) return;
 
@@ -1948,6 +1985,7 @@ class GLUniverseInitiativeOverlay {
 
     await combatant.setFlag(MODULE_ID, FLAGS.guardBroken, payload);
     await combatant.unsetFlag(MODULE_ID, FLAGS.manualDelayed);
+    if (syncGauge) await this.writeBreakGaugeValue(combatant, 0);   // manual break empties the gauge
     await this.clearKnownPF2eDelayFlags(combatant);
     await this.applyPF2eGuardBreakEffect(combatant);
     await this.moveGuardBrokenCombatantBeforeActive(combatant, activeId);
@@ -1958,11 +1996,24 @@ class GLUniverseInitiativeOverlay {
     else this.broadcastRefresh();
   }
 
-  async clearGuardBreak(combatant) {
+  async clearGuardBreak(combatant, { syncGauge = true } = {}) {
     if (!game.user.isGM || !combatant || !getGuardBreakState(combatant)) return;
     await combatant.unsetFlag(MODULE_ID, FLAGS.guardBroken);
     await this.removePF2eGuardBreakEffect(combatant);
+    if (syncGauge) await this.writeBreakGaugeValue(combatant, null);   // clearing break refills the gauge
     this.broadcastRefresh();
+  }
+
+  // Writes a new gauge value in place without re-triggering the guard-break sync
+  // (used by applyGuardBreak/clearGuardBreak to keep the gauge mirroring the
+  // break state). Pass null to refill to max. Returns true when it changed.
+  async writeBreakGaugeValue(combatant, value) {
+    const state = getBreakGaugeState(combatant);
+    if (!state) return false;
+    const next = value === null ? state.max : clamp(Math.round(Number(value) || 0), 0, state.max);
+    if (next === state.value) return false;
+    await combatant.setFlag(MODULE_ID, FLAGS.breakGauge, { max: state.max, value: next, mode: state.mode });
+    return true;
   }
 
   // Marks a combatant with a break gauge (or updates an existing one). Writing
@@ -1986,7 +2037,7 @@ class GLUniverseInitiativeOverlay {
     const state = getBreakGaugeState(combatant);
     await combatant.unsetFlag(MODULE_ID, FLAGS.breakGauge);
     if (state && state.value <= 0 && getGuardBreakState(combatant)) {
-      await this.clearGuardBreak(combatant);
+      await this.clearGuardBreak(combatant, { syncGauge: false });
     } else {
       this.broadcastRefresh();
     }
@@ -1997,8 +2048,8 @@ class GLUniverseInitiativeOverlay {
   // unchanged branch broadcasts so the new gauge value reaches every client.
   async syncBreakGuard(combatant, value) {
     const broken = Boolean(getGuardBreakState(combatant));
-    if (value <= 0 && !broken) await this.applyGuardBreak(combatant);
-    else if (value > 0 && broken) await this.clearGuardBreak(combatant);
+    if (value <= 0 && !broken) await this.applyGuardBreak(combatant, { syncGauge: false });
+    else if (value > 0 && broken) await this.clearGuardBreak(combatant, { syncGauge: false });
     else this.broadcastRefresh();
   }
 
@@ -2920,17 +2971,23 @@ function renderBreakGaugeBar(gauge) {
   const { max, value, mode, ratio } = gauge;
   const label = formatLocalized("GLUNI.BreakGauge.Aria", { value, max });
   const broken = value <= 0;
+  const valueTag = `<span class="gluni-break-gauge-value">${value}<small>/${max}</small></span>`;
   let track;
   if (mode === BREAK_GAUGE_MODES.segmented) {
     const pips = Array.from({ length: max }, (_unused, index) =>
       `<span class="gluni-break-gauge-seg${index < value ? " gluni-break-gauge-seg--on" : ""}" aria-hidden="true"></span>`
     ).join("");
-    track = `<div class="gluni-break-gauge-segs">${pips}</div>`;
+    track = `<div class="gluni-break-gauge-track gluni-break-gauge-track--seg" data-ratio="${ratio.toFixed(4)}">
+        <div class="gluni-break-gauge-segs">${pips}</div>
+        ${valueTag}
+      </div>`;
   } else {
     const pct = clamp(ratio * 100, 0, 100);
     track = `
-      <div class="gluni-break-gauge-bar">
+      <div class="gluni-break-gauge-track gluni-break-gauge-bar" data-ratio="${ratio.toFixed(4)}">
         <div class="gluni-break-gauge-fill" style="width:${pct.toFixed(2)}%"></div>
+        <div class="gluni-break-gauge-sheen" aria-hidden="true"></div>
+        ${valueTag}
       </div>
     `;
   }
@@ -2938,7 +2995,6 @@ function renderBreakGaugeBar(gauge) {
     <div class="gluni-break-gauge${broken ? " gluni-break-gauge--empty" : ""}" role="img" aria-label="${escapeAttr(label)}">
       <span class="gluni-break-gauge-tag">${escapeHTML(localize("GLUNI.BreakGauge.Label").toUpperCase())}</span>
       ${track}
-      <span class="gluni-break-gauge-value">${value}<small>/${max}</small></span>
     </div>
   `;
 }
@@ -2974,15 +3030,15 @@ function openBreakGaugeEditor(combatant, anchor) {
     </label>
     <label class="gluni-context-field">
       <span>${escapeHTML(localize("GLUNI.BreakGauge.Current"))}</span>
-      <input type="number" name="value" min="0" step="1" value="${escapeAttr(String(initial.value))}">
-    </label>
-    <div class="gluni-context-actions">
-      <button type="button" data-gauge-action="decrease" title="-1" aria-label="-1"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>
-      <div class="gluni-break-gauge-modes" role="group">
-        <button type="button" data-gauge-mode="smooth">${escapeHTML(localize("GLUNI.BreakGauge.Mode.Smooth"))}</button>
-        <button type="button" data-gauge-mode="segmented">${escapeHTML(localize("GLUNI.BreakGauge.Mode.Segmented"))}</button>
+      <div class="gluni-gauge-stepper">
+        <button type="button" data-gauge-action="decrease" title="-1" aria-label="-1"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>
+        <input type="number" name="value" min="0" step="1" value="${escapeAttr(String(initial.value))}">
+        <button type="button" data-gauge-action="increase" title="+1" aria-label="+1"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
       </div>
-      <button type="button" data-gauge-action="increase" title="+1" aria-label="+1"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+    </label>
+    <div class="gluni-break-gauge-modes" role="group">
+      <button type="button" data-gauge-mode="smooth">${escapeHTML(localize("GLUNI.BreakGauge.Mode.Smooth"))}</button>
+      <button type="button" data-gauge-mode="segmented">${escapeHTML(localize("GLUNI.BreakGauge.Mode.Segmented"))}</button>
     </div>
     <div class="gluni-break-gauge-editor-buttons">
       ${state ? `<button type="button" class="gluni-break-gauge-remove" data-gauge-action="remove">${escapeHTML(localize("GLUNI.BreakGauge.Clear").toUpperCase())}</button>` : ""}
@@ -3722,7 +3778,7 @@ float gluFbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ s+=a*gluVNoise(p)
 const FX_FRAG_BREAK = `
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
-uniform float uTime, uSeed, uAspect, uClipCircle;
+uniform float uTime, uSeed, uAspect, uClipCircle, uThick;
 uniform vec2 uImpact;
 vec2 gluHash2(vec2 p){ p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))); return fract(sin(p+uSeed)*43758.5453); }
 float gluVoroEdge(vec2 x){
@@ -3742,7 +3798,7 @@ void main(void){
   float wdist=dist+warp;
   float scale=mix(8.0,4.0,smoothstep(0.0,0.8,dist));   // large shards -> few cracks
   float ce=gluVoroEdge(vec2(uv.x*uAspect,uv.y)*scale+7.0);
-  float edge=1.0-smoothstep(0.0,0.03,ce);              // thin crisp lines
+  float edge=1.0-smoothstep(0.0,uThick,ce);            // crisp lines; uThick tunes weight
   float shatterT=clamp(uTime*1.4,0.0,1.0);
   float front=smoothstep(0.05,-0.06, wdist-(0.05+1.2*shatterT));
   float coverage=smoothstep(0.95,0.12,wdist)*front;    // tight, leaves edges clear
@@ -3755,29 +3811,36 @@ void main(void){
   vec3 amber=vec3(1.0,0.69,0.18), hot=vec3(1.0,0.88,0.44), white=vec3(1.0);
   vec3 col=mix(amber,hot,clamp(crack*pulse,0.0,1.0));
   col=mix(col,white,clamp(core+glowFlow,0.0,1.0));
-  float a=clamp(crack*0.8 + core*0.7 + glowFlow*0.7, 0.0, 1.0) * 0.92;
-  if(uClipCircle>0.5) a*=smoothstep(0.5,0.46,length(uv-vec2(0.5)));
+  float a=clamp(crack*0.86 + core*0.7 + glowFlow*0.7, 0.0, 1.0) * 0.94;
+  if(uClipCircle>0.5){ vec2 cc=uv-vec2(0.5); cc.x*=uAspect; a*=smoothstep(0.5,0.47,length(cc)); }
   gl_FragColor=vec4(col*a, a);
 }`;
 
-// Corruption veins. Light, concentrated at the edges so the face stays clear.
+// Corruption veins. Cheap 3-octave noise, concentrated hard at the edges so the
+// face stays clear and the per-frame cost stays low.
 const FX_FRAG_DYING = `
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
 uniform float uTime, uSeed, uAspect;
-${FX_GLSL_NOISE}
+float gluHashD(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7))+uSeed)*43758.5453); }
+float gluVNoiseD(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(gluHashD(i),gluHashD(i+vec2(1.0,0.0)),f.x),
+             mix(gluHashD(i+vec2(0.0,1.0)),gluHashD(i+vec2(1.0,1.0)),f.x), f.y); }
+float gluFbmD(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<3;i++){ s+=a*gluVNoiseD(p); p*=2.03; a*=0.5; } return s; }
 void main(void){
   vec2 uv=vTextureCoord;
-  vec2 q=vec2(gluFbm(uv*2.4+vec2(0.0,uTime*0.05)), gluFbm(uv*2.4+vec2(5.2,-uTime*0.04)));
-  float n=gluFbm(uv*3.6+q*1.6);
+  // edge weight first; bail cheap where the face is so we skip the costly noise.
+  float eb=max(smoothstep(0.46,0.04,uv.x),smoothstep(0.54,0.96,uv.x));
+  eb=max(eb,smoothstep(0.4,0.0,uv.y));
+  if(eb<0.02){ gl_FragColor=vec4(0.0); return; }
+  float warp=gluFbmD(uv*2.2+vec2(0.0,uTime*0.05));
+  float n=gluFbmD(uv*3.4+vec2(warp*1.4,uTime*0.04));
   float ridge=1.0-abs(n*2.0-1.0);
-  float veins=smoothstep(0.86,0.99,ridge);             // higher threshold -> fewer veins
-  float eb=max(smoothstep(0.5,0.0,uv.x),smoothstep(0.5,1.0,uv.x));
-  eb=max(eb,smoothstep(0.45,0.0,uv.y));
-  veins*=mix(0.12,0.9,eb);                              // concentrate at edges
+  float veins=smoothstep(0.9,1.0,ridge);               // sparse, only strongest ridges
+  veins*=eb;                                            // hard edge concentration
   vec3 violet=vec3(0.71,0.59,1.0), vhot=vec3(0.94,0.84,1.0);
   vec3 col=mix(violet,vhot,veins);
-  float a=clamp(veins*0.75,0.0,1.0);
+  float a=clamp(veins*0.62,0.0,1.0);
   gl_FragColor=vec4(col*a, a);
 }`;
 
@@ -3798,7 +3861,7 @@ void main(void){
   vec3 blue=vec3(0.29,0.64,1.0), ice=vec3(0.60,0.85,1.0);
   vec3 col=mix(blue,ice,lines);
   float a=v*0.55;
-  if(uClipCircle>0.5) a*=smoothstep(0.5,0.46,length(uv-vec2(0.5)));
+  if(uClipCircle>0.5){ vec2 cc=uv-vec2(0.5); cc.x*=uAspect; a*=smoothstep(0.5,0.47,length(cc)); }
   gl_FragColor=vec4(col*a, a);
 }`;
 
@@ -3822,7 +3885,7 @@ class CardFXManager {
       this.renderer = new PIXI.Renderer({ width: 256, height: 160, backgroundAlpha: 0, antialias: true });
       this.sprite = new PIXI.Sprite(PIXI.Texture.WHITE);
       const mk = frag => {
-        const f = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: 0, uAspect: 1, uClipCircle: 0, uImpact: [0.65, 0.34] });
+        const f = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: 0, uAspect: 1, uClipCircle: 0, uThick: 0.05, uImpact: [0.65, 0.34] });
         f.padding = 0;
         return f;
       };
@@ -4229,7 +4292,7 @@ class TokenOverlayManager {
       if (!entry.fxFilter || entry.fxFilterMode !== mode) {
         if (!globalThis.PIXI?.Filter) { sprite.visible = false; return false; }
         const frag = mode === "broken" ? FX_FRAG_BREAK : FX_FRAG_DELAY;
-        const filter = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uImpact: [0.5, 0.5] });
+        const filter = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uThick: 0.045, uImpact: [0.5, 0.5] });
         filter.padding = 0;
         entry.fxFilter = filter;
         entry.fxFilterMode = mode;

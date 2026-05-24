@@ -1007,18 +1007,16 @@
 /* ---- break gauge (card-embedded) ------------------------------------- */
 .gluni-break-gauge {
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  grid-template-areas: "tag bar value";
+  grid-template-columns: auto 1fr;
   align-items: center;
-  column-gap: 4px;
-  margin-top: 3px;
+  column-gap: 5px;
+  margin-top: 4px;
 }
 
 .gluni-break-gauge-tag {
-  grid-area: tag;
   color: var(--gluni-ink);
   background: linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break));
-  padding: 2px 3px 1px;
+  padding: 3px 3px 2px;
   font-size: 6.5px;
   font-weight: 950;
   line-height: 1;
@@ -1026,38 +1024,55 @@
   clip-path: polygon(2px 0, 100% 0, 100% 100%, 0 100%, 0 2px);
 }
 
+.gluni-break-gauge-track {
+  position: relative;
+  height: 13px;
+  border-radius: 1px;
+  isolation: isolate;
+}
+
+/* value baked into the bar, right-aligned, sitting above the fill */
 .gluni-break-gauge-value {
-  grid-area: value;
-  color: var(--gluni-break-hot);
-  font-size: 8.5px;
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  right: 5px;
+  transform: translateY(-50%);
+  color: var(--gluni-white);
+  font-size: 9px;
   font-weight: 950;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  pointer-events: none;
   text-shadow:
-    0 0 8px color-mix(in srgb, var(--gluni-break) 55%, transparent),
-    0 1px 2px rgba(0, 0, 0, 0.9);
+    0 0 4px rgba(0, 0, 0, 0.95),
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 9px color-mix(in srgb, var(--gluni-break-hot) 65%, transparent);
 }
 
 .gluni-break-gauge-value small {
   font-size: 6.5px;
-  color: var(--gluni-text-dim);
+  font-weight: 900;
+  color: rgba(243, 251, 255, 0.6);
 }
 
 .gluni-break-gauge-bar {
-  grid-area: bar;
-  position: relative;
-  height: 7px;
-  background: rgba(255, 177, 45, 0.1);
-  box-shadow: inset 0 0 0 1px rgba(255, 177, 45, 0.28);
-  clip-path: polygon(2px 0, 100% 0, 100% 100%, 0 100%, 0 2px);
+  background: linear-gradient(180deg, rgba(255, 177, 45, 0.06), rgba(255, 177, 45, 0.14));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 177, 45, 0.3),
+    inset 0 1px 2px rgba(0, 0, 0, 0.45);
+  clip-path: polygon(3px 0, 100% 0, 100% 100%, 0 100%, 0 3px);
   overflow: hidden;
 }
 
 .gluni-break-gauge-fill {
   position: absolute;
+  z-index: 1;
   inset: 0 auto 0 0;
-  background: linear-gradient(90deg, var(--gluni-break-deep), var(--gluni-break) 62%, var(--gluni-break-hot));
-  box-shadow: 0 0 8px color-mix(in srgb, var(--gluni-break) 70%, transparent);
+  background: linear-gradient(90deg, var(--gluni-break-deep), var(--gluni-break) 58%, var(--gluni-break-hot));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--gluni-break) 70%, transparent);
+  transition: width 0.5s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .gluni-break-gauge-fill::after {
@@ -1068,14 +1083,40 @@
   bottom: 0;
   width: 2px;
   background: var(--gluni-white);
-  box-shadow: 0 0 6px var(--gluni-break-hot);
+  box-shadow: 0 0 7px var(--gluni-break-hot);
+}
+
+/* slow looping highlight sweep so the bar reads as "live" energy */
+.gluni-break-gauge-sheen {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.22) 50%,
+    transparent 65%
+  );
+  background-size: 220% 100%;
+  background-position: 120% 0;
+  animation: gluni-gauge-sheen 3.4s ease-in-out infinite;
+}
+
+@keyframes gluni-gauge-sheen {
+  0%, 12% { background-position: 130% 0; }
+  60%, 100% { background-position: -30% 0; }
+}
+
+.gluni-break-gauge-track--seg {
+  display: flex;
+  align-items: stretch;
 }
 
 .gluni-break-gauge-segs {
-  grid-area: bar;
   display: flex;
   gap: 2px;
-  height: 8px;
+  flex: 1 1 auto;
 }
 
 .gluni-break-gauge-seg {
@@ -1084,6 +1125,7 @@
   background: rgba(255, 177, 45, 0.08);
   box-shadow: inset 0 0 0 1px rgba(255, 177, 45, 0.22);
   clip-path: polygon(2px 0, 100% 0, 100% 100%, 0 100%, 0 2px);
+  transition: background 0.3s ease, box-shadow 0.3s ease;
 }
 
 .gluni-break-gauge-seg--on {
@@ -1093,8 +1135,40 @@
     0 0 6px color-mix(in srgb, var(--gluni-break) 55%, transparent);
 }
 
+/* segmented value sits over a short dark fade so it stays legible over pips */
+.gluni-break-gauge-track--seg .gluni-break-gauge-value {
+  padding-left: 8px;
+  background: linear-gradient(90deg, transparent, rgba(2, 7, 11, 0.82) 45%);
+}
+
 .gluni-break-gauge--empty .gluni-break-gauge-value {
   color: var(--gluni-break-deep);
+}
+
+/* value-change flash: amber pop when depleting, cyan-white when replenished */
+.gluni-break-gauge-track--down {
+  animation: gluni-gauge-flash-down 0.55s ease-out;
+}
+
+.gluni-break-gauge-track--up {
+  animation: gluni-gauge-flash-up 0.6s ease-out;
+}
+
+@keyframes gluni-gauge-flash-down {
+  0% { filter: brightness(2.1) saturate(1.4); }
+  100% { filter: none; }
+}
+
+@keyframes gluni-gauge-flash-up {
+  0% { filter: brightness(1.7) drop-shadow(0 0 6px var(--gluni-cyan)); }
+  100% { filter: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gluni-break-gauge-sheen { animation: none; }
+  .gluni-break-gauge-fill { transition: none; }
+  .gluni-break-gauge-track--down,
+  .gluni-break-gauge-track--up { animation: none; }
 }
 
 .gluni-initiative--left .gluni-initiative-badge {
@@ -1824,9 +1898,10 @@
   position: fixed;
   z-index: 121;
   display: grid;
-  gap: 7px;
-  width: 168px;
-  padding: 8px;
+  gap: 8px;
+  width: 196px;
+  box-sizing: border-box;
+  padding: 10px;
   color: var(--gluni-white);
   background: linear-gradient(135deg, rgba(18, 9, 2, 0.96), rgba(10, 7, 4, 0.94));
   box-shadow:
@@ -1845,10 +1920,43 @@
   text-transform: uppercase;
 }
 
+.gluni-gauge-stepper {
+  display: grid;
+  grid-template-columns: 30px 1fr 30px;
+  gap: 5px;
+  align-items: stretch;
+}
+
+.gluni-gauge-stepper input {
+  width: 100%;
+  height: 30px;
+  box-sizing: border-box;
+  border: 1px solid rgba(224, 246, 255, 0.22);
+  border-radius: 3px;
+  color: var(--gluni-white);
+  background: rgba(0, 0, 0, 0.46);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 950;
+  text-align: center;
+}
+
+.gluni-gauge-stepper button {
+  display: grid;
+  place-items: center;
+  height: 30px;
+  border: 0;
+  color: var(--gluni-ink);
+  background: linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break));
+  font-size: 9px;
+  cursor: pointer;
+  clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px);
+}
+
 .gluni-break-gauge-modes {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4px;
+  gap: 5px;
 }
 
 .gluni-break-gauge-modes button {

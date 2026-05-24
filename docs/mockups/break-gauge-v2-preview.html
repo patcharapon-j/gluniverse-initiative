@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Break Gauge v2 — baked value + animation</title>
+<style>
+  :root {
+    --gluni-cyan:#5eeaff; --gluni-white:#f3fbff; --gluni-red:#ff335f;
+    --gluni-break:#ffb12d; --gluni-break-hot:#ffe070; --gluni-break-deep:#ff6f1a;
+    --gluni-ink:#02070b; --gluni-line:rgba(244,252,255,0.10);
+    --gluni-text-dim:rgba(243,251,255,0.62);
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; min-height:100vh; padding:46px 30px 80px;
+    font-family:"Bahnschrift","Share Tech Mono","JetBrains Mono",Consolas,monospace;
+    color:var(--gluni-white);
+    background:
+      radial-gradient(circle at 78% 80%, rgba(255,177,45,0.08), transparent 46%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 46px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 46px),
+      #05090d;
+    display:flex; flex-wrap:wrap; gap:54px; align-items:flex-start; justify-content:center;
+  }
+  h2 { font-size:11px; letter-spacing:0.22em; text-transform:uppercase; color:var(--gluni-text-dim); font-weight:950; margin:0 0 14px; text-align:center; }
+  .col { width:230px; }
+  .caption { font-size:9px; color:var(--gluni-text-dim); text-align:center; margin-top:12px; line-height:1.6; }
+  .panel {
+    position:relative; padding:14px 14px 16px; margin-bottom:14px;
+    background:linear-gradient(120deg, rgba(10,18,24,0.6), rgba(2,7,11,0.6)), linear-gradient(180deg,#202b3b,#0c1118);
+    box-shadow: inset 0 0 0 1px var(--gluni-line);
+    clip-path: polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);
+  }
+  .panel h3 { margin:0 0 8px; font-size:13px; font-weight:850; }
+  .demo-btn {
+    margin-top:6px; width:100%; height:26px; border:0; cursor:pointer;
+    color:var(--gluni-ink); font:inherit; font-size:8px; font-weight:950; letter-spacing:0.12em;
+    background:var(--gluni-cyan); clip-path: polygon(4px 0,100% 0,100% 100%,0 100%,0 4px);
+  }
+
+  /* ----- copied from styles/gluniverse-initiative.css (gauge v2) ----- */
+  .gluni-break-gauge { display:grid; grid-template-columns:auto 1fr; align-items:center; column-gap:5px; margin-top:4px; }
+  .gluni-break-gauge-tag {
+    color:var(--gluni-ink); background:linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break));
+    padding:3px 3px 2px; font-size:6.5px; font-weight:950; line-height:1; letter-spacing:0.16em;
+    clip-path: polygon(2px 0,100% 0,100% 100%,0 100%,0 2px);
+  }
+  .gluni-break-gauge-track { position:relative; height:13px; border-radius:1px; isolation:isolate; }
+  .gluni-break-gauge-value {
+    position:absolute; z-index:3; top:50%; right:5px; transform:translateY(-50%);
+    color:var(--gluni-white); font-size:9px; font-weight:950; line-height:1;
+    font-variant-numeric:tabular-nums; white-space:nowrap; pointer-events:none;
+    text-shadow:0 0 4px rgba(0,0,0,0.95), 0 1px 2px rgba(0,0,0,0.95), 0 0 9px color-mix(in srgb, var(--gluni-break-hot) 65%, transparent);
+  }
+  .gluni-break-gauge-value small { font-size:6.5px; font-weight:900; color:rgba(243,251,255,0.6); }
+  .gluni-break-gauge-bar {
+    background:linear-gradient(180deg, rgba(255,177,45,0.06), rgba(255,177,45,0.14));
+    box-shadow: inset 0 0 0 1px rgba(255,177,45,0.3), inset 0 1px 2px rgba(0,0,0,0.45);
+    clip-path: polygon(3px 0,100% 0,100% 100%,0 100%,0 3px); overflow:hidden;
+  }
+  .gluni-break-gauge-fill {
+    position:absolute; z-index:1; inset:0 auto 0 0;
+    background:linear-gradient(90deg, var(--gluni-break-deep), var(--gluni-break) 58%, var(--gluni-break-hot));
+    box-shadow:0 0 10px color-mix(in srgb, var(--gluni-break) 70%, transparent);
+    transition: width 0.5s cubic-bezier(0.22,0.61,0.36,1);
+  }
+  .gluni-break-gauge-fill::after { content:""; position:absolute; right:0; top:0; bottom:0; width:2px; background:var(--gluni-white); box-shadow:0 0 7px var(--gluni-break-hot); }
+  .gluni-break-gauge-sheen {
+    position:absolute; z-index:2; inset:0; pointer-events:none;
+    background:linear-gradient(100deg, transparent 35%, rgba(255,255,255,0.22) 50%, transparent 65%);
+    background-size:220% 100%; background-position:120% 0; animation: gluni-gauge-sheen 3.4s ease-in-out infinite;
+  }
+  @keyframes gluni-gauge-sheen { 0%,12%{ background-position:130% 0; } 60%,100%{ background-position:-30% 0; } }
+  .gluni-break-gauge-track--seg { display:flex; align-items:stretch; }
+  .gluni-break-gauge-segs { display:flex; gap:2px; flex:1 1 auto; }
+  .gluni-break-gauge-seg { flex:1 1 0; min-width:1px; background:rgba(255,177,45,0.08); box-shadow:inset 0 0 0 1px rgba(255,177,45,0.22); clip-path: polygon(2px 0,100% 0,100% 100%,0 100%,0 2px); transition: background 0.3s ease, box-shadow 0.3s ease; }
+  .gluni-break-gauge-seg--on { background:linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break) 70%, var(--gluni-break-deep)); box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--gluni-break-hot) 60%, transparent), 0 0 6px color-mix(in srgb, var(--gluni-break) 55%, transparent); }
+  .gluni-break-gauge-track--seg .gluni-break-gauge-value { padding-left:8px; background:linear-gradient(90deg, transparent, rgba(2,7,11,0.82) 45%); }
+  .gluni-break-gauge-track--down { animation: gluni-gauge-flash-down 0.55s ease-out; }
+  .gluni-break-gauge-track--up { animation: gluni-gauge-flash-up 0.6s ease-out; }
+  @keyframes gluni-gauge-flash-down { 0%{ filter:brightness(2.1) saturate(1.4);} 100%{ filter:none; } }
+  @keyframes gluni-gauge-flash-up { 0%{ filter:brightness(1.7) drop-shadow(0 0 6px var(--gluni-cyan));} 100%{ filter:none; } }
+
+  /* ----- editor popover (gauge v2 layout) ----- */
+  .gluni-break-gauge-editor {
+    position:relative; display:grid; gap:8px; width:196px; padding:10px;
+    color:var(--gluni-white);
+    background:linear-gradient(135deg, rgba(18,9,2,0.96), rgba(10,7,4,0.94));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gluni-break) 40%, var(--gluni-line) 60%), 0 10px 28px rgba(0,0,0,0.42), 0 0 20px color-mix(in srgb, var(--gluni-break) 16%, transparent);
+    clip-path: polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
+  }
+  .gluni-break-gauge-editor-title { color:var(--gluni-break-hot); font-size:8px; font-weight:950; letter-spacing:0.2em; text-transform:uppercase; }
+  .gluni-context-field { display:grid; gap:5px; margin:0; }
+  .gluni-context-field span { color:rgba(243,251,255,0.68); font-size:8px; font-weight:950; letter-spacing:0.16em; line-height:1; text-transform:uppercase; }
+  .gluni-context-field > input { width:100%; height:30px; border:1px solid rgba(224,246,255,0.22); border-radius:3px; color:var(--gluni-white); background:rgba(0,0,0,0.46); font:inherit; font-size:14px; font-weight:950; text-align:right; padding:0 8px; }
+  .gluni-gauge-stepper { display:grid; grid-template-columns:30px 1fr 30px; gap:5px; align-items:stretch; }
+  .gluni-gauge-stepper input { width:100%; height:30px; border:1px solid rgba(224,246,255,0.22); border-radius:3px; color:var(--gluni-white); background:rgba(0,0,0,0.46); font:inherit; font-size:14px; font-weight:950; text-align:center; }
+  .gluni-gauge-stepper button { display:grid; place-items:center; height:30px; border:0; color:var(--gluni-ink); background:linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break)); font-size:9px; cursor:pointer; clip-path: polygon(4px 0,100% 0,100% 100%,0 100%,0 4px); }
+  .gluni-break-gauge-modes { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+  .gluni-break-gauge-modes button { height:24px; border:0; color:rgba(243,251,255,0.82); background:rgba(3,8,12,0.86); box-shadow:inset 0 0 0 1px var(--gluni-line); font:inherit; font-size:8px; font-weight:950; letter-spacing:0.1em; cursor:pointer; clip-path: polygon(4px 0,100% 0,100% 100%,0 100%,0 4px); }
+  .gluni-break-gauge-modes button.active { color:var(--gluni-ink); background:linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break)); }
+  .gluni-break-gauge-editor-buttons { display:flex; gap:5px; }
+  .gluni-break-gauge-editor-buttons button { flex:1 1 0; height:26px; border:0; font:inherit; font-size:8px; font-weight:950; letter-spacing:0.12em; cursor:pointer; clip-path: polygon(4px 0,100% 0,100% 100%,0 100%,0 4px); }
+  .gluni-break-gauge-apply { color:var(--gluni-ink); background:linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break)); }
+  .gluni-break-gauge-remove { color:rgba(243,251,255,0.88); background:rgba(3,8,12,0.86); box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--gluni-red) 42%, var(--gluni-line) 58%); }
+</style>
+</head>
+<body>
+
+  <div class="col">
+    <h2>Smooth — value baked in bar</h2>
+    <div class="panel">
+      <h3>Iron Colossus</h3>
+      <div class="gluni-break-gauge" id="smoothGauge">
+        <span class="gluni-break-gauge-tag">BREAK</span>
+        <div class="gluni-break-gauge-track gluni-break-gauge-bar" data-ratio="0.72">
+          <div class="gluni-break-gauge-fill" style="width:72%"></div>
+          <div class="gluni-break-gauge-sheen" aria-hidden="true"></div>
+          <span class="gluni-break-gauge-value">72<small>/100</small></span>
+        </div>
+      </div>
+    </div>
+    <button class="demo-btn" onclick="hit()">DEAL 18 BREAK (animate)</button>
+    <button class="demo-btn" style="background:var(--gluni-break-hot);margin-top:6px" onclick="refill()">CLEAR BREAK (replenish)</button>
+    <p class="caption">number sits inside the bar · width tweens · amber flash on hit, cyan flash on refill · looping sheen</p>
+  </div>
+
+  <div class="col">
+    <h2>Segmented — low / single digit</h2>
+    <div class="panel">
+      <h3>Frost Warden</h3>
+      <div class="gluni-break-gauge">
+        <span class="gluni-break-gauge-tag">BREAK</span>
+        <div class="gluni-break-gauge-track gluni-break-gauge-track--seg" data-ratio="0.6">
+          <div class="gluni-break-gauge-segs">
+            <span class="gluni-break-gauge-seg gluni-break-gauge-seg--on"></span>
+            <span class="gluni-break-gauge-seg gluni-break-gauge-seg--on"></span>
+            <span class="gluni-break-gauge-seg gluni-break-gauge-seg--on"></span>
+            <span class="gluni-break-gauge-seg"></span>
+            <span class="gluni-break-gauge-seg"></span>
+          </div>
+          <span class="gluni-break-gauge-value">3<small>/5</small></span>
+        </div>
+      </div>
+    </div>
+    <p class="caption">value baked over a short dark fade so it stays legible over the pips</p>
+  </div>
+
+  <div class="col">
+    <h2>Editor popover (no longer clipped)</h2>
+    <form class="gluni-break-gauge-editor" onsubmit="return false">
+      <div class="gluni-break-gauge-editor-title">Break Gauge</div>
+      <label class="gluni-context-field"><span>Max</span><input type="number" value="100"></label>
+      <label class="gluni-context-field">
+        <span>Current</span>
+        <div class="gluni-gauge-stepper">
+          <button type="button">&minus;</button>
+          <input type="number" value="72">
+          <button type="button">+</button>
+        </div>
+      </label>
+      <div class="gluni-break-gauge-modes">
+        <button type="button" class="active">Smooth</button>
+        <button type="button">Segmented</button>
+      </div>
+      <div class="gluni-break-gauge-editor-buttons">
+        <button type="button" class="gluni-break-gauge-remove">Clear</button>
+        <button type="submit" class="gluni-break-gauge-apply">Apply</button>
+      </div>
+    </form>
+    <p class="caption">stepper +/- flank the value · modes on their own row · widened to 196px</p>
+  </div>
+
+<script>
+  const g = document.getElementById("smoothGauge");
+  const track = g.querySelector(".gluni-break-gauge-track");
+  const fill = g.querySelector(".gluni-break-gauge-fill");
+  const val = g.querySelector(".gluni-break-gauge-value");
+  let cur = 72, max = 100;
+  function applyAnim(prev) {
+    const ratio = cur / max;
+    track.dataset.ratio = ratio.toFixed(4);
+    fill.style.transition = "none";
+    fill.style.width = (prev/max*100).toFixed(2) + "%";
+    void fill.offsetWidth;
+    fill.style.transition = "";
+    fill.style.width = (ratio*100).toFixed(2) + "%";
+    val.innerHTML = cur + "<small>/" + max + "</small>";
+    track.classList.remove("gluni-break-gauge-track--down","gluni-break-gauge-track--up");
+    void track.offsetWidth;
+    track.classList.add(ratio < prev/max ? "gluni-break-gauge-track--down" : "gluni-break-gauge-track--up");
+  }
+  function hit() { const prev = cur; cur = Math.max(0, cur - 18); applyAnim(prev); }
+  function refill() { const prev = cur; cur = max; applyAnim(prev); }
+</script>
+</body>
+</html>
