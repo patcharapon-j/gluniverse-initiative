@@ -3760,6 +3760,10 @@ function clonePortraitFrameDefaults() {
 // FX_FRAG_* shaders also drive the token break/delay overlays.
 // ---------------------------------------------------------------------------
 
+// Supersample factor for the procedural card FX. Shader-generated crack edges
+// can't be smoothed by MSAA, so we render larger and let the blit downsample.
+const FX_SUPERSAMPLE = 1.5;
+
 const FX_GLSL_NOISE = `
 float gluHash1(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7))+uSeed)*43758.5453); }
 float gluVNoise(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
@@ -3775,7 +3779,7 @@ float gluFbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ s+=a*gluVNoise(p)
 const FX_FRAG_BREAK = `
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
-uniform float uTime, uSeed, uAspect, uClipCircle, uThick;
+uniform float uTime, uSeed, uAspect, uClipCircle, uThick, uTexel;
 uniform vec2 uImpact;
 vec2 gluHash2(vec2 p){ p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))); return fract(sin(p+uSeed)*43758.5453); }
 float gluVoroEdge(vec2 x){
@@ -3795,7 +3799,12 @@ void main(void){
   float wdist=dist+warp;
   float scale=mix(8.0,4.0,smoothstep(0.0,0.8,dist));   // large shards -> few cracks
   float ce=gluVoroEdge(vec2(uv.x*uAspect,uv.y)*scale+7.0);
-  float edge=1.0-smoothstep(0.0,uThick,ce);            // crisp lines; uThick tunes weight
+  // Analytic AA: the Voronoi edge field changes by ~scale per uv unit, so one
+  // screen pixel spans ~scale*uTexel of field. Widen the smoothstep band to at
+  // least ~1.5px there so steep cracks stop aliasing, but keep uThick's weight
+  // where the field is shallow. (uTexel = 1/render-height; 0 => original look.)
+  float aaWidth=max(uThick, 1.5*scale*uTexel);
+  float edge=1.0-smoothstep(0.0,aaWidth,ce);           // crisp lines; uThick tunes weight
   float shatterT=clamp(uTime*1.4,0.0,1.0);
   float front=smoothstep(0.05,-0.06, wdist-(0.05+1.2*shatterT));
   float coverage=smoothstep(0.95,0.12,wdist)*front;    // tight, leaves edges clear
@@ -3886,7 +3895,7 @@ class CardFXManager {
       this.renderer = new PIXI.Renderer({ width: 256, height: 160, backgroundAlpha: 0, antialias: true });
       this.sprite = new PIXI.Sprite(PIXI.Texture.WHITE);
       const mk = frag => {
-        const f = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: 0, uAspect: 1, uClipCircle: 0, uThick: 0.05, uImpact: [0.65, 0.34] });
+        const f = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: 0, uAspect: 1, uClipCircle: 0, uThick: 0.05, uTexel: 0, uImpact: [0.65, 0.34] });
         f.padding = 0;
         return f;
       };
@@ -3921,9 +3930,11 @@ class CardFXManager {
       // New or replaced canvas (the rail rebuilds innerHTML each render): keep
       // the seed/impact stable so the effect doesn't re-randomize, and only
       // reset the clock when the effect type actually changed.
+      const ctx = cv.getContext("2d");
+      if (ctx) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; }
       this.entries.set(key, {
         canvas: cv,
-        ctx: cv.getContext("2d"),
+        ctx,
         mode,
         seed: prev?.seed ?? Math.random() * 100,
         impact: prev?.impact ?? [0.42 + Math.random() * 0.36, 0.18 + Math.random() * 0.42],
@@ -3969,25 +3980,32 @@ class CardFXManager {
       const pw = Math.max(1, Math.round(cw * dpr));
       const ph = Math.max(1, Math.round(ch * dpr));
       if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+      // Render the procedural FX at a supersample factor and downsample on blit.
+      // MSAA can't smooth shader-generated edges (the cracks), so this is what
+      // actually de-aliases them; the cards are small so the extra fragments are
+      // cheap. rw/rh are the true render resolution we sample the field at.
+      const rw = Math.max(1, Math.round(pw * FX_SUPERSAMPLE));
+      const rh = Math.max(1, Math.round(ph * FX_SUPERSAMPLE));
       try {
         // Grow the shared renderer to the largest entry only; never shrink it.
         // Differently-sized entries then render into the top-left corner and we
         // blit just that region, so we avoid a resize() (render-target realloc)
         // on every entry every frame.
-        if (this.renderer.width < pw || this.renderer.height < ph) {
-          this.renderer.resize(Math.max(this.renderer.width, pw), Math.max(this.renderer.height, ph));
+        if (this.renderer.width < rw || this.renderer.height < rh) {
+          this.renderer.resize(Math.max(this.renderer.width, rw), Math.max(this.renderer.height, rh));
         }
         const filter = this.filters[entry.mode];
         filter.uniforms.uTime = (now - entry.t0) / 1000;
         filter.uniforms.uSeed = entry.seed;
-        filter.uniforms.uAspect = pw / ph;
+        filter.uniforms.uAspect = rw / rh;
+        filter.uniforms.uTexel = 1 / rh;
         if (entry.mode === "break") filter.uniforms.uImpact = entry.impact;
-        this.sprite.width = pw;
-        this.sprite.height = ph;
+        this.sprite.width = rw;
+        this.sprite.height = rh;
         this.sprite.filters = [filter];
         this.renderer.render(this.sprite);
         entry.ctx.clearRect(0, 0, pw, ph);
-        entry.ctx.drawImage(this.renderer.view, 0, 0, pw, ph, 0, 0, pw, ph);
+        entry.ctx.drawImage(this.renderer.view, 0, 0, rw, rh, 0, 0, pw, ph);
       } catch { /* leave the canvas transparent; the portrait shows through */ }
     }
     if (this.ticking) requestAnimationFrame(this.tickFn);
