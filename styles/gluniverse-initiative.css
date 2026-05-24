@@ -5276,3 +5276,25 @@
     animation-name: gluni-break-deck-in !important;
   }
 }
+
+/* ----- condition halo tooltip (canvas chips are PIXI; tooltip is DOM) ----- */
+.gluni-condition-tooltip {
+  position: fixed;
+  z-index: 100000;
+  pointer-events: none;
+  max-width: 260px;
+  padding: 4px 9px 3px;
+  font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #f3fbff;
+  background: linear-gradient(135deg, rgba(10, 18, 24, 0.96), rgba(2, 7, 11, 0.97));
+  box-shadow:
+    inset 0 0 0 1px rgba(94, 234, 255, 0.55),
+    0 6px 18px rgba(0, 0, 0, 0.55),
+    0 0 14px rgba(94, 234, 255, 0.18);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}

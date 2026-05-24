@@ -20,6 +20,8 @@
   "GLUNI.Settings.TokenOverlayShape.Hint": "Shape of the status overlay drawn on tokens with delay or guard break.",
   "GLUNI.Settings.TokenOverlayShape.Circle": "Circle",
   "GLUNI.Settings.TokenOverlayShape.Square": "Square",
+  "GLUNI.Settings.ConditionHalo.Name": "Condition halo on tokens",
+  "GLUNI.Settings.ConditionHalo.Hint": "Show a fan of status-condition icons around tokens, in and out of combat, and hide Foundry's default token effect icons. GMs can left-click a condition to raise its value and right-click to lower or remove it.",
   "GLUNI.Settings.TurnMarker.Name": "Turn marker on tokens",
   "GLUNI.Settings.TurnMarker.Hint": "Draw a cinematic ground ring beneath the current and next combatant's tokens, coloured by disposition.",
   "GLUNI.Settings.StartMarker.Name": "Starting-location marker",

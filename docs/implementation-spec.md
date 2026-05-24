@@ -80,6 +80,40 @@ Visibility must not leak hidden actors through Delay state or round wrapping.
 - GM can configure whether defeated combatants remain visible.
 - Defeated combatants use a desaturated visual treatment when shown.
 
+## Condition Halo (token status conditions)
+
+A premium replacement for Foundry's default token effect icons, drawn on the
+canvas by the `TokenOverlayManager` PIXI layer. Inspired by `pf2e-effects-halo`.
+
+- **Arrangement**: a tight fan of hex condition chips hugging the token edge that
+  faces away from the rail (left fan when the rail is on the right, and mirrored).
+  The fan fills one arc, then wraps to a second, slightly-outer arc — there is no
+  hard cap on how many conditions show.
+- **Data source**: `actor.temporaryEffects` (system-agnostic — the same set
+  Foundry shows as token status icons), excluding states this module already
+  surfaces in its own chrome: dying (shown as pips), guard break, and delay.
+- **Chips**: a dark hex plate with a white/cyan tech rim, the effect's own icon
+  image, and a bottom-right value badge for valued conditions (e.g. frightened 2).
+- **Always on**: the halo and dying pips render on any token in or out of combat;
+  delay / break-gauge / guard-break remain combat-only (they read from a
+  combatant). A conditions-only token shows the halo with no tactical frame — the
+  frame stays reserved for dying/break/delay.
+- **Visibility**: GM always; in combat, players never see the halo on
+  `hidden`/`mystery` combatants; out of combat, players see it on any token they
+  can perceive (the chips are token children, so they auto-hide with the token).
+- **Default icons**: while the halo is enabled, Foundry's built-in per-status
+  token icons are hidden globally (background + centred overlay marker are kept).
+  Fully reversible when the setting is turned off.
+- **Interactivity**: hovering a chip shows a tooltip (condition name + value). For
+  GMs, left-click raises a valued condition (PF2e `increaseCondition`),
+  right-click lowers it / removes at 0 (`decreaseCondition`); non-valued
+  conditions and generic effects only respond to right-click (removal).
+- **Motion**: chips pop in with an overshoot, ease to their fan slot when the set
+  changes, and shrink/fade out on removal — intensity-aware (`reduced` drops the
+  overshoot; `cinematic` exaggerates it).
+- **Setting**: one world toggle, `conditionHalo` (default on), which also controls
+  hiding the default effect icons.
+
 ## PF2e Delay Handling
 
 Delay is a special initiative state outside the normal loop.

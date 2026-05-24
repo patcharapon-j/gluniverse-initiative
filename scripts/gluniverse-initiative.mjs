@@ -11,6 +11,7 @@ const SETTINGS = {
   uiScale: "uiScale",
   tokenOverlayShape: "tokenOverlayShape",
   visualFidelity: "visualFidelity",
+  conditionHalo: "conditionHalo",
   turnMarkerEnabled: "turnMarkerEnabled",
   startMarkerEnabled: "startMarkerEnabled",
   startConnectorEnabled: "startConnectorEnabled"
@@ -102,6 +103,8 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.VisualFidelity.Hint": "Higher fidelity uses real frosted glass and motion blur for the most premium look. Step down to Balanced for lighter GPU load while staying premium.",
   "GLUNI.Settings.VisualFidelity.High": "High (best looking)",
   "GLUNI.Settings.VisualFidelity.Balanced": "Balanced (lighter)",
+  "GLUNI.Settings.ConditionHalo.Name": "Condition halo on tokens",
+  "GLUNI.Settings.ConditionHalo.Hint": "Show a fan of status-condition icons around tokens, in and out of combat, and hide Foundry's default token effect icons. GMs can left-click a condition to raise its value and right-click to lower or remove it.",
   "GLUNI.Settings.TurnMarker.Name": "Turn marker on tokens",
   "GLUNI.Settings.TurnMarker.Hint": "Draw a cinematic ground ring beneath the current and next combatant's tokens, coloured by disposition.",
   "GLUNI.Settings.StartMarker.Name": "Starting-location marker",
@@ -314,6 +317,8 @@ Hooks.once("ready", () => {
   overlay.render();
   tokenOverlays = new TokenOverlayManager();
   refreshNativeTurnMarkerSuppression();
+  refreshDefaultEffectIconSuppression();
+  tokenOverlays.refresh();
 });
 
 Hooks.on("createCombat", () => overlay?.renderSoon());
@@ -330,13 +335,23 @@ Hooks.on("updateCombatant", (_combatant, changed) => {
   if (isRelevantCombatantUpdate(changed)) overlay?.renderSoon();
 });
 Hooks.on("updateActor", (actor, changed) => {
-  if (isRelevantActorUpdate(changed) && overlay?.hasCombatActor(actor)) {
-    overlay?.renderSoon();
+  if (isRelevantActorUpdate(changed)) {
+    if (overlay?.hasCombatActor(actor)) overlay?.renderSoon();
+    tokenOverlays?.refreshSoon();
   }
 });
-Hooks.on("createItem", item => overlay?.onActorItemChange(item?.parent));
-Hooks.on("deleteItem", item => overlay?.onActorItemChange(item?.parent));
-Hooks.on("updateItem", item => overlay?.onActorItemChange(item?.parent));
+Hooks.on("createItem", item => { overlay?.onActorItemChange(item?.parent); tokenOverlays?.refreshSoon(); });
+Hooks.on("deleteItem", item => { overlay?.onActorItemChange(item?.parent); tokenOverlays?.refreshSoon(); });
+Hooks.on("updateItem", item => { overlay?.onActorItemChange(item?.parent); tokenOverlays?.refreshSoon(); });
+Hooks.on("createActiveEffect", () => tokenOverlays?.refreshSoon());
+Hooks.on("deleteActiveEffect", () => tokenOverlays?.refreshSoon());
+Hooks.on("updateActiveEffect", () => tokenOverlays?.refreshSoon());
+Hooks.on("createToken", () => tokenOverlays?.refreshSoon());
+Hooks.on("deleteToken", () => tokenOverlays?.refreshSoon());
+Hooks.on("updateToken", (_doc, changed) => {
+  tokenOverlays?.refreshSoon();
+  if (changed && ("hidden" in changed)) refreshDefaultEffectIconSuppression();
+});
 Hooks.on("getApplicationHeaderButtons", (app, buttons) => addPortraitHeaderButton(app, buttons));
 Hooks.on("getApplicationV1HeaderButtons", (app, buttons) => addPortraitHeaderButton(app, buttons));
 Hooks.on("getActorSheetHeaderButtons", (app, buttons) => addPortraitHeaderButton(app, buttons));
@@ -353,8 +368,12 @@ Hooks.on("combatRound", (_combat, updateData) => {
 Hooks.on("canvasReady", () => {
   tokenOverlays?.refresh();
   refreshNativeTurnMarkerSuppression();
+  refreshDefaultEffectIconSuppression();
 });
-Hooks.on("refreshToken", token => hideNativeTurnMarker(token));
+Hooks.on("refreshToken", token => {
+  hideNativeTurnMarker(token);
+  suppressDefaultEffectIcons(token);
+});
 
 function registerSettings() {
   const rerender = () => overlay?.renderSoon();
@@ -466,6 +485,19 @@ function registerSettings() {
     onChange: () => {
       overlay?.renderSoon();
       tokenOverlays?.forceRedraw();
+    }
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.conditionHalo, {
+    name: localize("GLUNI.Settings.ConditionHalo.Name"),
+    hint: localize("GLUNI.Settings.ConditionHalo.Hint"),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true,
+    onChange: () => {
+      tokenOverlays?.forceRedraw();
+      refreshDefaultEffectIconSuppression();
     }
   });
 
@@ -3098,6 +3130,109 @@ function getItemSlug(item) {
     .replace(/\s+/g, "-");
 }
 
+// ---- condition halo ------------------------------------------------------
+
+// Status slugs that already get a dedicated treatment elsewhere (dying pips,
+// the guard-break frame) and so must never be duplicated in the condition halo.
+const HALO_FILTERED_SLUGS = new Set(["dying", PF2E_GUARD_BREAK_EFFECT_SLUG]);
+
+function isConditionHaloEnabled() {
+  try { return game.settings.get(MODULE_ID, SETTINGS.conditionHalo) !== false; }
+  catch { return true; }
+}
+
+// Pulls a numeric badge value off a temporary effect / condition, if any.
+function getStatusEffectValue(effect) {
+  const candidates = [
+    effect?.badge?.value,
+    effect?.system?.value?.value,
+    effect?.system?.badge?.value,
+    effect?.value
+  ];
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value) && value > 0) return Math.round(value);
+  }
+  return 0;
+}
+
+// System-agnostic list of the conditions/effects to show in a token's halo.
+// Sourced from `actor.temporaryEffects` (the same set Foundry would normally
+// render as token status icons), minus the states this module surfaces in its
+// own chrome (dying, guard break). Stable-sorted so the fan order is steady.
+function getTokenStatusEffects(token) {
+  const actor = token?.actor;
+  if (!actor) return [];
+  let list = [];
+  try { list = Array.from(actor.temporaryEffects ?? []); } catch { list = []; }
+
+  const out = [];
+  for (const effect of list) {
+    if (!effect) continue;
+    if (effect.isSuppressed || effect.disabled) continue;
+    const img = effect.img ?? effect.icon;
+    if (!img) continue;
+    const slug = getItemSlug(effect);
+    if (HALO_FILTERED_SLUGS.has(slug)) continue;
+    if (effect.getFlag?.(MODULE_ID, "guardBreak") === true) continue;
+    const id = effect.id ?? effect._id ?? slug;
+    out.push({
+      id,
+      slug,
+      name: String(effect.name ?? effect.label ?? slug),
+      img,
+      value: getStatusEffectValue(effect),
+      effect
+    });
+  }
+  out.sort((a, b) => (a.slug || "").localeCompare(b.slug || "") || String(a.id).localeCompare(String(b.id)));
+  return out;
+}
+
+// GM condition adjustment from a halo chip. Left-click raises a valued
+// condition; right-click lowers it (removing at 0). Non-valued conditions and
+// generic effects only respond to right-click (removal).
+async function adjustStatusCondition(actor, cond, delta) {
+  if (!actor || !cond) return;
+  const slug = cond.slug;
+  try {
+    if (game.system?.id === "pf2e" && typeof actor.increaseCondition === "function") {
+      if (delta > 0) {
+        if (cond.value > 0) await actor.increaseCondition(slug);   // bump valued only
+      } else {
+        await actor.decreaseCondition(slug);                       // decrement / remove
+      }
+      return;
+    }
+    if (delta < 0) await cond.effect?.delete?.();                  // generic: right-click removes
+  } catch (err) {
+    console.warn(`${MODULE_ID} | Could not adjust condition "${slug}"`, err);
+  }
+}
+
+// Foundry/system draws small status-effect icons in a token's corner via
+// `token.effects`. While the halo is enabled we hide those per-status sprites
+// (keeping the background and the centred overlay marker) so conditions are not
+// shown twice. Fully reversible: turning the halo off restores them.
+function suppressDefaultEffectIcons(token) {
+  const effects = token?.effects;
+  if (!effects || effects.destroyed) return;
+  const hide = isConditionHaloEnabled();
+  for (const child of effects.children ?? []) {
+    if (!child || child === effects.bg || child === effects.overlay) continue;
+    child.visible = !hide;
+    child.renderable = !hide;
+  }
+}
+
+function refreshDefaultEffectIconSuppression() {
+  const restore = !isConditionHaloEnabled();
+  for (const token of globalThis.canvas?.tokens?.placeables ?? []) {
+    suppressDefaultEffectIcons(token);
+    if (restore) { try { token.renderFlags?.set?.({ refreshEffects: true }); } catch {} }
+  }
+}
+
 function renderDyingRepeatText(dying) {
   const text = `${localize("GLUNI.Dying").toUpperCase()} ${dying.value}/${dying.max}`;
   const line = Array.from({ length: 5 }, () => `<span>${escapeHTML(text)}</span>`).join("");
@@ -4349,6 +4484,16 @@ class TokenOverlayManager {
     this._groundLayer = null;
     this._markerIntensity = "default";
     this._markerConnector = true;
+    this._refreshTimer = null;
+    this._tooltipEl = null;
+    this._haloIntensity = "default";
+  }
+
+  // Debounced refresh — condition/effect document changes can fire in bursts, so
+  // coalesce them into a single global re-evaluation.
+  refreshSoon() {
+    window.clearTimeout(this._refreshTimer);
+    this._refreshTimer = window.setTimeout(() => this.refresh(), 60);
   }
 
   refresh() {
@@ -4358,65 +4503,68 @@ class TokenOverlayManager {
     }
 
     const combat = game.combat;
-    if (!combat?.started || !overlay?.enabled) {
-      this._clearAll();
-      return;
-    }
+    const combatLive = Boolean(combat?.started && overlay?.enabled);
+    const haloOn = isConditionHaloEnabled();
+    const isGM = game.user.isGM;
+    this._haloIntensity = this._getIntensity();
 
+    // The condition halo and dying pips are global (any token, in or out of
+    // combat); delay / guard-break / break-gauge are combat-only since they read
+    // from a combatant. A hidden/mystery combatant never leaks status to players.
     const wanted = new Map();
-    for (const combatant of combat.combatants ?? []) {
-      const delayed = overlay.isDelayed(combatant);
-      const broken = Boolean(getGuardBreakState(combatant));
-      const dying = this._dyingFor(combatant);
-      const gauge = this._gaugeFor(combatant);
-      if (!delayed && !broken && !dying && !gauge) continue;
+    for (const token of canvas.tokens?.placeables ?? []) {
+      if (!token || token.destroyed || !token.actor || !token.w || !token.h) continue;
 
-      const token = getCombatantTokenObject(combatant);
-      if (!token || !token.w || !token.h) continue;
+      const combatant = combatLive ? this._combatantForToken(token, combat) : null;
+      let gated = false;
+      if (!isGM && combatant) {
+        const mode = overlay?.resolveVisibility?.(combatant)?.playerMode;
+        if (mode === VISIBILITY.hidden || mode === VISIBILITY.mystery) gated = true;
+      }
 
-      wanted.set(token.id, { token, delayed, broken, dying, gauge });
+      const conditions = haloOn && !gated ? getTokenStatusEffects(token) : [];
+      const dying = gated ? null : getPF2eDyingState(combatant ?? { actor: token.actor });
+      let delayed = false, broken = false, gauge = null;
+      if (combatant && !gated) {
+        delayed = overlay.isDelayed(combatant);
+        broken = Boolean(getGuardBreakState(combatant));
+        gauge = getBreakGaugeState(combatant);
+      }
+
+      if (!conditions.length && !dying && !delayed && !broken && !gauge) continue;
+      wanted.set(token.id, { token, conditions, dying, delayed, broken, gauge });
     }
 
     for (const tokenId of [...this._entries.keys()]) {
       if (!wanted.has(tokenId)) this._removeEntry(tokenId);
     }
 
-    for (const [tokenId, state] of wanted) {
+    for (const [, state] of wanted) {
       // Dying outranks the other states — proximity to death is the most urgent
-      // thing to surface on the token.
-      const mode = state.dying ? "dying" : state.broken ? "broken" : state.delayed ? "delayed" : "gauge";
-      this._upsert(state.token, mode, state.gauge, state.dying);
+      // thing to surface on the token. "none" means conditions-only (halo, no frame).
+      const mode = state.dying ? "dying"
+        : state.broken ? "broken"
+        : state.delayed ? "delayed"
+        : state.gauge ? "gauge"
+        : "none";
+      this._upsert(state.token, mode, state.gauge, state.dying, state.conditions);
     }
 
-    this._refreshMarkers(combat);
+    if (combatLive) this._refreshMarkers(combat);
+    else this._clearMarkers();
 
     const active = this._entries.size > 0 || this._markers.size > 0;
     if (active && !this._ticking) this._startTick();
     else if (!active) this._stopTick();
   }
 
-  // Break gauge for a combatant, respecting player visibility so a hidden or
-  // mystery actor never leaks its gauge to non-GM clients.
-  _gaugeFor(combatant) {
-    const gauge = getBreakGaugeState(combatant);
-    if (!gauge) return null;
-    if (!game.user.isGM) {
-      const mode = overlay?.resolveVisibility?.(combatant)?.playerMode;
-      if (mode === VISIBILITY.hidden || mode === VISIBILITY.mystery) return null;
-    }
-    return gauge;
-  }
-
-  // PF2e dying state for a combatant, gated by player visibility so a hidden or
-  // mystery actor never leaks its dying value to non-GM clients.
-  _dyingFor(combatant) {
-    const dying = getPF2eDyingState(combatant);
-    if (!dying) return null;
-    if (!game.user.isGM) {
-      const mode = overlay?.resolveVisibility?.(combatant)?.playerMode;
-      if (mode === VISIBILITY.hidden || mode === VISIBILITY.mystery) return null;
-    }
-    return dying;
+  // Resolve the active-combat combatant for a token, if any.
+  _combatantForToken(token, combat) {
+    if (!combat) return null;
+    const tokenId = token.document?.id;
+    if (token.combatant && combat.combatants?.get?.(token.combatant.id)) return token.combatant;
+    const list = combat.combatants?.contents ?? Array.from(combat.combatants ?? []);
+    return list.find(c => (c.token?.id ?? c.tokenId) === tokenId) ?? null;
   }
 
   forceRedraw() {
@@ -4424,6 +4572,7 @@ class TokenOverlayManager {
       entry.mode = null;
       entry.shape = null;
       entry.fidelity = null;
+      entry.condKey = null;
     }
     for (const marker of this._markers.values()) marker.key = null;
     this.refresh();
@@ -4870,7 +5019,7 @@ class TokenOverlayManager {
     return fidelity === "balanced" ? "balanced" : "high";
   }
 
-  _upsert(token, mode, gauge = null, dying = null) {
+  _upsert(token, mode, gauge = null, dying = null, conditions = []) {
     let entry = this._entries.get(token.id);
 
     if (entry && entry.container.destroyed) {
@@ -4883,14 +5032,19 @@ class TokenOverlayManager {
       this._entries.set(token.id, entry);
     }
 
+    entry.token = token;
     if (entry.container.parent !== token) {
       try { token.addChild(entry.container); } catch { return; }
+    }
+    if (entry.haloRoot && !entry.haloRoot.destroyed && entry.haloRoot.parent !== token) {
+      try { token.addChild(entry.haloRoot); } catch {}
     }
 
     const shape = this._getShape();
     const fidelity = this._getFidelity();
     const gaugeKey = gauge ? `${gauge.value}/${gauge.max}/${gauge.mode}` : "";
     const dyingKey = dying ? `${dying.value}/${dying.max}/${dying.severity}` : "";
+    const condKey = conditions.map(c => `${c.id}:${c.value}`).join("|");
     if (
       entry.mode !== mode ||
       entry.w !== token.w ||
@@ -4898,7 +5052,8 @@ class TokenOverlayManager {
       entry.shape !== shape ||
       entry.fidelity !== fidelity ||
       entry.gaugeKey !== gaugeKey ||
-      entry.dyingKey !== dyingKey
+      entry.dyingKey !== dyingKey ||
+      entry.condKey !== condKey
     ) {
       entry.mode = mode;
       entry.w = token.w;
@@ -4909,6 +5064,8 @@ class TokenOverlayManager {
       entry.gaugeKey = gaugeKey;
       entry.dying = dying;
       entry.dyingKey = dyingKey;
+      entry.conditions = conditions;
+      entry.condKey = condKey;
       this._redraw(entry);
     }
   }
@@ -4994,6 +5151,15 @@ class TokenOverlayManager {
 
     token.addChild(container);
 
+    // Condition halo lives in its own interactive layer above the status frame so
+    // its chips can be hovered (tooltip) and clicked (GM adjust) without the
+    // non-interactive status container blocking hit-testing.
+    const haloRoot = new PIXI.Container();
+    haloRoot.eventMode = "passive";
+    haloRoot.interactiveChildren = true;
+    haloRoot.sortableChildren = false;
+    token.addChild(haloRoot);
+
     return {
       container, glow, wash, frame, brackets, cracks, sweep, sweepGfx, pillBg, label,
       dyingPips, gaugeGfx, gaugeText,
@@ -5001,6 +5167,7 @@ class TokenOverlayManager {
       mode: null, w: 0, h: 0, shape: null, fidelity: null, gauge: null, gaugeKey: "",
       dying: null, dyingKey: "",
       gaugeAnim: null, gaugeGeom: null,
+      haloRoot, haloChips: new Map(), conditions: [], condKey: "", token: null,
       phase: Math.random() * Math.PI * 2,
       seed: Math.random() * 99999,
       // Geometry the tick loop needs without re-deriving each frame.
@@ -5187,6 +5354,10 @@ class TokenOverlayManager {
     const { glow, wash, frame, brackets, cracks, sweep, sweepGfx, pillBg, label, dyingPips,
             mode, w, h, shape, seed } = entry;
     const P = TOKEN_OVERLAY_PALETTE;
+
+    // The condition halo is independent of the status frame — draw it for every
+    // entry (a conditions-only token has mode "none" and shows the halo alone).
+    this._drawHalo(entry);
 
     // The gauge bar is independent of the status frame; draw it first so it is
     // present whether or not the token also shows a delay/break overlay.
@@ -5450,6 +5621,248 @@ class TokenOverlayManager {
         g.drawPolygon(diamond(px, y, pipR));
         g.lineStyle(0);
       }
+    }
+  }
+
+  // ---- condition halo ---------------------------------------------------
+
+  // Diameter of a halo chip, scaled to the token and clamped to a legible range.
+  _haloChipSize(w, h) {
+    return clamp(Math.min(w, h) * 0.3, 15, 42);
+  }
+
+  // Pointy-top hexagon points centred on the origin (half-size `s`).
+  _hexPoints(s) {
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const a = -Math.PI / 2 + i * (Math.PI / 3);
+      pts.push(Math.cos(a) * s, Math.sin(a) * s);
+    }
+    return pts;
+  }
+
+  // Token-local positions for `n` chips, fanned tightly down the edge that faces
+  // away from the rail. Fills one arc, then wraps to a second, slightly-outer arc.
+  _fanPositions(w, h, n) {
+    const cx = w / 2, cy = h / 2;
+    const chip = this._haloChipSize(w, h);
+    const baseR = Math.min(w, h) / 2 + chip * 0.55 + Math.max(2, Math.min(w, h) * 0.04);
+    const stepDeg = 19;
+    const perArc = Math.max(3, Math.floor(170 / stepDeg));   // ~8 chips before wrapping
+    let railRight = true;
+    try { railRight = (game.settings.get(MODULE_ID, SETTINGS.edge) || "right") === "right"; } catch {}
+    const base = railRight ? 180 : 0;   // fan on the left when the rail is on the right
+    const dir = railRight ? 1 : -1;     // sweep downward along that edge
+
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const arc = Math.floor(i / perArc);
+      const idx = i % perArc;
+      const countThis = Math.min(perArc, n - arc * perArc);
+      const startDeg = base - dir * ((countThis - 1) * stepDeg) / 2;
+      const a = (startDeg + dir * idx * stepDeg) * Math.PI / 180;
+      const rr = baseR + arc * chip * 1.05;
+      out.push({ x: cx + Math.cos(a) * rr, y: cy + Math.sin(a) * rr });
+    }
+    return out;
+  }
+
+  // Reconciles the live condition list against the existing chips: existing chips
+  // retarget to their new fan slot, new ones pop in, dropped ones flag for exit.
+  // Actual motion (pop-in overshoot + slot reflow + exit) runs in _onTick.
+  _drawHalo(entry) {
+    const chips = entry.haloChips;
+    if (!chips) return;
+    const conditions = entry.conditions ?? [];
+    const isGM = game.user.isGM;
+    const size = this._haloChipSize(entry.w, entry.h);
+    const positions = this._fanPositions(entry.w, entry.h, conditions.length);
+
+    const seen = new Set();
+    conditions.forEach((cond, i) => {
+      seen.add(cond.id);
+      let chip = chips.get(cond.id);
+      const pos = positions[i];
+      if (!chip || chip.container.destroyed) {
+        chip = this._createHaloChip(entry, cond, size);
+        chips.set(cond.id, chip);
+        chip.container.position.set(pos.x, pos.y);   // spawn at the target slot
+        chip.container.scale.set(0.01);
+        chip.container.alpha = 0;
+        chip.appear = 0;
+      }
+      chip.tx = pos.x;
+      chip.ty = pos.y;
+      chip.exiting = false;
+      this._updateHaloChip(chip, cond, size, isGM);
+    });
+
+    for (const [id, chip] of chips) {
+      if (!seen.has(id)) chip.exiting = true;
+    }
+  }
+
+  _createHaloChip(entry, cond, size) {
+    const container = new PIXI.Container();
+    container.eventMode = "static";
+    container.cursor = game.user.isGM ? "pointer" : "default";
+    container.hitArea = new PIXI.Circle(0, 0, size * 0.6);
+
+    const bg = new PIXI.Graphics();
+    const sprite = new PIXI.Sprite();
+    sprite.anchor.set(0.5);
+    const badgeBg = new PIXI.Graphics();
+    const badgeText = new PIXI.Text("", {
+      fontFamily: '"Bahnschrift", "Segoe UI", Arial, sans-serif',
+      fontWeight: "bold",
+      fontSize: 10,
+      fill: "#02070b",
+      align: "center",
+      trim: true
+    });
+    badgeText.anchor.set(0.5);
+    container.addChild(bg, sprite, badgeBg, badgeText);
+    entry.haloRoot.addChild(container);
+
+    const chip = {
+      container, bg, sprite, badgeBg, badgeText,
+      cond, entry, tx: 0, ty: 0, appear: 0, exiting: false, hover: false,
+      drawnKey: "", img: ""
+    };
+
+    container.on("pointerover", ev => this._onChipOver(ev, chip));
+    container.on("pointerout", () => this._onChipOut(chip));
+    container.on("pointerdown", ev => this._onChipDown(ev, chip));
+    return chip;
+  }
+
+  _updateHaloChip(chip, cond, size, isGM) {
+    chip.cond = cond;
+    chip.container.cursor = isGM ? "pointer" : "default";
+    chip.container.hitArea = new PIXI.Circle(0, 0, size * 0.6);
+    const key = `${Math.round(size)}/${cond.value}/${cond.img}`;
+    if (chip.drawnKey === key) return;
+    chip.drawnKey = key;
+    this._paintChip(chip, size);
+  }
+
+  _paintChip(chip, size) {
+    const P = TOKEN_OVERLAY_PALETTE;
+    const s = size / 2;
+    const bg = chip.bg;
+    bg.clear();
+    // Dark plate so the chip reads over any token art.
+    bg.beginFill(P.ink, 0.95); bg.drawPolygon(this._hexPoints(s)); bg.endFill();
+    bg.beginFill(0x0c141b, 0.55); bg.drawPolygon(this._hexPoints(s * 0.92)); bg.endFill();
+    // Crisp white rim + inner cyan hairline (premium tech edge).
+    bg.lineStyle({ width: Math.max(1, size * 0.06), color: P.white, alpha: 0.85, alignment: 0 });
+    bg.drawPolygon(this._hexPoints(s));
+    bg.lineStyle({ width: Math.max(0.6, size * 0.03), color: P.delayedHi, alpha: 0.45, alignment: 1 });
+    bg.drawPolygon(this._hexPoints(s * 0.86));
+    bg.lineStyle(0);
+
+    if (chip.img !== chip.cond.img) {
+      chip.img = chip.cond.img;
+      try { chip.sprite.texture = PIXI.Texture.from(chip.cond.img); } catch {}
+    }
+    const iconS = size * 0.64;   // kept inside the hex so corners never poke out
+    chip.sprite.width = iconS;
+    chip.sprite.height = iconS;
+
+    const badgeBg = chip.badgeBg;
+    badgeBg.clear();
+    if (chip.cond.value > 0) {
+      const br = size * 0.21;
+      const bx = s * 0.62, by = s * 0.62;
+      badgeBg.beginFill(P.ink, 0.95); badgeBg.drawCircle(bx, by, br + 1.2); badgeBg.endFill();
+      badgeBg.beginFill(P.delayedHi, 0.96); badgeBg.drawCircle(bx, by, br); badgeBg.endFill();
+      chip.badgeText.text = String(chip.cond.value);
+      chip.badgeText.style.fontSize = Math.max(7, size * 0.28);
+      chip.badgeText.position.set(bx, by);
+      chip.badgeText.visible = true;
+    } else {
+      chip.badgeText.text = "";
+      chip.badgeText.visible = false;
+    }
+  }
+
+  _onChipOver(ev, chip) {
+    chip.hover = true;
+    this._showTooltip(ev, chip.cond);
+  }
+
+  _onChipOut(chip) {
+    chip.hover = false;
+    this._hideTooltip();
+  }
+
+  _onChipDown(ev, chip) {
+    if (!game.user.isGM) return;
+    const oe = ev?.nativeEvent ?? ev?.data?.originalEvent ?? null;
+    const button = oe?.button ?? ev?.button ?? 0;
+    try { ev.stopPropagation?.(); } catch {}
+    try { oe?.preventDefault?.(); } catch {}
+    const actor = chip.entry?.token?.actor;
+    adjustStatusCondition(actor, chip.cond, button === 2 ? -1 : 1);
+  }
+
+  _ensureTooltip() {
+    if (this._tooltipEl && document.body.contains(this._tooltipEl)) return this._tooltipEl;
+    const el = document.createElement("div");
+    el.className = "gluni-condition-tooltip";
+    el.style.display = "none";
+    document.body.appendChild(el);
+    this._tooltipEl = el;
+    return el;
+  }
+
+  _showTooltip(ev, cond) {
+    const el = this._ensureTooltip();
+    el.textContent = cond.value > 0 ? `${cond.name} ${cond.value}` : cond.name;
+    const oe = ev?.nativeEvent ?? ev?.data?.originalEvent;
+    const x = (oe?.clientX ?? 0) + 14;
+    const y = (oe?.clientY ?? 0) + 14;
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.display = "block";
+  }
+
+  _hideTooltip() {
+    if (this._tooltipEl) this._tooltipEl.style.display = "none";
+  }
+
+  _tickHalo(entry, dts) {
+    const reduced = this._haloIntensity === "reduced";
+    const cinematic = this._haloIntensity === "cinematic";
+    const enterT = reduced ? 0.16 : 0.26;
+    const exitT = reduced ? 0.12 : 0.18;
+    const overshoot = reduced ? 0 : cinematic ? 2.2 : 1.4;
+    const lerp = 1 - Math.exp(-dts * 13);
+
+    for (const [id, chip] of entry.haloChips) {
+      const c = chip.container;
+      if (c.destroyed) { entry.haloChips.delete(id); continue; }
+
+      if (chip.exiting) {
+        chip.appear -= dts / exitT;
+        if (chip.appear <= 0) {
+          if (chip.hover) this._hideTooltip();
+          if (c.parent) c.parent.removeChild(c);
+          c.destroy({ children: true });
+          entry.haloChips.delete(id);
+          continue;
+        }
+      } else if (chip.appear < 1) {
+        chip.appear = Math.min(1, chip.appear + dts / enterT);
+      }
+
+      const e = clamp(chip.appear, 0, 1);
+      const grow = reduced ? e : easeOutBack(e, overshoot);
+      const hover = chip.hover ? 1.16 : 1;
+      c.scale.set(Math.max(0.001, grow * hover));
+      c.alpha = e;
+      c.position.x += (chip.tx - c.position.x) * lerp;
+      c.position.y += (chip.ty - c.position.y) * lerp;
     }
   }
 
@@ -5814,6 +6227,12 @@ class TokenOverlayManager {
       if (entry.container.parent) entry.container.parent.removeChild(entry.container);
       entry.container.destroy({ children: true });
     }
+    if (entry.haloRoot && !entry.haloRoot.destroyed) {
+      if (entry.haloRoot.parent) entry.haloRoot.parent.removeChild(entry.haloRoot);
+      entry.haloRoot.destroy({ children: true });
+    }
+    entry.haloChips?.clear();
+    this._hideTooltip();
     this._entries.delete(tokenId);
   }
 
@@ -5875,7 +6294,13 @@ class TokenOverlayManager {
         }
       }
 
-      // Gauge-only entries have no animated status frame to drive.
+      // Condition halo: pop-in with overshoot, ease chips toward their fan slot,
+      // and shrink/fade exiting chips before destroying them.
+      if (entry.haloChips && entry.haloChips.size) {
+        this._tickHalo(entry, dts);
+      }
+
+      // Gauge-only / conditions-only entries have no animated status frame to drive.
       if (entry.mode !== "broken" && entry.mode !== "delayed" && entry.mode !== "dying") continue;
       const isBreak = entry.mode === "broken";
       const high = entry.fidelity !== "balanced";
@@ -5934,7 +6359,16 @@ class TokenOverlayManager {
 
   destroy() {
     this._clearAll();
+    if (this._tooltipEl) { try { this._tooltipEl.remove(); } catch {} this._tooltipEl = null; }
   }
+}
+
+// Ease-out with a configurable overshoot (the "back" tip on a pop-in). `k`
+// controls how far past 1 the value swings before settling.
+function easeOutBack(t, k = 1.6) {
+  const c = clamp(t, 0, 1);
+  const inv = c - 1;
+  return 1 + (k + 1) * inv * inv * inv + k * inv * inv;
 }
 
 function getHTMLElement(value) {
