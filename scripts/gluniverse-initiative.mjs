@@ -31,15 +31,15 @@ const TOKEN_OVERLAY_PALETTE = {
   magenta: 0xff66b3
 };
 
-// Ground turn-marker disposition colours. Deliberately kept distinct from the
-// status palette above (amber break / cyan delay / violet dying) so a disposition
-// ring on the ground never reads as an echo of an above-token status overlay.
-// `hi` is the brighter accent used for sweeps, glow and bright leading edges.
+// Ground turn-marker disposition colours. `base` is synced to the initiative
+// card's per-disposition accent (--gluni-cyan / --gluni-white / --gluni-red /
+// --gluni-violet) so a token's ground ring reads as the same theme as its rail
+// card. `hi` is the brighter accent used for sweeps, glow and bright edges.
 const DISPOSITION_PALETTE = {
-  friendly: { base: 0x3fe0a0, hi: 0x9bffd6 },
-  hostile: { base: 0xff4258, hi: 0xff97a6 },
-  neutral: { base: 0xf5c451, hi: 0xffe39a },
-  secret: { base: 0x9aa7c7, hi: 0xd4dcef }
+  friendly: { base: 0x5eeaff, hi: 0xb9f7ff },   // --gluni-cyan
+  hostile: { base: 0xff335f, hi: 0xff8aa3 },    // --gluni-red
+  neutral: { base: 0xf3fbff, hi: 0xffffff },    // --gluni-white
+  secret: { base: 0xb497ff, hi: 0xe0d4ff }      // --gluni-violet
 };
 
 function getDispositionColors(disposition) {
@@ -4052,8 +4052,10 @@ void main(void){
 // frame on the art. Procedural and disposition-coloured (uColor / uColorHi):
 // a clear centre (token shows through), a bright torus band, drifting concentric
 // rings, rotating radial ticks, an orbiting comet sweep with a white-hot head and
-// flowing fbm energy. uActive demotes the whole thing for the "next" ring; uReduced
-// freezes motion for the reduced animation tier.
+// flowing fbm energy. The "next" ring (uActive < 0.5) is NOT just a dimmer copy —
+// it switches to a thin, cool, marching dashed perimeter ("on deck" / queued read)
+// so it's formally distinct from the active plasma pedestal. uReduced freezes
+// motion for the reduced animation tier.
 const FX_FRAG_TURN = `
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
@@ -4092,17 +4094,32 @@ void main(void){
 
   float ringsW = uHigh > 0.5 ? 0.95 : 0.6;
   float ticksW = uHigh > 0.5 ? 0.85 : 0.5;
-  float intensity = band * (0.45 + 0.6 * energy)
-                  + rings * ringsW + ticks * ticksW + sweep * 0.7 + core;
-  intensity *= (uActive > 0.5 ? 1.0 : 0.5);
+
+  // --- ACTIVE: the full plasma pedestal -------------------------------------
+  float activeI = band * (0.45 + 0.6 * energy)
+                + rings * ringsW + ticks * ticksW + sweep * 0.7 + core;
+
+  // --- NEXT: a thin, marching dashed perimeter ("queued") -------------------
+  // A narrow outer band broken into rotating angular dashes so it reads as a
+  // dotted "on deck" outline rather than a dim version of the active disc.
+  float nextBand = smoothstep(0.60, 0.70, dist) * (1.0 - smoothstep(0.80, 0.92, dist));
+  float dashes = 0.5 + 0.5 * sin(ang * 22.0 - spin * 0.6);
+  dashes = smoothstep(0.45, 0.75, dashes);          // gaps between marching dashes
+  float nextI = nextBand * dashes * (0.7 + 0.3 * flow) + ticks * ticksW * 0.45;
+
+  float intensity = mix(nextI, activeI, step(0.5, uActive));
 
   float pulse = uReduced > 0.5 ? 1.0 : (0.85 + 0.15 * sin(uTime * (uActive > 0.5 ? 3.0 : 1.6)));
   intensity *= pulse;
 
-  vec3 col = mix(uColor, uColorHi, clamp(rings + ticks + sweep * 0.5 + headGlow, 0.0, 1.0));
-  col = mix(col, vec3(1.0), clamp(headGlow * 0.85, 0.0, 1.0));   // white-hot comet tip
+  // Active leans bright/white-hot at its highlights; next stays cool, close to its
+  // base hue so it never competes with the live token's glowing pedestal.
+  vec3 activeCol = mix(uColor, uColorHi, clamp(rings + ticks + sweep * 0.5 + headGlow, 0.0, 1.0));
+  activeCol = mix(activeCol, vec3(1.0), clamp(headGlow * 0.85, 0.0, 1.0));   // white-hot comet tip
+  vec3 nextCol = mix(uColor, uColorHi, clamp(dashes * 0.4, 0.0, 1.0));
+  vec3 col = mix(nextCol, activeCol, step(0.5, uActive));
 
-  float a = clamp(intensity, 0.0, 1.0) * (uActive > 0.5 ? 0.96 : 0.66);
+  float a = clamp(intensity, 0.0, 1.0) * (uActive > 0.5 ? 0.96 : 0.8);
   a *= smoothstep(1.0, 0.9, dist);          // clip to the disc; corners transparent
   gl_FragColor = vec4(col * a, a);
 }`;
@@ -4658,17 +4675,31 @@ class TokenOverlayManager {
     // Shader energy disc — the primary visual.
     marker.fxOn = this._setupMarkerFx(marker, discR * 2, colors, isActive, high);
 
-    // Hand-drawn fallback (only when the shader is unavailable).
+    // Hand-drawn fallback (only when the shader is unavailable). Active = solid
+    // glowing rings; next = a thin dashed perimeter, mirroring the shader's
+    // "live pedestal vs queued outline" distinction.
     if (!marker.fxOn) {
-      if (high) {
-        glow.lineStyle({ width: isActive ? 9 : 6, color: hi, alpha: isActive ? 0.22 : 0.12, alignment: 0.5 });
-        glow.drawCircle(0, 0, discR * 0.86);
-        try { const blur = new PIXI.BlurFilter(isActive ? 6 : 4); blur.quality = 2; glow.filters = [blur]; } catch {}
+      if (isActive) {
+        if (high) {
+          glow.lineStyle({ width: 9, color: hi, alpha: 0.22, alignment: 0.5 });
+          glow.drawCircle(0, 0, discR * 0.86);
+          try { const blur = new PIXI.BlurFilter(6); blur.quality = 2; glow.filters = [blur]; } catch {}
+        }
+        frame.lineStyle({ width: 3, color: accent, alpha: 0.92, alignment: 0.5 });
+        frame.drawCircle(0, 0, discR * 0.82);
+        frame.lineStyle({ width: 1, color: hi, alpha: 0.3 });
+        frame.drawCircle(0, 0, discR * 0.62);
+      } else {
+        const r = discR * 0.82;
+        const segs = 22;
+        frame.lineStyle({ width: 2, color: accent, alpha: 0.62, alignment: 0.5 });
+        for (let i = 0; i < segs; i++) {
+          const a0 = (i / segs) * Math.PI * 2;
+          const a1 = a0 + (Math.PI * 2 / segs) * 0.5;   // half-on, half-off dashes
+          frame.moveTo(Math.cos(a0) * r, Math.sin(a0) * r);
+          frame.arc(0, 0, r, a0, a1);
+        }
       }
-      frame.lineStyle({ width: isActive ? 3 : 2, color: accent, alpha: isActive ? 0.92 : 0.6, alignment: 0.5 });
-      frame.drawCircle(0, 0, discR * 0.82);
-      frame.lineStyle({ width: 1, color: hi, alpha: isActive ? 0.3 : 0.18 });
-      frame.drawCircle(0, 0, discR * 0.62);
     }
 
     // "NEXT" chip — next ring only, above the disc.
