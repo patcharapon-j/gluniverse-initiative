@@ -2445,6 +2445,13 @@ class GLUniverseInitiativeOverlay {
     this.closeInitiativeContextMenu();
     card.setPointerCapture?.(event.pointerId);
 
+    // Snapshot the untransformed geometry of every rail card so that drop-target
+    // and gap calculations stay stable while the other cards shift to open space.
+    const layout = railCards.map(el => {
+      const rect = el.getBoundingClientRect();
+      return { id: el.dataset.combatantId, el, mid: rect.top + rect.height / 2 };
+    });
+
     this.cardDrag = {
       combatantId: combatant.id,
       pointerId: event.pointerId,
@@ -2453,6 +2460,8 @@ class GLUniverseInitiativeOverlay {
       moved: false,
       originalBeforeId: railCards[originalIndex - 1]?.dataset.combatantId ?? null,
       originalAfterId: railCards[originalIndex + 1]?.dataset.combatantId ?? null,
+      layout,
+      slotHeight: card.getBoundingClientRect().height + 5,
       card
     };
 
@@ -2496,7 +2505,7 @@ class GLUniverseInitiativeOverlay {
     if (!this.cardDrag.moved) return;
 
     this.cardDrag.card.style.setProperty("--gluni-card-drag-y", `${Math.round(event.clientY - this.cardDrag.startY)}px`);
-    this.updateCardDropMarker(event.clientY);
+    this.updateCardReorder(event.clientY);
   };
 
   onCardPointerUp = async event => {
@@ -2524,17 +2533,38 @@ class GLUniverseInitiativeOverlay {
 
     window.removeEventListener("pointermove", this.onCardPointerMove);
     this.clearCardDropMarkers();
+    for (const entry of this.cardDrag.layout ?? []) {
+      entry.el?.style.removeProperty("--gluni-reorder-shift-y");
+    }
     this.cardDrag.card.classList.remove("gluni-card--dragging");
     this.cardDrag.card.style.removeProperty("--gluni-card-drag-y");
     this.root.classList.remove("gluni-initiative--card-dragging");
     this.cardDrag = null;
   }
 
-  updateCardDropMarker(clientY) {
+  // Shift the surrounding cards to open a gap where the dragged card will land,
+  // and draw the drop line at that boundary.
+  updateCardReorder(clientY) {
     this.clearCardDropMarkers();
     const target = this.getCardDropTarget(clientY);
-    if (!target?.marker) return;
-    target.marker.classList.add(target.position === "before" ? "gluni-card--drop-before" : "gluni-card--drop-after");
+    if (!target) return;
+
+    const fromIndex = target.fromIndex;
+    const insertIndex = target.insertIndex;
+    const slot = this.cardDrag?.slotHeight ?? 0;
+
+    this.cardDrag?.layout.forEach((entry, i) => {
+      if (i === fromIndex) return;
+      const othersIndex = i < fromIndex ? i : i - 1;
+      let delta = 0;
+      if (i > fromIndex) delta -= slot;            // close the vacated slot
+      if (othersIndex >= insertIndex) delta += slot; // open the landing gap
+      entry.el?.style.setProperty("--gluni-reorder-shift-y", delta ? `${delta}px` : "0px");
+    });
+
+    if (target.marker) {
+      target.marker.classList.add(target.position === "before" ? "gluni-card--drop-before" : "gluni-card--drop-after");
+    }
   }
 
   clearCardDropMarkers() {
@@ -2544,22 +2574,27 @@ class GLUniverseInitiativeOverlay {
   }
 
   getCardDropTarget(clientY) {
-    const draggedId = this.cardDrag?.combatantId;
-    const cards = Array.from(this.root?.querySelectorAll(".gluni-rail .gluni-card[data-combatant-id]") ?? [])
-      .filter(card => card.dataset.combatantId !== draggedId);
-    if (!cards.length) return null;
+    const drag = this.cardDrag;
+    const layout = drag?.layout;
+    if (!layout?.length) return null;
 
-    let insertIndex = cards.findIndex(card => clientY < card.getBoundingClientRect().top + card.getBoundingClientRect().height / 2);
-    if (insertIndex < 0) insertIndex = cards.length;
+    const fromIndex = layout.findIndex(entry => entry.id === drag.combatantId);
+    const others = layout.filter((_, i) => i !== fromIndex);
+    if (!others.length) return null;
 
-    const beforeCard = cards[insertIndex - 1] ?? null;
-    const afterCard = cards[insertIndex] ?? null;
-    const marker = afterCard ?? beforeCard;
-    const position = afterCard ? "before" : "after";
+    let insertIndex = others.findIndex(entry => clientY < entry.mid);
+    if (insertIndex < 0) insertIndex = others.length;
+
+    const beforeEntry = others[insertIndex - 1] ?? null;
+    const afterEntry = others[insertIndex] ?? null;
+    const marker = afterEntry?.el ?? beforeEntry?.el ?? null;
+    const position = afterEntry ? "before" : "after";
 
     return {
-      beforeId: beforeCard?.dataset.combatantId ?? null,
-      afterId: afterCard?.dataset.combatantId ?? null,
+      beforeId: beforeEntry?.id ?? null,
+      afterId: afterEntry?.id ?? null,
+      fromIndex,
+      insertIndex,
       marker,
       position
     };
