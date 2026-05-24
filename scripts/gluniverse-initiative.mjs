@@ -2937,7 +2937,13 @@ class GLUniverseInitiativeOverlay {
       const statusKind = this.pendingStatusFlashes.get(id);
       const status = STATUS_ANIMATION[statusKind];
       if (status) this.playInlineStatusFlash(card, localize(status.label).toUpperCase(), status.colorClass);
-      if (statusKind === "delay") this.pulseTagEnter(card, ".gluni-delayed-tag");
+      if (statusKind === "delay") {
+        this.pulseTagEnter(card, ".gluni-delayed-tag");
+        // Mirror the dying/break entrance richness: wipe the time-shift field in
+        // and settle the card with a blue energy pulse rather than a bare slide.
+        card.classList.add("gluni-card--delay-entering");
+        window.setTimeout(() => card.classList.remove("gluni-card--delay-entering"), 700);
+      }
       this.pendingStatusFlashes.delete(id);
       card.classList.add("gluni-card--slide-in");
       window.setTimeout(() => card.classList.remove("gluni-card--slide-in"), 400);
@@ -3221,7 +3227,7 @@ function getItemSlug(item) {
 }
 
 function renderDyingRepeatText(dying) {
-  const text = `${localize("GLUNI.Dying").toUpperCase()} ${dying.value}/${dying.max}`;
+  const text = `${localize("GLUNI.Dying").toUpperCase()} ${dying.value}`;
   const line = Array.from({ length: 5 }, () => `<span>${escapeHTML(text)}</span>`).join("");
   return Array.from({ length: 6 }, (_, index) => `
     <div class="gluni-card-dying-repeat-line${index % 2 ? " gluni-card-dying-repeat-line--alt" : ""}">
@@ -4123,7 +4129,7 @@ void main(void){
   float ang=atan(d.y,d.x);
   float warp=0.16*gluFbm(vec2(ang*1.2+3.0,1.7))+0.08*gluFbm(vec2(ang*3.3,5.0))-0.12;
   float wdist=dist+warp;
-  float scale=mix(8.0,4.0,smoothstep(0.0,0.8,dist));   // large shards -> few cracks
+  float scale=mix(5.0,2.6,smoothstep(0.0,0.8,dist));   // large shards -> few cracks
   float ce=gluVoroEdge(vec2(uv.x*uAspect,uv.y)*scale+7.0);
   // Analytic AA: the Voronoi edge field changes by ~scale per uv unit, so one
   // screen pixel spans ~scale*uTexel of field. Widen the smoothstep band to at
@@ -4133,7 +4139,7 @@ void main(void){
   float edge=1.0-smoothstep(0.0,aaWidth,ce);           // crisp lines; uThick tunes weight
   float shatterT=clamp(uTime*1.4,0.0,1.0);
   float front=smoothstep(0.05,-0.06, wdist-(0.05+1.2*shatterT));
-  float coverage=smoothstep(0.95,0.12,wdist)*front;    // tight, leaves edges clear
+  float coverage=smoothstep(1.18,0.1,wdist)*front;     // reaches further across the art
   float crack=edge*coverage;
   float settled=smoothstep(0.55,1.0,shatterT);
   float flow=pow(0.5+0.5*sin(dist*18.0-uTime*3.0),8.0); // sharp, sparse pulses
@@ -4358,7 +4364,7 @@ class CardFXManager {
       this.renderer = new PIXI.Renderer({ width: 256, height: 160, backgroundAlpha: 0, antialias: true });
       this.sprite = new PIXI.Sprite(PIXI.Texture.WHITE);
       const mk = frag => {
-        const f = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: 0, uAspect: 1, uClipCircle: 0, uThick: 0.05, uTexel: 0, uImpact: [0.65, 0.34] });
+        const f = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: 0, uAspect: 1, uClipCircle: 0, uThick: 0.09, uTexel: 0, uImpact: [0.65, 0.34] });
         f.padding = 0;
         return f;
       };
@@ -5313,7 +5319,7 @@ class TokenOverlayManager {
       if (!entry.fxMesh || entry.fxMesh.destroyed || entry.fxFilterMode !== mode) {
         destroyFxMesh(entry.fxMesh);
         const frag = mode === "broken" ? FX_FRAG_BREAK : mode === "dying" ? FX_FRAG_DYING : FX_FRAG_DELAY;
-        const mesh = makeFxMesh(frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uThick: 0.045, uTexel: 0, uImpact: [0.5, 0.5] });
+        const mesh = makeFxMesh(frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uThick: 0.08, uTexel: 0, uImpact: [0.5, 0.5] });
         entry.fxMesh = mesh;
         entry.fxShader = mesh.shader;
         entry.fxFilterMode = mode;
@@ -5643,6 +5649,11 @@ class TokenOverlayManager {
 
     const diamond = (px, py, rr) => [px, py - rr, px + rr, py, px, py + rr, px - rr, py];
 
+    // Triangle halves of a diamond, split at its waist — a lit upper facet over
+    // a shadowed lower facet reads as a cut gem rather than a flat fill.
+    const upperFacet = (px, py, rr) => [px, py - rr, px + rr, py, px - rr, py];
+    const lowerFacet = (px, py, rr) => [px - rr, py, px + rr, py, px, py + rr];
+
     for (let i = 0; i < max; i++) {
       const px = startX + i * stepX;
       const filled = i < value;
@@ -5653,18 +5664,33 @@ class TokenOverlayManager {
       g.endFill();
       if (filled) {
         const col = critical || last ? P.dyingHot : P.dying;
-        g.beginFill(col, 0.96);
-        g.drawPolygon(diamond(px, y, pipR));
+        // soft coloured halo so the gem glows off the plate
+        g.beginFill(col, critical || last ? 0.3 : 0.2);
+        g.drawPolygon(diamond(px, y, pipR + 2.2));
         g.endFill();
+        // shadowed lower facet, then the lit upper facet
+        g.beginFill(P.dyingDeep, 0.95);
+        g.drawPolygon(lowerFacet(px, y, pipR));
+        g.endFill();
+        g.beginFill(col, 0.97);
+        g.drawPolygon(upperFacet(px, y, pipR));
+        g.endFill();
+        // crisp facet edges + waistline
         g.lineStyle({ width: 0.8, color: P.white, alpha: 0.6 });
         g.drawPolygon(diamond(px, y, pipR));
+        g.moveTo(px - pipR, y); g.lineTo(px + pipR, y);
         g.lineStyle(0);
-        g.beginFill(P.white, 0.5);   // bright core
-        g.drawPolygon(diamond(px, y, pipR * 0.4));
+        // bright specular glint on the top facet
+        g.beginFill(P.white, 0.85);
+        g.drawPolygon(diamond(px, y - pipR * 0.42, pipR * 0.26));
         g.endFill();
       } else {
-        g.beginFill(P.dyingDeep, 0.22);
+        g.beginFill(P.dyingDeep, 0.26);
         g.drawPolygon(diamond(px, y, pipR));
+        g.endFill();
+        // faint sheen on the upper facet hints at the unspent gem
+        g.beginFill(P.dying, 0.16);
+        g.drawPolygon(upperFacet(px, y, pipR));
         g.endFill();
         g.lineStyle({ width: 0.8, color: P.dying, alpha: 0.5 });
         g.drawPolygon(diamond(px, y, pipR));
