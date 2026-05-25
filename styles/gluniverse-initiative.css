@@ -717,45 +717,45 @@
    outside its clip-path — so they ride the card's transform yet overhang past
    the clipped silhouette. Long names ellipsis-truncate with the full text in
    the title attribute. */
-/* Pills flow left-to-right and wrap into stacked rows, spreading toward the
-   play area before wrapping so even a long condition list stays a couple of
-   rows tall and never runs down into the next card. */
+/* Pills fill column-major: each new pill drops into the next row down before a
+   new column starts, so a short list spreads one-per-row across the (up to 3)
+   rows instead of packing the first row. The definite height is what drives the
+   wrap, and it never runs down into the next card. */
 .gluni-card-condition-labels {
   --gluni-pill-row: 16px;
   position: absolute;
   top: 6px;
   z-index: 8;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   flex-wrap: wrap;
+  justify-content: flex-start;
   align-content: flex-start;
   gap: 3px;
-  /* Anchored by right/left only, so an auto/max-content width can collapse and
-     force one pill per row. Give the strip a definite width so flex-wrap fills
-     each row out to the edge before starting a new one. */
-  width: 420px;
-  max-height: calc(var(--gluni-pill-row) * 3 + 3px * 2);
+  /* Definite height drives the column-major wrap (fill rows down, then start a
+     new column). Width is shrink-to-fit and capped so extra columns clip. */
+  height: calc(var(--gluni-pill-row) * 3 + 3px * 2);
+  width: max-content;
+  max-width: 420px;
   overflow: hidden;
   pointer-events: none;
 }
 
 /* The active card is much taller (124px vs 58px), so it has room for more rows
-   of pills before the cap kicks in. */
+   of pills before a new column starts. */
 .gluni-card--active .gluni-card-condition-labels {
-  max-height: calc(var(--gluni-pill-row) * 6 + 3px * 5);
+  height: calc(var(--gluni-pill-row) * 6 + 3px * 5);
 }
 
 .gluni-initiative--right .gluni-card-condition-labels {
   right: calc(100% + 6px);
-  flex-direction: row-reverse;
-  justify-content: flex-start;
-  align-items: flex-start;
+  flex-wrap: wrap-reverse;
+  align-items: flex-end;
 }
 
 .gluni-initiative--left .gluni-card-condition-labels {
   left: calc(100% + 6px);
-  flex-direction: row;
-  justify-content: flex-start;
+  flex-wrap: wrap;
   align-items: flex-start;
 }
 
@@ -788,13 +788,15 @@
 
 /* Vertical strip mode — chips sit in a row of slim, rotated-text ribbons that
    read top-to-bottom, minimising the horizontal footprint along the card. */
-.gluni-card-condition-labels--vertical {
+.gluni-card-condition-labels--vertical,
+.gluni-card--active .gluni-card-condition-labels--vertical {
   flex-direction: row;
   flex-wrap: nowrap;
   align-content: stretch;
   gap: 3px;
   width: max-content;
   max-width: none;
+  height: auto;
   max-height: none;
   overflow: visible;
 }
