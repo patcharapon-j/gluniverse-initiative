@@ -5418,6 +5418,14 @@ class TokenOverlayManager {
     catch { return "default"; }
   }
 
+  // Whether ground markers should animate. When false the marker is fully static
+  // (reduced intensity or OS reduced-motion), so we skip the per-frame WebGL
+  // plasma shader entirely and draw the cheap hand-drawn rings instead — the
+  // shader output would be frozen anyway, so running it every frame is wasted GPU.
+  _markerMotion() {
+    return this._markerIntensity !== "reduced" && !prefersReducedMotion();
+  }
+
   _markerSettings() {
     const get = key => { try { return Boolean(game.settings.get(MODULE_ID, key)); } catch { return false; } };
     return {
@@ -5540,7 +5548,7 @@ class TokenOverlayManager {
     const fidelity = this._getFidelity();
     // `hasOrigin` is in the key so the echo geometry rebuilds when an origin first
     // becomes available (or clears) for an otherwise-unchanged active marker.
-    const key = `${role}/${disposition}/${shape}/${fidelity}/${Math.round(token.w)}x${Math.round(token.h)}/r${showRing ? 1 : 0}/s${showStart ? 1 : 0}/o${origin ? 1 : 0}`;
+    const key = `${role}/${disposition}/${shape}/${fidelity}/${Math.round(token.w)}x${Math.round(token.h)}/r${showRing ? 1 : 0}/s${showStart ? 1 : 0}/o${origin ? 1 : 0}/m${this._markerMotion() ? 1 : 0}`;
     if (marker.key !== key) {
       marker.key = key;
       marker.role = role;
@@ -5713,6 +5721,9 @@ class TokenOverlayManager {
   // locked to the token under zoom. Returns false (hiding the mesh) when meshes are
   // unavailable, so the hand-drawn ring fallback is used instead.
   _setupMarkerFx(marker, size, colors, isActive, high) {
+    // Static marker (reduced motion): the frozen shader is indistinguishable from
+    // a still image, so fall back to the hand-drawn rings and run no shader at all.
+    if (!this._markerMotion()) { if (marker.fxMesh) marker.fxMesh.visible = false; return false; }
     if (!globalThis.PIXI?.Mesh || !globalThis.PIXI?.Geometry || !globalThis.PIXI?.Shader) return false;
     try {
       if (!marker.fxMesh || marker.fxMesh.destroyed) {
@@ -5756,7 +5767,7 @@ class TokenOverlayManager {
     marker.ringWrap.position.set(cx, cy);
 
     const intensity = this._markerIntensity;
-    const motion = intensity !== "reduced";
+    const motion = this._markerMotion();
     const t = this._time;
     const isActive = marker.role === "active";
 
