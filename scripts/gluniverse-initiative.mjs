@@ -717,6 +717,8 @@ class GLUniverseInitiativeOverlay {
     this.lastDyingIds = new Set();
     this.lastDelayedIds = new Set();
     this.lastBrokenIds = new Set();
+    this.lastConditionSlugs = new Map();
+    this.pendingConditionFlashes = new Map();
     this.recentStatusAnimations = new Map();
     this.statusSnapshotInitialized = false;
     this.handledEndTurnRequests = new Set();
@@ -978,6 +980,7 @@ class GLUniverseInitiativeOverlay {
     this.playPendingGuardBreakImpact();
     this.playPendingSlideIns();
     this.playPendingDyingWipes();
+    this.playPendingConditionFlashes();
     this.lastActiveId = view.activeId;
     this.lastActiveKey = view.activeKey;
     this.lastActiveInitiative = this.getActiveInitiative(view);
@@ -1152,6 +1155,13 @@ class GLUniverseInitiativeOverlay {
 
     const portrait = mystery || adhoc ? null : getPortrait(combatant);
 
+    const guardBroken = !adhoc && Boolean(getGuardBreakState(combatant));
+    const dying = mystery || adhoc ? null : getDyingState(combatant);
+    // Generic PF2e conditions are completely overridden by dying/break/delay —
+    // those states own the card's background field and announce themselves.
+    const conditionsOverridden = options.delayed || guardBroken || Boolean(dying);
+    const conditions = mystery || adhoc || conditionsOverridden ? null : getPF2eConditionTags(combatant);
+
     return {
       type: "combatant",
       id: combatant.id,
@@ -1164,9 +1174,10 @@ class GLUniverseInitiativeOverlay {
       defeated: Boolean(combatant.defeated),
       disposition,
       adhoc,
-      guardBroken: !adhoc && Boolean(getGuardBreakState(combatant)),
+      guardBroken,
       breakGauge: mystery || adhoc ? null : getBreakGaugeState(combatant),
-      dying: mystery || adhoc ? null : getDyingState(combatant),
+      dying,
+      conditions,
       name: mystery ? localize("GLUNI.Unknown") : adhoc?.name ?? combatant.name,
       initiative: combatant.initiative,
       portrait,
@@ -1198,6 +1209,7 @@ class GLUniverseInitiativeOverlay {
       card.adhoc ? "gluni-card--adhoc" : "",
       card.adhoc ? `gluni-card--adhoc-${card.adhoc.type}` : "",
       card.guardBroken ? "gluni-card--guard-broken" : "",
+      card.conditions ? "gluni-card--conditioned" : "",
       card.dying ? "gluni-card--dying" : "",
       card.dying ? `gluni-card--dying-${card.dying.severity}` : "",
       card.dying?.kind === "deathsaves" ? "gluni-card--deathsaves" : "",
@@ -1258,6 +1270,14 @@ class GLUniverseInitiativeOverlay {
             ${fxMode === "break" ? "" : `<div class="gluni-card-guard-break-bg" aria-hidden="true"></div>`}
             <div class="gluni-card-guard-break-repeat" aria-hidden="true">
               ${renderGuardBreakRepeatText()}
+            </div>
+          `
+          : ""}
+        ${card.conditions
+          ? `
+            <div class="gluni-card-condition-bg" aria-hidden="true"></div>
+            <div class="gluni-card-condition-repeat" aria-hidden="true">
+              ${renderConditionRepeatText(card.conditions)}
             </div>
           `
           : ""}
@@ -2987,6 +3007,28 @@ class GLUniverseInitiativeOverlay {
     this.pendingDyingWipeIds.clear();
   }
 
+  // One-shot horizontal announce for each newly applied primary condition,
+  // mirroring the break/dying/delay flash. Multiple conditions applied in the
+  // same tick are staggered so each reads. The card node is re-queried inside
+  // the timeout because an intervening render() replaces the overlay markup.
+  playPendingConditionFlashes() {
+    if (!this.pendingConditionFlashes.size || !this.root) return;
+    for (const [id, texts] of this.pendingConditionFlashes) {
+      const selector = `.gluni-card[data-combatant-id="${escapeCSSIdentifier(id)}"]`;
+      const card = this.root.querySelector(selector);
+      if (!card) continue;
+      card.classList.add("gluni-card--condition-entering");
+      window.setTimeout(() => this.root?.querySelector(selector)?.classList.remove("gluni-card--condition-entering"), 620);
+      texts.forEach((text, index) => {
+        window.setTimeout(() => {
+          const live = this.root?.querySelector(selector);
+          if (live) this.playInlineStatusFlash(live, text, "condition");
+        }, index * 240);
+      });
+    }
+    this.pendingConditionFlashes.clear();
+  }
+
   // Status sets are computed from the FULL combatant list (respecting this
   // client's visibility), never the windowed view. A combatant that scrolls
   // out of the visible window and back in must not read as a fresh status
@@ -2995,8 +3037,13 @@ class GLUniverseInitiativeOverlay {
     const dying = new Set();
     const delayed = new Set();
     const broken = new Set();
+    // id -> Map(conditionSlug -> displayText). Tracked raw (ignoring override)
+    // so override clearing never replays an announce; `conditionOverridden`
+    // gates whether a transition is allowed to flash.
+    const conditions = new Map();
+    const conditionOverridden = new Set();
     const combat = this.combat;
-    if (!combat) return { dying, delayed, broken };
+    if (!combat) return { dying, delayed, broken, conditions, conditionOverridden };
 
     const showDefeated = Boolean(game.settings.get(MODULE_ID, SETTINGS.showDefeated));
     const combatants = combat.combatants?.contents ?? Array.from(combat.combatants ?? []);
@@ -3012,17 +3059,34 @@ class GLUniverseInitiativeOverlay {
       const skipped = Boolean(combatant.defeated && !showDefeated);
       if (skipped) continue;
 
-      if (getGuardBreakState(combatant)) broken.add(combatant.id);
-      if (this.isDelayed(combatant)) delayed.add(combatant.id);
-      if (getDyingState(combatant)) dying.add(combatant.id);
+      const isBroken = Boolean(getGuardBreakState(combatant));
+      const isDelayedNow = this.isDelayed(combatant);
+      const isDying = Boolean(getDyingState(combatant));
+      if (isBroken) broken.add(combatant.id);
+      if (isDelayedNow) delayed.add(combatant.id);
+      if (isDying) dying.add(combatant.id);
+
+      const tags = getPF2eConditionTags(combatant);
+      if (tags) {
+        const slugTexts = new Map();
+        for (const tag of tags) slugTexts.set(tag.slug, tag.text);
+        conditions.set(combatant.id, slugTexts);
+        if (isBroken || isDelayedNow || isDying) conditionOverridden.add(combatant.id);
+      }
     }
-    return { dying, delayed, broken };
+    return { dying, delayed, broken, conditions, conditionOverridden };
   }
 
   detectStatusTransitions() {
     const hadSnapshot = this.statusSnapshotInitialized;
     const isPrimaryGM = game.user.isGM && this.isPrimaryActiveGM();
-    const { dying: currentDying, delayed: currentDelayed, broken: currentBroken } = this.collectStatusSets();
+    const {
+      dying: currentDying,
+      delayed: currentDelayed,
+      broken: currentBroken,
+      conditions: currentConditions,
+      conditionOverridden
+    } = this.collectStatusSets();
 
     for (const id of currentDying) {
       if (this.lastDyingIds.has(id)) continue;
@@ -3058,6 +3122,26 @@ class GLUniverseInitiativeOverlay {
       this.pendingStatusFlashes.set(id, "guardBreak");
       if (hadSnapshot && isPrimaryGM) this.broadcastStatusAnimation(id, "guardBreak");
     }
+    // Generic PF2e conditions replicate to every client (they are items on the
+    // actor), so each client detects new conditions and plays the announce
+    // locally — no socket broadcast needed. A condition new since the last
+    // snapshot announces once; nested/linked children were already filtered out
+    // upstream. Overridden combatants record their slugs silently so a later
+    // override clear never replays the announce.
+    const nextConditionSlugs = new Map();
+    for (const [id, slugTexts] of currentConditions) {
+      nextConditionSlugs.set(id, new Set(slugTexts.keys()));
+      if (!hadSnapshot || conditionOverridden.has(id)) continue;
+      const last = this.lastConditionSlugs.get(id) ?? new Set();
+      for (const [slug, text] of slugTexts) {
+        if (last.has(slug)) continue;
+        if (this.statusAnimationRecentlyQueued(id, `condition:${slug}`)) continue;
+        if (!this.pendingConditionFlashes.has(id)) this.pendingConditionFlashes.set(id, []);
+        this.pendingConditionFlashes.get(id).push(text);
+      }
+    }
+    this.lastConditionSlugs = nextConditionSlugs;
+
     this.lastDyingIds = currentDying;
     this.lastDelayedIds = currentDelayed;
     this.lastBrokenIds = currentBroken;
@@ -3247,6 +3331,68 @@ function getConditionValue(actor, slug) {
 
 function hasActorItem(actor, slug) {
   return getActorItems(actor).some(item => getItemSlug(item) === slug);
+}
+
+// Condition slugs the overlay already represents through dedicated states, so
+// they must never surface through the generic condition announce/background.
+const COVERED_CONDITION_SLUGS = new Set(["dying", "doomed"]);
+
+// A "primary" condition is one applied directly to the actor: it is active (not
+// suppressed by a higher-value duplicate) and is not a linked child of another
+// condition (PF2e records the originating condition under
+// `system.references.parent`). Nested/linked conditions are skipped so only the
+// source condition announces and appears in the background.
+function isPrimaryCondition(item) {
+  if (item?.active === false) return false;
+  const references = item?.system?.references ?? {};
+  if (references.parent && (references.parent.id || typeof references.parent === "string")) return false;
+  const overriddenBy = references.overriddenBy;
+  if (Array.isArray(overriddenBy) ? overriddenBy.length : overriddenBy) return false;
+  return true;
+}
+
+// Numeric badge for valued conditions (e.g. frightened 2). Valueless conditions
+// (prone, blinded) carry no badge and return null.
+function getConditionBadgeValue(item) {
+  const candidates = [item?.system?.value?.value, item?.system?.badge?.value];
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+// View-model of every primary PF2e condition on a combatant that the overlay
+// does not otherwise cover. Each tag carries the display `text` reused by both
+// the one-shot announce flash and the repeated background field.
+function getPF2eConditionTags(combatant) {
+  if (game.system?.id !== "pf2e") return null;
+  const actor = combatant?.actor;
+  if (!actor) return null;
+
+  const tags = [];
+  const seen = new Set();
+  for (const item of getActorItems(actor)) {
+    if (item?.type !== "condition" || !isPrimaryCondition(item)) continue;
+    const slug = getItemSlug(item);
+    if (!slug || COVERED_CONDITION_SLUGS.has(slug) || seen.has(slug)) continue;
+    seen.add(slug);
+    const name = String(item.name ?? slug).trim();
+    const value = getConditionBadgeValue(item);
+    const text = value === null ? name.toUpperCase() : `${name.toUpperCase()} ${value}`;
+    tags.push({ slug, name, value, text });
+  }
+  return tags.length ? tags : null;
+}
+
+function renderConditionRepeatText(conditions) {
+  const text = conditions.map(condition => condition.text).join("  •  ");
+  const line = Array.from({ length: 4 }, () => `<span>${escapeHTML(text)}</span>`).join("");
+  return Array.from({ length: 4 }, (_, index) => `
+    <div class="gluni-card-condition-repeat-line${index % 2 ? " gluni-card-condition-repeat-line--alt" : ""}">
+      ${line}
+    </div>
+  `).join("");
 }
 
 function findPF2eGuardBreakEffects(actor) {

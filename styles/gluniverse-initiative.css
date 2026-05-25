@@ -9,6 +9,8 @@
   --gluni-break-deep:  #ff6f1a;
   --gluni-dying:       #b497ff;
   --gluni-dying-hot:   #efd7ff;
+  --gluni-condition:     #54d6a6;
+  --gluni-condition-hot: #c2ffe8;
   /* D&D 5e death saves — success green, failure red, calm stable teal. */
   --gluni-save-success:     #57e08b;
   --gluni-save-success-hot: #b6ffd0;
@@ -626,6 +628,67 @@
 }
 
 .gluni-card-delayed-repeat-line span {
+  flex: 0 0 auto;
+}
+
+/* Generic PF2e condition field — a quieter sibling of the delayed/dying/break
+   backgrounds, shown only when none of those override states are present. */
+.gluni-card-condition-bg,
+.gluni-card-condition-repeat {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.gluni-card-condition-bg {
+  z-index: 3;
+  overflow: hidden;
+  background:
+    linear-gradient(
+      120deg,
+      transparent 0 46%,
+      color-mix(in srgb, var(--gluni-condition) 16%, transparent) 47% 49%,
+      transparent 50% 100%
+    ) 0 0 / 30px 24px,
+    radial-gradient(
+      circle at 74% 30%,
+      color-mix(in srgb, var(--gluni-condition) 14%, transparent),
+      transparent 44%
+    );
+  opacity: 0.26;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 18%, #000 86%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 18%, #000 86%, transparent 100%);
+}
+
+.gluni-card-condition-repeat {
+  z-index: 4;
+  display: grid;
+  align-content: space-around;
+  gap: 3px;
+  overflow: hidden;
+  color: var(--gluni-condition);
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 0.16em;
+  line-height: 1.1;
+  opacity: 0.12;
+  padding: 7px 0;
+  text-transform: uppercase;
+  animation: gluni-delayed-repeat-drift 14s linear infinite;
+}
+
+.gluni-card-condition-repeat-line {
+  display: flex;
+  gap: 16px;
+  min-width: max-content;
+  white-space: nowrap;
+}
+
+.gluni-card-condition-repeat-line--alt {
+  transform: translateX(-30px);
+}
+
+.gluni-card-condition-repeat-line span {
   flex: 0 0 auto;
 }
 
@@ -3848,6 +3911,37 @@
     0 4px 14px rgba(0, 0, 0, 0.92);
 }
 
+.gluni-status-flash--condition {
+  background: linear-gradient(
+    90deg,
+    rgba(2, 7, 11, 0.92),
+    color-mix(in srgb, var(--gluni-condition) 14%, transparent) 50%,
+    rgba(2, 7, 11, 0.92)
+  );
+}
+
+.gluni-status-flash--condition span {
+  color: var(--gluni-condition-hot);
+  text-shadow:
+    0 0 24px var(--gluni-condition),
+    0 0 52px color-mix(in srgb, var(--gluni-condition) 42%, transparent),
+    0 4px 14px rgba(0, 0, 0, 0.92);
+}
+
+/* Condition layer wipe reveal — reuses the dying wipe so the background field
+   materialises with the same motion language when a condition is announced. */
+.gluni-card--condition-entering .gluni-card-condition-bg,
+.gluni-card--condition-entering .gluni-card-condition-repeat {
+  clip-path: inset(0 100% 0 0);
+  animation: gluni-dying-wipe-reveal 560ms var(--gluni-snap) both;
+}
+
+.gluni-initiative--left .gluni-card--condition-entering .gluni-card-condition-bg,
+.gluni-initiative--left .gluni-card--condition-entering .gluni-card-condition-repeat {
+  clip-path: inset(0 0 0 100%);
+  animation: gluni-dying-wipe-reveal-left 560ms var(--gluni-snap) both;
+}
+
 /* Dying layer wipe reveal */
 
 .gluni-card--dying-entering .gluni-card-dying-bg,
@@ -5293,6 +5387,9 @@
   .gluni-card--delay-entering,
   .gluni-card--delay-entering .gluni-card-delayed-bg,
   .gluni-card--delay-entering .gluni-card-delayed-repeat,
+  .gluni-card-condition-repeat,
+  .gluni-card--condition-entering .gluni-card-condition-bg,
+  .gluni-card--condition-entering .gluni-card-condition-repeat,
   .gluni-card--slide-in,
   .gluni-active-tag,
   .gluni-guard-break-tag,
