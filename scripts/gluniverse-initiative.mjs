@@ -343,6 +343,9 @@ Hooks.once("ready", () => {
   overlay.render();
   tokenOverlays = new TokenOverlayManager();
   refreshNativeTurnMarkerSuppression();
+  // Pre-compile the guard-break splash shader at idle so the first break in play
+  // doesn't stall the main thread on synchronous shader compilation.
+  getBreakSplashRenderer();
 });
 
 Hooks.on("createCombat", () => overlay?.renderSoon());
@@ -767,14 +770,24 @@ void main() {
   gl_FragColor = vec4(col * a, a);
 }`;
 
+// One persistent renderer is reused across every guard break: the WebGL context
+// and the (fairly heavy) shader program are created and compiled exactly once,
+// then the single canvas is reparented into each splash element when it plays.
+// Compiling/linking this shader synchronously on every break is what caused the
+// on-trigger frame hiccup, so we pay that cost once (pre-warmed at ready) and
+// never again. Self-contained — if a GL context can't be created the splash
+// still works from CSS alone.
 class BreakSplashGL {
-  constructor(canvas, { intensity = "default", fidelity = "high", lifeMs = 1860 } = {}) {
-    this.canvas = canvas;
-    this.lifeMs = Math.max(400, lifeMs);
-    this.intensityValue = intensity === "cinematic" ? 1.0 : 0.55;
+  constructor() {
+    this.canvas = document.createElement("canvas");
+    this.canvas.className = "gluni-break-splash-gl";
+    this.canvas.setAttribute("aria-hidden", "true");
+    this.lifeMs = 1050;
+    this.intensityValue = 0.55;
     this.seed = Math.random() * 100;
     this.raf = 0;
     this.start = 0;
+    this.host = null;
     this.gl = null;
     this.program = null;
     this.uniforms = {};
@@ -819,8 +832,6 @@ class BreakSplashGL {
       hot: gl.getUniformLocation(program, "u_hot")
     };
 
-    gl.uniform1f(this.uniforms.seed, this.seed);
-    gl.uniform1f(this.uniforms.intensity, this.intensityValue);
     gl.uniform3fv(this.uniforms.break, this.colors.break);
     gl.uniform3fv(this.uniforms.hot, this.colors.hot);
 
@@ -830,11 +841,69 @@ class BreakSplashGL {
     // canvas so the bright shards glow over the amber deck.
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
+    // Pre-warm: a single off-screen draw forces the driver to finish lazy shader
+    // compilation now, at load, rather than on the first guard break.
     this.resize();
+    gl.uniform1f(this.uniforms.seed, this.seed);
+    gl.uniform1f(this.uniforms.intensity, this.intensityValue);
+    gl.uniform1f(this.uniforms.time, 0);
+    gl.uniform1f(this.uniforms.progress, 0);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.finish();
+
     window.addEventListener("resize", this.onResize);
+    return true;
+  }
+
+  get available() {
+    return !!this.gl;
+  }
+
+  // Attach the persistent canvas to a splash element and run one fracture cycle.
+  // Reuses the existing context/program — no recompilation. A second guard break
+  // that lands mid-cycle steals the canvas from the previous splash (whose CSS
+  // text/deck keep animating without the GL layer), which is fine.
+  play(host, { intensity = "default", lifeMs = 1050 } = {}) {
+    if (!this.gl || !host) return false;
+    if (this.raf) window.cancelAnimationFrame(this.raf);
+    this.detach();
+
+    this.host = host;
+    this.lifeMs = Math.max(400, lifeMs);
+    this.intensityValue = intensity === "cinematic" ? 1.0 : 0.55;
+    this.seed = Math.random() * 100;
+
+    const gl = this.gl;
+    gl.useProgram(this.program);
+    gl.uniform1f(this.uniforms.seed, this.seed);
+    gl.uniform1f(this.uniforms.intensity, this.intensityValue);
+
+    // Insert just after the burst so stacking matches the old inline canvas.
+    const burst = host.querySelector(".gluni-break-splash-burst");
+    if (burst && burst.nextSibling) host.insertBefore(this.canvas, burst.nextSibling);
+    else host.insertBefore(this.canvas, host.firstChild);
+
+    this.resize();
     this.start = performance.now();
     this.raf = window.requestAnimationFrame(() => this.frame());
     return true;
+  }
+
+  detach() {
+    if (this.canvas.parentNode) this.canvas.parentNode.removeChild(this.canvas);
+    this.host = null;
+  }
+
+  // Stop the current cycle but keep the context/program alive for reuse. Only
+  // honours the request if `host` still owns the canvas (guards against a newer
+  // splash that has already taken it over).
+  stop(host = null) {
+    if (host && this.host !== host) return;
+    if (this.raf) window.cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    this.detach();
   }
 
   buildProgram(gl, vertSrc, fragSrc) {
@@ -888,7 +957,7 @@ class BreakSplashGL {
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     if (progress >= 1.05) {
-      this.destroy();
+      this.stop();
       return;
     }
     this.raf = window.requestAnimationFrame(() => this.frame());
@@ -897,6 +966,7 @@ class BreakSplashGL {
   destroy() {
     if (this.raf) window.cancelAnimationFrame(this.raf);
     this.raf = 0;
+    this.detach();
     window.removeEventListener("resize", this.onResize);
     const gl = this.gl;
     this.gl = null;
@@ -908,6 +978,17 @@ class BreakSplashGL {
       }
     }
   }
+}
+
+// Lazily build (and cache) the single shared break-splash renderer. Returns null
+// if WebGL is unavailable so callers fall back to the CSS-only splash.
+let breakSplashRenderer;
+function getBreakSplashRenderer() {
+  if (breakSplashRenderer === undefined) {
+    const renderer = new BreakSplashGL();
+    breakSplashRenderer = renderer.available ? renderer : null;
+  }
+  return breakSplashRenderer;
 }
 
 function isRelevantCombatantUpdate(changed) {
@@ -2761,7 +2842,6 @@ class GLUniverseInitiativeOverlay {
     splash.className = `gluni-break-splash gluni-break-splash--${intensity} gluni-fidelity--${fidelity}`;
     splash.innerHTML = `
       <div class="gluni-break-splash-burst" aria-hidden="true"></div>
-      <canvas class="gluni-break-splash-gl" aria-hidden="true"></canvas>
       <div class="gluni-break-splash-rule" aria-hidden="true"></div>
       <div class="gluni-break-splash-inner">
         <div class="gluni-break-deck" aria-hidden="true"></div>
@@ -2777,20 +2857,13 @@ class GLUniverseInitiativeOverlay {
 
     // WebGL glass-crack + shockwave layer. Decorative and additive over the CSS
     // deck — skipped on the reduced tier or when the user prefers reduced motion.
+    // Uses the shared pre-compiled renderer, so no per-break shader compilation.
     let breakGL = null;
     if (intensity !== "reduced" && !prefersReducedMotion()) {
-      const canvas = splash.querySelector(".gluni-break-splash-gl");
-      if (canvas) {
-        const renderer = new BreakSplashGL(canvas, {
-          intensity,
-          fidelity,
-          lifeMs: this.getBreakGLLife()
-        });
-        if (renderer.gl) breakGL = renderer;
-        else { renderer.destroy(); canvas.remove(); }
+      const renderer = getBreakSplashRenderer();
+      if (renderer?.play(splash, { intensity, lifeMs: this.getBreakGLLife() })) {
+        breakGL = renderer;
       }
-    } else {
-      splash.querySelector(".gluni-break-splash-gl")?.remove();
     }
 
     window.requestAnimationFrame(() => splash.classList.add("gluni-break-splash--show"));
@@ -2803,7 +2876,7 @@ class GLUniverseInitiativeOverlay {
     }
     window.setTimeout(() => splash.classList.add("gluni-break-splash--leave"), this.getBreakSplashHold());
     window.setTimeout(() => {
-      breakGL?.destroy();
+      breakGL?.stop(splash);
       splash.remove();
     }, this.getBreakSplashDuration());
   }
@@ -5345,6 +5418,14 @@ class TokenOverlayManager {
     catch { return "default"; }
   }
 
+  // Whether ground markers should animate. When false the marker is fully static
+  // (reduced intensity or OS reduced-motion), so we skip the per-frame WebGL
+  // plasma shader entirely and draw the cheap hand-drawn rings instead — the
+  // shader output would be frozen anyway, so running it every frame is wasted GPU.
+  _markerMotion() {
+    return this._markerIntensity !== "reduced" && !prefersReducedMotion();
+  }
+
   _markerSettings() {
     const get = key => { try { return Boolean(game.settings.get(MODULE_ID, key)); } catch { return false; } };
     return {
@@ -5467,7 +5548,7 @@ class TokenOverlayManager {
     const fidelity = this._getFidelity();
     // `hasOrigin` is in the key so the echo geometry rebuilds when an origin first
     // becomes available (or clears) for an otherwise-unchanged active marker.
-    const key = `${role}/${disposition}/${shape}/${fidelity}/${Math.round(token.w)}x${Math.round(token.h)}/r${showRing ? 1 : 0}/s${showStart ? 1 : 0}/o${origin ? 1 : 0}`;
+    const key = `${role}/${disposition}/${shape}/${fidelity}/${Math.round(token.w)}x${Math.round(token.h)}/r${showRing ? 1 : 0}/s${showStart ? 1 : 0}/o${origin ? 1 : 0}/m${this._markerMotion() ? 1 : 0}`;
     if (marker.key !== key) {
       marker.key = key;
       marker.role = role;
@@ -5640,6 +5721,9 @@ class TokenOverlayManager {
   // locked to the token under zoom. Returns false (hiding the mesh) when meshes are
   // unavailable, so the hand-drawn ring fallback is used instead.
   _setupMarkerFx(marker, size, colors, isActive, high) {
+    // Static marker (reduced motion): the frozen shader is indistinguishable from
+    // a still image, so fall back to the hand-drawn rings and run no shader at all.
+    if (!this._markerMotion()) { if (marker.fxMesh) marker.fxMesh.visible = false; return false; }
     if (!globalThis.PIXI?.Mesh || !globalThis.PIXI?.Geometry || !globalThis.PIXI?.Shader) return false;
     try {
       if (!marker.fxMesh || marker.fxMesh.destroyed) {
@@ -5683,7 +5767,7 @@ class TokenOverlayManager {
     marker.ringWrap.position.set(cx, cy);
 
     const intensity = this._markerIntensity;
-    const motion = intensity !== "reduced";
+    const motion = this._markerMotion();
     const t = this._time;
     const isActive = marker.role === "active";
 
