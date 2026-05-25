@@ -4827,12 +4827,12 @@
     transform: translate(-50%, -50%) scale(0);
     opacity: 0;
   }
-  28% {
-    transform: translate(-50%, -50%) scale(0.8);
-    opacity: 0.82;
+  12% {
+    transform: translate(-50%, -50%) scale(0.42);
+    opacity: 1;
   }
   100% {
-    transform: translate(-50%, -50%) scale(1.2);
+    transform: translate(-50%, -50%) scale(1.32);
     opacity: 0;
   }
 }
@@ -5229,22 +5229,24 @@
 }
 
 @keyframes gluni-break-shake {
-  0% { translate: 0 0; }
-  18% { translate: -5px 2px; }
-  36% { translate: 4px -2px; }
-  54% { translate: -3px 1px; }
+  0% { translate: 0 0; scale: 1; }
+  8% { translate: 9px -4px; scale: 1.025; }
+  20% { translate: -7px 3px; scale: 1.01; }
+  36% { translate: 5px -3px; }
+  54% { translate: -4px 2px; }
   72% { translate: 2px -1px; }
-  100% { translate: 0 0; }
+  100% { translate: 0 0; scale: 1; }
 }
 
 @keyframes gluni-break-shake-strong {
-  0% { translate: 0 0; }
-  14% { translate: -8px 3px; }
-  30% { translate: 7px -3px; }
-  46% { translate: -5px 2px; }
-  62% { translate: 4px -2px; }
-  80% { translate: -2px 1px; }
-  100% { translate: 0 0; }
+  0% { translate: 0 0; scale: 1; }
+  7% { translate: 14px -6px; scale: 1.04; }
+  18% { translate: -11px 5px; scale: 1.015; }
+  32% { translate: 8px -4px; }
+  48% { translate: -6px 3px; }
+  64% { translate: 4px -2px; }
+  82% { translate: -2px 1px; }
+  100% { translate: 0 0; scale: 1; }
 }
 
 /* HIGH-fidelity deck gets a faint moving spec highlight on the bevel for "real glass" sheen.

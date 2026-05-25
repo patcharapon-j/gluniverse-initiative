@@ -595,20 +595,30 @@ float hash11(float p) {
   return fract(p);
 }
 
+// Piecewise-LINEAR value noise. Linear interpolation (not smoothstep) keeps the
+// segments straight with sharp corners at the breakpoints — angular glass-crack
+// kinks rather than smooth sinusoidal veins. Returns roughly -0.5..0.5.
+float angNoise(float x) {
+  float i = floor(x);
+  float f = fract(x);
+  return mix(hash11(i), hash11(i + 1.0), f) - 0.5;
+}
+
 void main() {
   vec2 p = v_uv * 2.0 - 1.0;
   p.x *= u_res.x / max(u_res.y, 1.0);
 
   // Impact point: jittered slightly off-centre per splash.
-  vec2 impact = vec2((hash11(u_seed) - 0.5) * 0.18, (hash11(u_seed + 9.2) - 0.5) * 0.12);
+  vec2 impact = vec2((hash11(u_seed) - 0.5) * 0.16, (hash11(u_seed + 9.2) - 0.5) * 0.10);
   vec2 d = p - impact;
   float r = length(d);
   float a = atan(d.y, d.x);
+  float a01 = (a + 3.14159265) / 6.28318530;
 
-  // Crack growth: a hard snap outward that settles.
-  float grow = clamp(u_progress * 1.9, 0.0, 1.0);
-  grow = 1.0 - pow(1.0 - grow, 3.0);
-  float maxLen = mix(0.7, 1.85, u_intensity) * grow;
+  // Crack growth: a hard, fast snap outward that settles (snappier + punchier).
+  float grow = clamp(u_progress * 3.4, 0.0, 1.0);
+  grow = 1.0 - pow(1.0 - grow, 4.0);
+  float maxLen = mix(0.85, 2.0, u_intensity) * grow;
 
   const int N = 13;
   float crack = 0.0;
@@ -618,42 +628,64 @@ void main() {
   for (int i = 0; i < N; i++) {
     float fi = float(i);
     if (fi >= u_crackCount) { continue; }
-    float base = (fi + hash11(fi + u_seed * 7.0) * 0.8) * 6.28318 / u_crackCount;
-    // Jagged angular wobble that intensifies with radius, plus a finer branch.
-    float wob = sin(r * mix(7.0, 17.0, hash11(fi + 1.3)) + hash11(fi + 2.1) * 6.28318)
-              * mix(0.04, 0.13, hash11(fi + 3.7));
-    float branch = sin(r * mix(22.0, 44.0, hash11(fi + 4.2))) * 0.018;
-    float ang = base + wob + branch;
+    float rnd = hash11(fi + u_seed * 7.0);
+    float base = (fi + rnd * 0.55) * 6.28318530 / u_crackCount;
+
+    // Angular (kinked) deviation: straight near the impact, kinking outward.
+    float freq = mix(5.0, 11.0, hash11(fi + 1.3));
+    float amp = mix(0.07, 0.17, hash11(fi + 3.7));
+    float jag = angNoise(r * freq + rnd * 13.0) * amp;
+    jag += angNoise(r * freq * 2.7 + rnd * 5.0) * amp * 0.45; // finer secondary kink
+    jag *= clamp(r * 1.6, 0.18, 1.0);                          // start straight, kink later
+    float ang = base + jag;
+
     float da = atan(sin(a - ang), cos(a - ang));
-    float lineW = mix(0.004, 0.018, hash11(fi + 5.0)) / max(r, 0.06);
-    float thisLen = maxLen * mix(0.65, 1.2, hash11(fi + 6.0));
-    float along = smoothstep(thisLen, thisLen - 0.16, r);
+    // Thin, crisp glass line that tightens with radius.
+    float lineW = mix(0.0028, 0.012, hash11(fi + 5.0)) / max(r, 0.05);
+    float thisLen = maxLen * mix(0.6, 1.2, hash11(fi + 6.0));
+    float along = smoothstep(thisLen, thisLen - 0.10, r);
     crack = max(crack, smoothstep(lineW, 0.0, abs(da)) * along);
-    glow += smoothstep(lineW * 6.0, 0.0, abs(da)) * along * 0.16;
-    chroma = max(chroma, smoothstep(lineW * 2.4, 0.0, abs(da)) * along);
+    glow += smoothstep(lineW * 5.0, 0.0, abs(da)) * along * 0.13;
+    chroma = max(chroma, smoothstep(lineW * 2.2, 0.0, abs(da)) * along);
   }
 
-  // Expanding shockwave ring chasing the crack front.
-  float ringR = maxLen * 0.92;
-  float ring = smoothstep(0.07, 0.0, abs(r - ringR))
-             * smoothstep(0.0, 0.18, grow) * (1.0 - grow * 0.35);
+  // Polygonal concentric fracture rings — straight chords between the radials,
+  // a hallmark of shattered glass. They snap in just after the radials reach out.
+  float seg = u_crackCount;
+  float poly1 = maxLen * 0.46 + angNoise(a01 * seg + u_seed) * 0.07;
+  float poly2 = maxLen * 0.74 + angNoise(a01 * seg + u_seed + 3.0) * 0.06;
+  float ringPresent1 = smoothstep(0.18, 0.42, grow);
+  float ringPresent2 = smoothstep(0.34, 0.60, grow);
+  float ringCrack = smoothstep(0.006, 0.0, abs(r - poly1)) * ringPresent1
+                  + smoothstep(0.005, 0.0, abs(r - poly2)) * ringPresent2;
+  crack = max(crack, ringCrack * step(r, maxLen));
+  glow += ringCrack * 0.10;
 
-  // Bright central impact flash that fades fast.
-  float flash = smoothstep(0.55, 0.0, r) * (1.0 - smoothstep(0.0, 0.22, u_progress));
+  // Dual staggered shockwave rings for extra impact.
+  float ring1 = smoothstep(0.06, 0.0, abs(r - maxLen * 0.95))
+              * smoothstep(0.0, 0.14, grow) * (1.0 - grow * 0.4);
+  float ring2 = smoothstep(0.045, 0.0, abs(r - maxLen * 1.22))
+              * smoothstep(0.2, 0.5, grow) * (1.0 - grow * 0.6);
+  float ring = ring1 + ring2 * 0.7;
+
+  // Punchy white-hot core + amber flash, both gone almost instantly.
+  float core = smoothstep(0.12, 0.0, r) * (1.0 - smoothstep(0.0, 0.13, u_progress));
+  float flash = smoothstep(0.6, 0.0, r) * (1.0 - smoothstep(0.0, 0.2, u_progress));
 
   // Overall fade-out at the tail of the splash.
-  float life = 1.0 - smoothstep(0.68, 1.0, u_progress);
+  float life = 1.0 - smoothstep(0.66, 1.0, u_progress);
 
   vec3 col = vec3(0.0);
-  col += u_hot * crack * 1.7;
+  col += u_hot * crack * 1.9;
   col += u_break * glow * 1.5;
-  col += u_deep * ring * 1.25;
-  col += u_hot * flash * 1.5;
-  col.r += chroma * 0.22;
-  col.b += chroma * 0.09;
+  col += u_deep * ring * 1.35;
+  col += u_hot * flash * 1.6;
+  col += vec3(1.0) * core * 1.5;     // white-hot impact centre
+  col.r += chroma * 0.24;
+  col.b += chroma * 0.10;
   col *= life;
 
-  float alpha = clamp(max(max(crack, glow), max(ring, flash)), 0.0, 1.0) * life;
+  float alpha = clamp(max(max(crack, glow), max(max(ring, flash), core)), 0.0, 1.0) * life;
   gl_FragColor = vec4(col, alpha);
 }`;
 
