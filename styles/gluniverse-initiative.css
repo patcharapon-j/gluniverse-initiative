@@ -717,30 +717,38 @@
    outside its clip-path — so they ride the card's transform yet overhang past
    the clipped silhouette. Long names ellipsis-truncate with the full text in
    the title attribute. */
+/* Bound to the card's height (top+bottom) so a long condition list can never
+   spill into the next card's row — surplus pills wrap into a new column that
+   grows toward the play area instead of running downward. */
 .gluni-card-condition-labels {
   position: absolute;
   top: 6px;
+  bottom: 6px;
   z-index: 8;
   display: flex;
   flex-direction: column;
+  flex-wrap: wrap;
+  align-content: flex-start;
   gap: 3px;
-  max-width: 132px;
+  max-width: 204px;
   pointer-events: none;
 }
 
 .gluni-initiative--right .gluni-card-condition-labels {
   right: calc(100% + 6px);
   align-items: flex-end;
+  align-content: flex-end;
 }
 
 .gluni-initiative--left .gluni-card-condition-labels {
   left: calc(100% + 6px);
   align-items: flex-start;
+  align-content: flex-start;
 }
 
 .gluni-card-condition-label {
   box-sizing: border-box;
-  max-width: 100%;
+  max-width: 98px;
   padding: 2px 6px;
   overflow: hidden;
   pointer-events: auto;
@@ -769,6 +777,8 @@
    read top-to-bottom, minimising the horizontal footprint along the card. */
 .gluni-card-condition-labels--vertical {
   flex-direction: row;
+  flex-wrap: nowrap;
+  align-content: stretch;
   gap: 3px;
   max-width: none;
 }
@@ -777,11 +787,13 @@
   flex-direction: row-reverse;
 }
 
+/* Each ribbon is capped to the card's height so the single row never exceeds
+   it; overflowing text ellipsis-truncates (full text stays in the title). */
 .gluni-card-condition-labels--vertical .gluni-card-condition-label {
   writing-mode: vertical-rl;
   text-orientation: mixed;
   max-width: none;
-  max-height: 132px;
+  max-height: 100%;
   padding: 6px 2px;
   clip-path: polygon(0 0, 100% 0, 100% 100%, 3px 100%, 0 calc(100% - 3px));
 }
