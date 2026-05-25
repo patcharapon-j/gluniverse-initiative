@@ -529,6 +529,278 @@ function getVisualFidelity() {
   }
 }
 
+function prefersReducedMotion() {
+  try {
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  } catch {
+    return false;
+  }
+}
+
+// Reads a CSS custom property off the document root and parses it to a [r,g,b]
+// triple in 0..1 space. Falls back to the supplied default when the variable is
+// missing or unparseable (e.g. a non-hex color() value).
+function readCSSColorVar(name, fallback) {
+  let raw = "";
+  try {
+    raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  } catch {
+    raw = "";
+  }
+  const parsed = parseHexColor(raw);
+  return parsed || fallback;
+}
+
+function parseHexColor(value) {
+  if (typeof value !== "string") return null;
+  let hex = value.trim();
+  if (hex[0] !== "#") return null;
+  hex = hex.slice(1);
+  if (hex.length === 3) hex = hex.split("").map(c => c + c).join("");
+  if (hex.length !== 6) return null;
+  const num = Number.parseInt(hex, 16);
+  if (!Number.isFinite(num)) return null;
+  return [((num >> 16) & 255) / 255, ((num >> 8) & 255) / 255, (num & 255) / 255];
+}
+
+// WebGL renderer for the guard-break splash: a procedural glass-crack + shatter
+// shockwave drawn additively over the existing CSS deck. It is purely
+// decorative and self-contained — if a GL context can't be created the splash
+// still works from CSS alone. One instance lives for the lifetime of a single
+// splash element and tears itself down via destroy().
+const BREAK_GL_VERT = `
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main() {
+  v_uv = a_pos * 0.5 + 0.5;
+  gl_Position = vec4(a_pos, 0.0, 1.0);
+}`;
+
+const BREAK_GL_FRAG = `
+precision highp float;
+varying vec2 v_uv;
+uniform vec2 u_res;
+uniform float u_progress;   // 0..1 over the splash life
+uniform float u_seed;       // per-splash randomization
+uniform float u_intensity;  // 0..1 (default vs cinematic)
+uniform float u_crackCount; // active main cracks (quality gate)
+uniform vec3 u_break;
+uniform vec3 u_hot;
+uniform vec3 u_deep;
+
+float hash11(float p) {
+  p = fract(p * 0.1031);
+  p *= p + 33.33;
+  p *= p + p;
+  return fract(p);
+}
+
+void main() {
+  vec2 p = v_uv * 2.0 - 1.0;
+  p.x *= u_res.x / max(u_res.y, 1.0);
+
+  // Impact point: jittered slightly off-centre per splash.
+  vec2 impact = vec2((hash11(u_seed) - 0.5) * 0.18, (hash11(u_seed + 9.2) - 0.5) * 0.12);
+  vec2 d = p - impact;
+  float r = length(d);
+  float a = atan(d.y, d.x);
+
+  // Crack growth: a hard snap outward that settles.
+  float grow = clamp(u_progress * 1.9, 0.0, 1.0);
+  grow = 1.0 - pow(1.0 - grow, 3.0);
+  float maxLen = mix(0.7, 1.85, u_intensity) * grow;
+
+  const int N = 13;
+  float crack = 0.0;
+  float glow = 0.0;
+  float chroma = 0.0;
+
+  for (int i = 0; i < N; i++) {
+    float fi = float(i);
+    if (fi >= u_crackCount) { continue; }
+    float base = (fi + hash11(fi + u_seed * 7.0) * 0.8) * 6.28318 / u_crackCount;
+    // Jagged angular wobble that intensifies with radius, plus a finer branch.
+    float wob = sin(r * mix(7.0, 17.0, hash11(fi + 1.3)) + hash11(fi + 2.1) * 6.28318)
+              * mix(0.04, 0.13, hash11(fi + 3.7));
+    float branch = sin(r * mix(22.0, 44.0, hash11(fi + 4.2))) * 0.018;
+    float ang = base + wob + branch;
+    float da = atan(sin(a - ang), cos(a - ang));
+    float lineW = mix(0.004, 0.018, hash11(fi + 5.0)) / max(r, 0.06);
+    float thisLen = maxLen * mix(0.65, 1.2, hash11(fi + 6.0));
+    float along = smoothstep(thisLen, thisLen - 0.16, r);
+    crack = max(crack, smoothstep(lineW, 0.0, abs(da)) * along);
+    glow += smoothstep(lineW * 6.0, 0.0, abs(da)) * along * 0.16;
+    chroma = max(chroma, smoothstep(lineW * 2.4, 0.0, abs(da)) * along);
+  }
+
+  // Expanding shockwave ring chasing the crack front.
+  float ringR = maxLen * 0.92;
+  float ring = smoothstep(0.07, 0.0, abs(r - ringR))
+             * smoothstep(0.0, 0.18, grow) * (1.0 - grow * 0.35);
+
+  // Bright central impact flash that fades fast.
+  float flash = smoothstep(0.55, 0.0, r) * (1.0 - smoothstep(0.0, 0.22, u_progress));
+
+  // Overall fade-out at the tail of the splash.
+  float life = 1.0 - smoothstep(0.68, 1.0, u_progress);
+
+  vec3 col = vec3(0.0);
+  col += u_hot * crack * 1.7;
+  col += u_break * glow * 1.5;
+  col += u_deep * ring * 1.25;
+  col += u_hot * flash * 1.5;
+  col.r += chroma * 0.22;
+  col.b += chroma * 0.09;
+  col *= life;
+
+  float alpha = clamp(max(max(crack, glow), max(ring, flash)), 0.0, 1.0) * life;
+  gl_FragColor = vec4(col, alpha);
+}`;
+
+class BreakSplashGL {
+  constructor(canvas, { intensity = "default", fidelity = "high", lifeMs = 1860 } = {}) {
+    this.canvas = canvas;
+    this.lifeMs = Math.max(400, lifeMs);
+    this.intensityValue = intensity === "cinematic" ? 1.0 : 0.55;
+    this.crackCount = fidelity === "balanced" ? 9 : 13;
+    this.seed = Math.random() * 100;
+    this.raf = 0;
+    this.start = 0;
+    this.gl = null;
+    this.program = null;
+    this.uniforms = {};
+    this.onResize = () => this.resize();
+
+    this.colors = {
+      break: readCSSColorVar("--gluni-break", [1.0, 0.694, 0.176]),
+      hot: readCSSColorVar("--gluni-break-hot", [1.0, 0.878, 0.439]),
+      deep: readCSSColorVar("--gluni-break-deep", [1.0, 0.435, 0.102])
+    };
+
+    this.init();
+  }
+
+  init() {
+    const gl = this.canvas.getContext("webgl", { alpha: true, premultipliedAlpha: false, antialias: true })
+      || this.canvas.getContext("experimental-webgl", { alpha: true, premultipliedAlpha: false, antialias: true });
+    if (!gl) return false;
+    this.gl = gl;
+
+    const program = this.buildProgram(gl, BREAK_GL_VERT, BREAK_GL_FRAG);
+    if (!program) {
+      this.gl = null;
+      return false;
+    }
+    this.program = program;
+    gl.useProgram(program);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(program, "a_pos");
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+    this.uniforms = {
+      res: gl.getUniformLocation(program, "u_res"),
+      progress: gl.getUniformLocation(program, "u_progress"),
+      seed: gl.getUniformLocation(program, "u_seed"),
+      intensity: gl.getUniformLocation(program, "u_intensity"),
+      crackCount: gl.getUniformLocation(program, "u_crackCount"),
+      break: gl.getUniformLocation(program, "u_break"),
+      hot: gl.getUniformLocation(program, "u_hot"),
+      deep: gl.getUniformLocation(program, "u_deep")
+    };
+
+    gl.uniform1f(this.uniforms.seed, this.seed);
+    gl.uniform1f(this.uniforms.intensity, this.intensityValue);
+    gl.uniform1f(this.uniforms.crackCount, this.crackCount);
+    gl.uniform3fv(this.uniforms.break, this.colors.break);
+    gl.uniform3fv(this.uniforms.hot, this.colors.hot);
+    gl.uniform3fv(this.uniforms.deep, this.colors.deep);
+
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // additive over the amber deck
+
+    this.resize();
+    window.addEventListener("resize", this.onResize);
+    this.start = performance.now();
+    this.raf = window.requestAnimationFrame(() => this.frame());
+    return true;
+  }
+
+  buildProgram(gl, vertSrc, fragSrc) {
+    const vert = this.compile(gl, gl.VERTEX_SHADER, vertSrc);
+    const frag = this.compile(gl, gl.FRAGMENT_SHADER, fragSrc);
+    if (!vert || !frag) return null;
+    const program = gl.createProgram();
+    gl.attachShader(program, vert);
+    gl.attachShader(program, frag);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.warn(`${MODULE_ID} | break-splash GL link failed`, gl.getProgramInfoLog(program));
+      return null;
+    }
+    return program;
+  }
+
+  compile(gl, type, src) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, src);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      console.warn(`${MODULE_ID} | break-splash GL compile failed`, gl.getShaderInfoLog(shader));
+      return null;
+    }
+    return shader;
+  }
+
+  resize() {
+    const gl = this.gl;
+    if (!gl) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.round(window.innerWidth * dpr));
+    const h = Math.max(1, Math.round(window.innerHeight * dpr));
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+    }
+    gl.viewport(0, 0, w, h);
+    gl.uniform2f(this.uniforms.res, w, h);
+  }
+
+  frame() {
+    const gl = this.gl;
+    if (!gl) return;
+    const progress = (performance.now() - this.start) / this.lifeMs;
+    gl.uniform1f(this.uniforms.progress, progress);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (progress >= 1.05) {
+      this.destroy();
+      return;
+    }
+    this.raf = window.requestAnimationFrame(() => this.frame());
+  }
+
+  destroy() {
+    if (this.raf) window.cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    window.removeEventListener("resize", this.onResize);
+    const gl = this.gl;
+    this.gl = null;
+    if (gl) {
+      try {
+        gl.getExtension("WEBGL_lose_context")?.loseContext();
+      } catch {
+        /* best-effort cleanup */
+      }
+    }
+  }
+}
+
 function isRelevantCombatantUpdate(changed) {
   if (!changed || typeof changed !== "object") return true;
   const keys = Object.keys(changed);
@@ -2332,6 +2604,7 @@ class GLUniverseInitiativeOverlay {
     splash.className = `gluni-break-splash gluni-break-splash--${intensity} gluni-fidelity--${fidelity}`;
     splash.innerHTML = `
       <div class="gluni-break-splash-burst" aria-hidden="true"></div>
+      <canvas class="gluni-break-splash-gl" aria-hidden="true"></canvas>
       <div class="gluni-break-splash-rule" aria-hidden="true"></div>
       <div class="gluni-break-splash-inner">
         <div class="gluni-break-deck" aria-hidden="true"></div>
@@ -2345,6 +2618,24 @@ class GLUniverseInitiativeOverlay {
     `;
     document.body.appendChild(splash);
 
+    // WebGL glass-crack + shockwave layer. Decorative and additive over the CSS
+    // deck — skipped on the reduced tier or when the user prefers reduced motion.
+    let breakGL = null;
+    if (intensity !== "reduced" && !prefersReducedMotion()) {
+      const canvas = splash.querySelector(".gluni-break-splash-gl");
+      if (canvas) {
+        const renderer = new BreakSplashGL(canvas, {
+          intensity,
+          fidelity,
+          lifeMs: this.getBreakSplashDuration()
+        });
+        if (renderer.gl) breakGL = renderer;
+        else { renderer.destroy(); canvas.remove(); }
+      }
+    } else {
+      splash.querySelector(".gluni-break-splash-gl")?.remove();
+    }
+
     window.requestAnimationFrame(() => splash.classList.add("gluni-break-splash--show"));
     // Short screen-shake on impact (skipped on reduced tier via the class gate in CSS).
     if (intensity !== "reduced") {
@@ -2354,7 +2645,10 @@ class GLUniverseInitiativeOverlay {
       });
     }
     window.setTimeout(() => splash.classList.add("gluni-break-splash--leave"), this.getBreakSplashHold());
-    window.setTimeout(() => splash.remove(), this.getBreakSplashDuration());
+    window.setTimeout(() => {
+      breakGL?.destroy();
+      splash.remove();
+    }, this.getBreakSplashDuration());
   }
 
   getBreakSplashHold() {

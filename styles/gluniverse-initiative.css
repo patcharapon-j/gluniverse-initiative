@@ -3136,6 +3136,29 @@
   animation: gluni-break-shell-out 360ms var(--gluni-exit) 80ms forwards;
 }
 
+/* WebGL glass-crack + shockwave layer. Fullscreen, additively blended, sits
+   above the radial darken/burst but behind the foreground TYPE so the label
+   stays readable. Created/destroyed in JS; fades with the splash shell. */
+.gluni-break-splash-gl {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  opacity: 0;
+  transition: opacity 220ms var(--gluni-ease);
+}
+
+.gluni-break-splash--show .gluni-break-splash-gl {
+  opacity: 1;
+}
+
+.gluni-break-splash--leave .gluni-break-splash-gl {
+  opacity: 0;
+  transition: opacity 360ms var(--gluni-exit);
+}
+
 .gluni-break-splash-burst {
   position: absolute;
   top: 50%;
