@@ -620,35 +620,59 @@ void main() {
   float aspect = u_res.x / max(u_res.y, 1.0);
   vec2 uv = v_uv;
 
-  // Impact: slightly jittered off-centre per splash.
-  vec2 impact = vec2(0.5) + vec2((gluHash1(vec2(1.7)) - 0.5) * 0.12, (gluHash1(vec2(4.3)) - 0.5) * 0.08);
+  // Impact dead-centre on screen.
+  vec2 impact = vec2(0.5);
   vec2 d = uv - impact; d.x *= aspect;
   float dist = length(d);
   float ang = atan(d.y, d.x);
+  float texel = 1.0 / max(u_res.y, 1.0);
 
   // Warp the radius so the fracture front is irregular, not a clean circle.
   float warp = 0.16 * gluFbm(vec2(ang * 1.2 + 3.0, 1.7)) + 0.08 * gluFbm(vec2(ang * 3.3, 5.0)) - 0.12;
   float wdist = dist + warp;
 
-  // Large bold shards near the impact, finer further out (sparse, like the card).
-  float scale = mix(6.5, 3.2, smoothstep(0.0, 1.0, dist));
-  float ce = gluVoroEdge(vec2(uv.x * aspect, uv.y) * scale + 7.0);
-  float texel = 1.0 / max(u_res.y, 1.0);
-  float aaWidth = max(0.011, 1.5 * scale * texel);
-  float edge = 1.0 - smoothstep(0.0, aaWidth, ce);
-
-  // Fast, snappy shatter front that sweeps across the whole screen.
+  // Fast, snappy shatter front that sweeps out from the centre.
   float shatterT = clamp(u_progress * 2.6, 0.0, 1.0);
   shatterT = 1.0 - pow(1.0 - shatterT, 3.0);
-  float reach = mix(1.55, 1.9, u_intensity);
-  float front = smoothstep(0.07, -0.07, wdist - (0.05 + reach * shatterT));
-  float coverage = smoothstep(1.7, 0.08, wdist) * front;
-  float crack = edge * coverage;
+  float reach = mix(1.6, 1.95, u_intensity);
+  float frontR = 0.05 + reach * shatterT;
+  float front = smoothstep(0.07, -0.07, wdist - frontR);
+  float coverage = smoothstep(1.75, 0.06, wdist) * front;
 
-  // Flowing glow pulses keep the fracture alive instead of freezing once drawn.
+  // Coarse shards: large bold cells near the impact, finer toward the rim.
+  float scaleC = mix(6.0, 3.0, smoothstep(0.0, 1.0, dist));
+  float ceC = gluVoroEdge(vec2(uv.x * aspect, uv.y) * scaleC + 7.0);
+  float edgeC = 1.0 - smoothstep(0.0, max(0.011, 1.5 * scaleC * texel), ceC);
+
+  // Fine shards: a denser second octave that snaps in slightly later for detail.
+  float scaleF = scaleC * 2.5;
+  float ceF = gluVoroEdge(vec2(uv.x * aspect, uv.y) * scaleF + 21.0);
+  float edgeF = 1.0 - smoothstep(0.0, max(0.011, 1.5 * scaleF * texel), ceF);
+  float fineGate = smoothstep(0.28, 0.72, shatterT) * 0.6;
+  float shards = max(edgeC, edgeF * fineGate) * coverage;
+
+  // Bold radial cracks shooting straight out from the centre, jittered so they
+  // wander like real glass and growing with the shatter front.
+  float radial = 0.0;
+  for (int i = 0; i < 7; i++) {
+    float fi = float(i);
+    float a0 = (fi + gluHash1(vec2(fi, 3.0)) * 0.8) * 6.28318530 / 7.0;
+    float jit = (gluVNoise(vec2(dist * 5.5, fi * 2.0 + 1.0)) - 0.5) * 0.45 * smoothstep(0.04, 0.4, dist);
+    float da = atan(sin(ang - a0 - jit), cos(ang - a0 - jit));
+    float w = mix(0.004, 0.013, gluHash1(vec2(fi, 9.0))) / max(dist, 0.05);
+    float along = smoothstep(frontR * 1.05, frontR * 0.3, dist);
+    radial = max(radial, smoothstep(w, 0.0, abs(da)) * along);
+  }
+  float crack = max(shards, radial * front);
+
+  // Expanding shockwave ring riding the fracture front.
+  float ring = smoothstep(0.05, 0.0, abs(dist - frontR)) * smoothstep(0.04, 0.3, shatterT) * (1.0 - shatterT * 0.5);
+
+  // Flowing glow + twinkling glints keep the fracture alive, never frozen.
   float settled = smoothstep(0.4, 1.0, shatterT);
   float flow = pow(0.5 + 0.5 * sin(dist * 15.0 - u_time * 7.0), 8.0);
-  float glowFlow = crack * flow * settled;
+  float glints = pow(0.5 + 0.5 * sin(ang * 38.0 + dist * 26.0 - u_time * 5.0), 18.0) * crack;
+  float glowFlow = crack * flow * settled + glints * 0.85;
 
   // Punchy white-hot impact core + flash, both gone almost instantly.
   float core = smoothstep(0.17, 0.0, dist) * (1.0 - smoothstep(0.0, 0.10, u_progress));
@@ -658,9 +682,9 @@ void main() {
   float env = 1.0 - smoothstep(0.30, 0.66, u_progress);
 
   vec3 amber = u_break, hot = u_hot, white = vec3(1.0);
-  vec3 col = mix(amber, hot, clamp(crack, 0.0, 1.0));
+  vec3 col = mix(amber, hot, clamp(crack + ring * 0.6, 0.0, 1.0));
   col = mix(col, white, clamp(core + glowFlow, 0.0, 1.0));
-  float a = clamp(crack * 0.92 + core * 0.9 + glowFlow * 0.7 + flash * 0.5, 0.0, 1.0) * env;
+  float a = clamp(crack * 0.92 + core * 0.9 + glowFlow * 0.7 + flash * 0.5 + ring * 0.55, 0.0, 1.0) * env;
   gl_FragColor = vec4(col * a, a);
 }`;
 
