@@ -765,6 +765,33 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Vertical strip mode — chips sit in a row of slim, rotated-text ribbons that
+   read top-to-bottom, minimising the horizontal footprint along the card. */
+.gluni-card-condition-labels--vertical {
+  flex-direction: row;
+  gap: 3px;
+  max-width: none;
+}
+
+.gluni-initiative--right .gluni-card-condition-labels--vertical {
+  flex-direction: row-reverse;
+}
+
+.gluni-card-condition-labels--vertical .gluni-card-condition-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  max-width: none;
+  max-height: 132px;
+  padding: 6px 2px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 3px 100%, 0 calc(100% - 3px));
+}
+
+.gluni-card-condition-labels--vertical .gluni-card-condition-label b {
+  margin-left: 0;
+  margin-top: 4px;
+  padding: 3px 0;
+}
+
 .gluni-card-dying-bg,
 .gluni-card-dying-repeat {
   position: absolute;

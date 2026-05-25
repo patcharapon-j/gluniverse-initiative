@@ -13,7 +13,9 @@ const SETTINGS = {
   visualFidelity: "visualFidelity",
   turnMarkerEnabled: "turnMarkerEnabled",
   startMarkerEnabled: "startMarkerEnabled",
-  startConnectorEnabled: "startConnectorEnabled"
+  startConnectorEnabled: "startConnectorEnabled",
+  conditionBadges: "conditionBadges",
+  conditionBadgeLayout: "conditionBadgeLayout"
 };
 
 const TOKEN_OVERLAY_PALETTE = {
@@ -115,6 +117,12 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.StartMarker.Hint": "Mark where the active combatant's token began its turn, so players can see how far it has moved.",
   "GLUNI.Settings.StartConnector.Name": "Starting-location trail",
   "GLUNI.Settings.StartConnector.Hint": "Draw a flowing connector line from the starting-location marker to the active token. Requires the starting-location marker.",
+  "GLUNI.Settings.ConditionBadges.Name": "Show condition badges",
+  "GLUNI.Settings.ConditionBadges.Hint": "Display the small per-condition badges alongside each combatant card. Does not affect the in-card condition treatment or the actual conditions on the token.",
+  "GLUNI.Settings.ConditionBadgeLayout.Name": "Condition badge layout",
+  "GLUNI.Settings.ConditionBadgeLayout.Hint": "Arrange the condition badges as stacked horizontal pills, or as a slim vertical strip of rotated text along the card.",
+  "GLUNI.Settings.ConditionBadgeLayout.Horizontal": "Horizontal pills",
+  "GLUNI.Settings.ConditionBadgeLayout.Vertical": "Vertical strip",
   "GLUNI.TurnMarker.Next": "Next",
   "GLUNI.Settings.VisibleCount.Hint": "Number of normal initiative combatants to show from the current turn forward.",
   "GLUNI.Settings.VisibleCount.Name": "Visible combatants",
@@ -514,6 +522,30 @@ function registerSettings() {
     onChange: () => tokenOverlays?.forceRedraw()
   });
 
+  game.settings.register(MODULE_ID, SETTINGS.conditionBadges, {
+    name: localize("GLUNI.Settings.ConditionBadges.Name"),
+    hint: localize("GLUNI.Settings.ConditionBadges.Hint"),
+    scope: "client",
+    config: true,
+    type: Boolean,
+    default: true,
+    onChange: rerender
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.conditionBadgeLayout, {
+    name: localize("GLUNI.Settings.ConditionBadgeLayout.Name"),
+    hint: localize("GLUNI.Settings.ConditionBadgeLayout.Hint"),
+    scope: "client",
+    config: true,
+    type: String,
+    choices: {
+      horizontal: localize("GLUNI.Settings.ConditionBadgeLayout.Horizontal"),
+      vertical: localize("GLUNI.Settings.ConditionBadgeLayout.Vertical")
+    },
+    default: "horizontal",
+    onChange: rerender
+  });
+
   game.settings.register(MODULE_ID, SETTINGS.position, {
     scope: "client",
     config: false,
@@ -531,6 +563,22 @@ function getVisualFidelity() {
     return game.settings.get(MODULE_ID, SETTINGS.visualFidelity) || "high";
   } catch {
     return "high";
+  }
+}
+
+function getConditionBadgesEnabled() {
+  try {
+    return game.settings.get(MODULE_ID, SETTINGS.conditionBadges) !== false;
+  } catch {
+    return true;
+  }
+}
+
+function getConditionBadgeLayout() {
+  try {
+    return game.settings.get(MODULE_ID, SETTINGS.conditionBadgeLayout) === "vertical" ? "vertical" : "horizontal";
+  } catch {
+    return "horizontal";
   }
 }
 
@@ -1307,8 +1355,8 @@ class GLUniverseInitiativeOverlay {
         ${card.active ? `<div class="gluni-card-holo" aria-hidden="true"></div><div class="gluni-card-sheen" aria-hidden="true"></div>` : ""}
         ${game.user.isGM ? this.renderGMControls(card) : ""}
         </div>
-        ${card.conditions
-          ? `<div class="gluni-card-condition-labels">${renderConditionLabels(card.conditions)}</div>`
+        ${card.conditions && getConditionBadgesEnabled()
+          ? `<div class="gluni-card-condition-labels gluni-card-condition-labels--${getConditionBadgeLayout()}">${renderConditionLabels(card.conditions)}</div>`
           : ""}
       </article>
     `;
