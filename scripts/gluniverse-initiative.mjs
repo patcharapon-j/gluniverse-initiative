@@ -2948,32 +2948,6 @@ class GLUniverseInitiativeOverlay {
     window.setTimeout(() => flash.remove(), 620);
   }
 
-  // Condition announce banner. Unlike the BREAK/DYING/DELAY word-flash (which is
-  // clipped inside the card), this is a horizontal strip mounted on document.body
-  // and anchored to the card's vertical midline, so it breaks out past the card's
-  // clip-path and extends into the play area beside the rail.
-  playConditionBanner(card, text) {
-    if (!card) return;
-    const rect = card.getBoundingClientRect();
-    if (!rect.width) return;
-    const edge = game.settings.get(MODULE_ID, SETTINGS.edge) || "right";
-    const height = 40;
-    const extend = 280;
-    const banner = document.createElement("div");
-    const lengthClass = text.length > 22 ? " gluni-condition-banner--xlong" : text.length > 13 ? " gluni-condition-banner--long" : "";
-    banner.className = `gluni-condition-banner gluni-condition-banner--${edge}${lengthClass}`;
-    banner.innerHTML = `<span>${escapeHTML(text)}</span>`;
-    banner.style.position = "fixed";
-    banner.style.top = `${Math.round(rect.top + rect.height / 2 - height / 2)}px`;
-    banner.style.height = `${height}px`;
-    banner.style.width = `${Math.round(rect.width + extend)}px`;
-    if (edge === "right") banner.style.right = `${Math.round(window.innerWidth - rect.right)}px`;
-    else banner.style.left = `${Math.round(rect.left)}px`;
-    document.body.appendChild(banner);
-    window.requestAnimationFrame(() => banner.classList.add("gluni-condition-banner--go"));
-    window.setTimeout(() => banner.remove(), 920);
-  }
-
   // One-shot "stamp" entrance for a status tag chip when its status is first applied.
   pulseTagEnter(card, selector) {
     const tag = card?.querySelector?.(selector);
@@ -3106,7 +3080,7 @@ class GLUniverseInitiativeOverlay {
       texts.forEach((text, index) => {
         window.setTimeout(() => {
           const live = this.root?.querySelector(selector);
-          if (live) this.playConditionBanner(live, text);
+          if (live) this.playInlineStatusFlash(live, text, "condition");
         }, index * 240);
       });
     }

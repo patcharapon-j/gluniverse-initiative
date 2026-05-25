@@ -4053,92 +4053,6 @@
   letter-spacing: 0.06em;
 }
 
-/* Out-of-card condition announce banner. Mounted on document.body (fixed) and
-   anchored to the active card's midline; it deliberately overruns the card's
-   clip-path and reaches into the play area beside the rail. */
-.gluni-condition-banner {
-  z-index: 71;
-  display: grid;
-  align-items: center;
-  box-sizing: border-box;
-  padding: 0 20px;
-  pointer-events: none;
-  opacity: 0;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(2, 7, 11, 0.9) 16%,
-    rgba(2, 7, 11, 0.94) 50%,
-    color-mix(in srgb, var(--gluni-condition) 18%, rgba(2, 7, 11, 0.94)) 84%,
-    transparent 100%
-  );
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--gluni-condition) 44%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--gluni-condition) 44%, transparent);
-}
-
-.gluni-condition-banner--right {
-  justify-items: start;
-}
-
-.gluni-condition-banner--left {
-  justify-items: end;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--gluni-condition) 18%, rgba(2, 7, 11, 0.94)) 16%,
-    rgba(2, 7, 11, 0.94) 50%,
-    rgba(2, 7, 11, 0.9) 84%,
-    transparent 100%
-  );
-}
-
-.gluni-condition-banner--go {
-  opacity: 1;
-  animation: gluni-condition-banner-in 920ms var(--gluni-snap) both;
-}
-
-.gluni-condition-banner span {
-  color: var(--gluni-condition-hot);
-  font-size: clamp(20px, 3.4vw, 30px);
-  font-weight: 950;
-  letter-spacing: 0.12em;
-  line-height: 1;
-  text-transform: uppercase;
-  white-space: nowrap;
-  text-shadow:
-    0 0 24px var(--gluni-condition),
-    0 0 52px color-mix(in srgb, var(--gluni-condition) 42%, transparent),
-    0 4px 14px rgba(0, 0, 0, 0.92);
-}
-
-.gluni-condition-banner--long span {
-  font-size: clamp(15px, 2.8vw, 22px);
-}
-
-.gluni-condition-banner--xlong span {
-  font-size: clamp(12px, 2.2vw, 18px);
-  letter-spacing: 0.06em;
-}
-
-@keyframes gluni-condition-banner-in {
-  0% { opacity: 0; transform: translateX(-22px); }
-  16% { opacity: 1; transform: translateX(0); }
-  80% { opacity: 1; transform: translateX(0); }
-  100% { opacity: 0; transform: translateX(10px); }
-}
-
-.gluni-condition-banner--left.gluni-condition-banner--go {
-  animation-name: gluni-condition-banner-in-left;
-}
-
-@keyframes gluni-condition-banner-in-left {
-  0% { opacity: 0; transform: translateX(22px); }
-  16% { opacity: 1; transform: translateX(0); }
-  80% { opacity: 1; transform: translateX(0); }
-  100% { opacity: 0; transform: translateX(-10px); }
-}
-
 /* Condition layer wipe reveal — reuses the dying wipe so the background field
    materialises with the same motion language when a condition is announced. */
 .gluni-card--condition-entering .gluni-card-condition-bg,
@@ -5601,9 +5515,6 @@
   .gluni-card-condition-repeat,
   .gluni-card--condition-entering .gluni-card-condition-bg,
   .gluni-card--condition-entering .gluni-card-condition-repeat,
-  .gluni-condition-banner,
-  .gluni-condition-banner--go,
-  .gluni-condition-banner span,
   .gluni-card--slide-in,
   .gluni-active-tag,
   .gluni-guard-break-tag,
