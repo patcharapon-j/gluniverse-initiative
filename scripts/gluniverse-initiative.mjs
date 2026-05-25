@@ -790,13 +790,25 @@ void main() {
   gl_FragColor = mix(texture2D(u_tex, uv), texture2D(u_texB, uv), u_mix);
 }`;
 
+// Downsample pass for the supersampled splash bake: sample the 2x scratch texture
+// (LINEAR) at the stored resolution to box-average each 2x2 block, anti-aliasing
+// the procedural cracks/shards that polygon MSAA can't touch.
+const BREAK_GL_DOWNSAMPLE_FRAG = `
+precision mediump float;
+varying vec2 v_uv;
+uniform sampler2D u_src;
+void main() { gl_FragColor = texture2D(u_src, v_uv); }`;
+
 // Bake resolution / step count for the pre-rendered fracture. The splash is a
 // full-screen burst, so it needs a high baked resolution or it looks blurry and
-// aliased once cover-fit to the viewport; 1024² holds up to ~1440p. Frames are
-// cross-faded at playback (see frame()), so a modest count stays smooth. Memory
-// is ~20 * 1024² * 4 ≈ 84MB of GPU textures, allocated once at load.
-const SPLASH_BAKE_SIZE = 1024;
-const SPLASH_BAKE_FRAMES = 20;
+// aliased once cover-fit to the viewport; 1280² is sharp to ~1440p (near 1:1) and
+// holds up at 4K, and it's rendered at SS× then averaged down so the cracks don't
+// alias. Frames are cross-faded at playback (see frame()), so a modest count stays
+// smooth. Memory is ~18 * 1280² * 4 ≈ 118MB of GPU textures (the SS scratch is
+// transient).
+const SPLASH_BAKE_SIZE = 1280;
+const SPLASH_BAKE_FRAMES = 18;
+const SPLASH_BAKE_SS = 2;
 
 // One persistent renderer is reused across every guard break. The (fairly heavy)
 // Voronoi/fbm fracture shader is compiled AND fully evaluated exactly once at
@@ -879,49 +891,68 @@ class BreakSplashGL {
   }
 
   // Render SPLASH_BAKE_FRAMES steps of the heavy fracture shader into individual
-  // textures through an off-screen framebuffer. Square (aspect 1) so playback can
-  // cover-fit any viewport. Blending is disabled so the premultiplied fragment
-  // (col*a, a) is written verbatim into each texture for later blitting.
+  // textures through an off-screen framebuffer. Each step is rendered at SS× into a
+  // scratch texture and box-averaged down into the stored frame, so the procedural
+  // cracks come out anti-aliased. Square (aspect 1) so playback can cover-fit any
+  // viewport. Blending is disabled so the premultiplied fragment (col*a, a) is
+  // written verbatim for later blitting.
   bake(gl, buffer) {
     const bakeProgram = this.buildProgram(gl, BREAK_GL_VERT, BREAK_GL_FRAG);
-    if (!bakeProgram) return false;
-    gl.useProgram(bakeProgram);
-    const loc = gl.getAttribLocation(bakeProgram, "a_pos");
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const downProgram = this.buildProgram(gl, BREAK_GL_VERT, BREAK_GL_DOWNSAMPLE_FRAG);
+    if (!bakeProgram || !downProgram) return false;
 
-    const u = name => gl.getUniformLocation(bakeProgram, name);
     const S = SPLASH_BAKE_SIZE;
-    gl.uniform2f(u("u_res"), S, S);
+    const hiRes = S * SPLASH_BAKE_SS;
+    const bakeLoc = gl.getAttribLocation(bakeProgram, "a_pos");
+    const downLoc = gl.getAttribLocation(downProgram, "a_pos");
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+
+    gl.useProgram(bakeProgram);
+    const u = name => gl.getUniformLocation(bakeProgram, name);
+    gl.uniform2f(u("u_res"), hiRes, hiRes);
     gl.uniform1f(u("u_seed"), Math.random() * 100);
     // Bake the fuller cinematic field; the calmer tiers read fine from the same frames.
     gl.uniform1f(u("u_intensity"), 1.0);
     gl.uniform3fv(u("u_break"), this.colors.break);
     gl.uniform3fv(u("u_hot"), this.colors.hot);
+    const uProgress = u("u_progress"), uTime = u("u_time");
 
+    gl.useProgram(downProgram);
+    gl.uniform1i(gl.getUniformLocation(downProgram, "u_src"), 0);
+
+    // Scratch hi-res target the fracture is rendered into before averaging down.
+    const temp = this.makeTexture(gl, hiRes);
     const fbo = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-    gl.viewport(0, 0, S, S);
     gl.disable(gl.BLEND);
 
     const refLifeSec = 1.05;   // reference GL life the flowing-glow term is baked against
     let ok = true;
     for (let i = 0; i < SPLASH_BAKE_FRAMES; i++) {
-      const tex = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, S, S, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) { ok = false; gl.deleteTexture(tex); break; }
-
+      const tex = this.makeTexture(gl, S);
       const progress = (i / (SPLASH_BAKE_FRAMES - 1)) * 1.05;
-      gl.uniform1f(u("u_progress"), progress);
-      gl.uniform1f(u("u_time"), progress * refLifeSec);
+
+      // 1) heavy fracture -> hi-res scratch
+      gl.useProgram(bakeProgram);
+      gl.enableVertexAttribArray(bakeLoc);
+      gl.vertexAttribPointer(bakeLoc, 2, gl.FLOAT, false, 0, 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, temp, 0);
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) { ok = false; gl.deleteTexture(tex); break; }
+      gl.viewport(0, 0, hiRes, hiRes);
+      gl.uniform1f(uProgress, progress);
+      gl.uniform1f(uTime, progress * refLifeSec);
       gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+      // 2) box-average scratch -> stored frame
+      gl.useProgram(downProgram);
+      gl.enableVertexAttribArray(downLoc);
+      gl.vertexAttribPointer(downLoc, 2, gl.FLOAT, false, 0, 0);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      gl.viewport(0, 0, S, S);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, temp);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       this.frames.push(tex);
@@ -929,7 +960,9 @@ class BreakSplashGL {
     gl.finish();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.deleteFramebuffer(fbo);
+    gl.deleteTexture(temp);
     gl.deleteProgram(bakeProgram);
+    gl.deleteProgram(downProgram);
 
     if (!ok) {
       for (const t of this.frames) gl.deleteTexture(t);
@@ -937,6 +970,18 @@ class BreakSplashGL {
       return false;
     }
     return true;
+  }
+
+  // Allocate an empty RGBA texture with edge clamping + linear filtering.
+  makeTexture(gl, size) {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return tex;
   }
 
   get available() {
@@ -5286,14 +5331,28 @@ void main(void){
   gl_FragColor = vec4(col * a, a);   // premultiplied, matching the live shader
 }`;
 
+// Trivial passthrough used to downsample a supersampled bake. With the source at
+// LINEAR filtering and a 2x render scale, sampling it at the target resolution
+// box-averages each 2x2 block — anti-aliasing the shader's high-frequency detail
+// (ticks/dashes/rims), which polygon MSAA cannot do. Samples raw (texture2D) and
+// writes verbatim (blend disabled), so the tint-mask data isn't premultiplied.
+const FX_FRAG_DOWNSAMPLE = `
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+void main(void){ gl_FragColor = texture2D(uSampler, vTextureCoord); }`;
+
+// Supersample factor for the bake (render at SS× the stored size, average down).
+const MARKER_BAKE_SS = 2;
+
 // Baked turn-marker sheet: how many loop frames, at what resolution. The disc can
 // be drawn well above token size at high zoom, so it needs a generous baked
-// resolution (plus MSAA) or the crisp rims/ticks look blurry and aliased; 384² +
-// multisampling holds up. ~32 frames cross-faded is smooth for the slow orbit.
-// Three sheets (active-high, active-balanced, next) bake once → ~32 * 384² * 4 * 3
-// ≈ 57MB of GPU textures.
-const MARKER_BAKE_SIZE = 384;
-const MARKER_BAKE_FRAMES = 32;
+// resolution (plus supersampling) or the crisp rims/ticks look blurry and
+// aliased; 512² (power-of-two), rendered at 2x and averaged down, stays sharp
+// deep into zoom. ~24 frames cross-faded is smooth for the slow orbit. Three
+// sheets (active-high, active-balanced, next) bake once → ~24 * 512² * 4 * 3
+// ≈ 75MB of GPU textures.
+const MARKER_BAKE_SIZE = 512;
+const MARKER_BAKE_FRAMES = 24;
 // Seconds for one full loop (one comet orbit). ~TAU / 1.1 matches the old spin
 // rate; cinematic plays it faster (see the speed multiplier in _syncMarker).
 const MARKER_LOOP_SEC = 5.7;
@@ -5326,23 +5385,33 @@ function getMarkerSheets() {
 // Render the periodic bake shader into one RenderTexture per loop frame. Blending
 // is disabled so the mask/alpha fragment is stored verbatim (not premultiplied).
 function bakeMarkerSheet(renderer, active, high) {
-  const S = MARKER_BAKE_SIZE, N = MARKER_BAKE_FRAMES, TAU = Math.PI * 2;
-  // Multisample the bake so the thin rims/ticks/dashes come out anti-aliased
-  // (a plain RT would store the shader's hard edges and look jagged when scaled).
-  const multisample = PIXI.MSAA_QUALITY?.HIGH ?? PIXI.MSAA_QUALITY?.MEDIUM ?? 0;
-  const mesh = makeFxMesh(FX_FRAG_TURN_BAKE, { uPhase: 0, uActive: active, uHigh: high });
-  mesh.blendMode = PIXI.BLEND_MODES.NONE;
-  setFxMeshQuad(mesh, S, S, false);
+  const S = MARKER_BAKE_SIZE, N = MARKER_BAKE_FRAMES, SS = MARKER_BAKE_SS, TAU = Math.PI * 2;
+  const hiRes = S * SS;
+  // Scratch hi-res target the procedural disc is rendered into, then box-averaged
+  // down into each stored frame. One temp, reused across every frame.
+  const temp = PIXI.RenderTexture.create({ width: hiRes, height: hiRes });
+  temp.baseTexture.scaleMode = PIXI.SCALE_MODES.LINEAR;
+
+  const src = makeFxMesh(FX_FRAG_TURN_BAKE, { uPhase: 0, uActive: active, uHigh: high });
+  src.blendMode = PIXI.BLEND_MODES.NONE;
+  setFxMeshQuad(src, hiRes, hiRes, false);
+
+  const down = makeFxMesh(FX_FRAG_DOWNSAMPLE, { uSampler: temp });
+  down.blendMode = PIXI.BLEND_MODES.NONE;
+  setFxMeshQuad(down, S, S, false);
+
   const frames = [];
   for (let i = 0; i < N; i++) {
-    const rt = PIXI.RenderTexture.create({ width: S, height: S, multisample });
-    mesh.shader.uniforms.uPhase = (i / N) * TAU;
-    renderer.render(mesh, { renderTexture: rt, clear: true });
-    // Resolve the multisampled buffer down to the sampleable texture before reuse.
-    if (multisample) { try { renderer.framebuffer.blit(); } catch {} }
+    src.shader.uniforms.uPhase = (i / N) * TAU;
+    renderer.render(src, { renderTexture: temp, clear: true });
+    const rt = PIXI.RenderTexture.create({ width: S, height: S });
+    renderer.render(down, { renderTexture: rt, clear: true });
     frames.push(rt);
   }
-  destroyFxMesh(mesh);
+
+  destroyFxMesh(src);
+  destroyFxMesh(down);
+  try { temp.destroy(true); } catch {}
   return { frames };
 }
 
