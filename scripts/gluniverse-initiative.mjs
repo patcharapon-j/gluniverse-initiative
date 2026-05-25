@@ -13,7 +13,9 @@ const SETTINGS = {
   visualFidelity: "visualFidelity",
   turnMarkerEnabled: "turnMarkerEnabled",
   startMarkerEnabled: "startMarkerEnabled",
-  startConnectorEnabled: "startConnectorEnabled"
+  startConnectorEnabled: "startConnectorEnabled",
+  guardBreakSound: "guardBreakSound",
+  guardBreakSoundVolume: "guardBreakSoundVolume"
 };
 
 const TOKEN_OVERLAY_PALETTE = {
@@ -114,6 +116,10 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.StartMarker.Hint": "Mark where the active combatant's token began its turn, so players can see how far it has moved.",
   "GLUNI.Settings.StartConnector.Name": "Starting-location trail",
   "GLUNI.Settings.StartConnector.Hint": "Draw a flowing connector line from the starting-location marker to the active token. Requires the starting-location marker.",
+  "GLUNI.Settings.GuardBreakSound.Name": "Guard break sound",
+  "GLUNI.Settings.GuardBreakSound.Hint": "Audio file played for everyone when a combatant's guard is broken. Leave empty for no sound.",
+  "GLUNI.Settings.GuardBreakSoundVolume.Name": "Guard break sound volume",
+  "GLUNI.Settings.GuardBreakSoundVolume.Hint": "Playback volume of the guard break sound for this user.",
   "GLUNI.TurnMarker.Next": "Next",
   "GLUNI.Settings.VisibleCount.Hint": "Number of normal initiative combatants to show from the current turn forward.",
   "GLUNI.Settings.VisibleCount.Name": "Visible combatants",
@@ -507,6 +513,26 @@ function registerSettings() {
     type: Boolean,
     default: true,
     onChange: () => tokenOverlays?.forceRedraw()
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.guardBreakSound, {
+    name: localize("GLUNI.Settings.GuardBreakSound.Name"),
+    hint: localize("GLUNI.Settings.GuardBreakSound.Hint"),
+    scope: "world",
+    config: true,
+    type: String,
+    filePicker: "audio",
+    default: ""
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.guardBreakSoundVolume, {
+    name: localize("GLUNI.Settings.GuardBreakSoundVolume.Name"),
+    hint: localize("GLUNI.Settings.GuardBreakSoundVolume.Hint"),
+    scope: "client",
+    config: true,
+    type: Number,
+    range: { min: 0, max: 1, step: 0.05 },
+    default: 0.8
   });
 
   game.settings.register(MODULE_ID, SETTINGS.position, {
@@ -2290,7 +2316,30 @@ class GLUniverseInitiativeOverlay {
     if (!data?.combatantId) return;
     if (data.combatId && this.combat?.id !== data.combatId) return;
     this.pendingGuardBreakImpactId = data.combatantId;
+    this.playGuardBreakSound();
     this.renderSoon();
+  }
+
+  // Plays the configured guard-break sting locally. queueGuardBreakImpact runs on
+  // every client (the GM applies it; players receive the broadcast), so each
+  // client plays its own copy — never socket-push the sound or it doubles up.
+  playGuardBreakSound() {
+    let src = "";
+    try { src = game.settings.get(MODULE_ID, SETTINGS.guardBreakSound) || ""; } catch { src = ""; }
+    if (!src) return;
+
+    let volume = 0.8;
+    try {
+      const raw = Number(game.settings.get(MODULE_ID, SETTINGS.guardBreakSoundVolume));
+      if (Number.isFinite(raw)) volume = clamp(raw, 0, 1);
+    } catch { volume = 0.8; }
+    if (volume <= 0) return;
+
+    try {
+      foundry.audio.AudioHelper.play({ src, volume, autoplay: true, loop: false }, false);
+    } catch (err) {
+      console.error(`${MODULE_ID} | failed to play guard break sound`, err);
+    }
   }
 
   playPendingGuardBreakImpact() {
