@@ -385,6 +385,9 @@ Hooks.on("combatRound", (_combat, updateData) => {
 Hooks.on("canvasReady", () => {
   tokenOverlays?.refresh();
   refreshNativeTurnMarkerSuppression();
+  // Pre-bake the turn-marker loop sheets now that the renderer exists, so the
+  // first combat doesn't pay the bake cost mid-encounter.
+  try { getMarkerSheets(); } catch { /* falls back to the live shader on demand */ }
 });
 Hooks.on("refreshToken", token => hideNativeTurnMarker(token));
 
@@ -770,27 +773,64 @@ void main() {
   gl_FragColor = vec4(col * a, a);
 }`;
 
-// One persistent renderer is reused across every guard break: the WebGL context
-// and the (fairly heavy) shader program are created and compiled exactly once,
-// then the single canvas is reparented into each splash element when it plays.
-// Compiling/linking this shader synchronously on every break is what caused the
-// on-trigger frame hiccup, so we pay that cost once (pre-warmed at ready) and
-// never again. Self-contained — if a GL context can't be created the splash
-// still works from CSS alone.
+// Playback shader: the heavy fracture above is rendered ONCE per animation step
+// into its own texture (see BreakSplashGL.bake); at play time we just blit the
+// pre-baked frame. The fracture is baked square (aspect 1) so this cover-fits it
+// to any viewport without turning the impact circle into an ellipse.
+const BREAK_GL_PLAY_FRAG = `
+precision mediump float;
+varying vec2 v_uv;
+uniform sampler2D u_tex;   // baked frame A
+uniform sampler2D u_texB;  // baked frame B (next step)
+uniform float u_mix;       // 0..1 A->B, so few baked frames still play smoothly
+uniform vec2 u_cover;      // (vw/max, vh/max): centre-crop the square to cover
+void main() {
+  vec2 uv = (v_uv - 0.5) * u_cover + 0.5;
+  // Both frames are already premultiplied (col*a, a); a lerp stays valid.
+  gl_FragColor = mix(texture2D(u_tex, uv), texture2D(u_texB, uv), u_mix);
+}`;
+
+// Downsample pass for the supersampled splash bake: sample the 2x scratch texture
+// (LINEAR) at the stored resolution to box-average each 2x2 block, anti-aliasing
+// the procedural cracks/shards that polygon MSAA can't touch.
+const BREAK_GL_DOWNSAMPLE_FRAG = `
+precision mediump float;
+varying vec2 v_uv;
+uniform sampler2D u_src;
+void main() { gl_FragColor = texture2D(u_src, v_uv); }`;
+
+// Bake resolution / step count for the pre-rendered fracture. The splash is a
+// full-screen burst, so it needs a high baked resolution or it looks blurry and
+// aliased once cover-fit to the viewport; 1280² is sharp to ~1440p (near 1:1) and
+// holds up at 4K, and it's rendered at SS× then averaged down so the cracks don't
+// alias. Frames are cross-faded at playback (see frame()), so a modest count stays
+// smooth. Memory is ~18 * 1280² * 4 ≈ 118MB of GPU textures (the SS scratch is
+// transient).
+const SPLASH_BAKE_SIZE = 1280;
+const SPLASH_BAKE_FRAMES = 18;
+const SPLASH_BAKE_SS = 2;
+
+// One persistent renderer is reused across every guard break. The (fairly heavy)
+// Voronoi/fbm fracture shader is compiled AND fully evaluated exactly once at
+// load: every animation step is rendered into its own texture, then the live
+// splash just blits the matching pre-baked frame each tick. Running that
+// full-screen procedural field every frame on every break is what caused the
+// performance hiccup; baking removes the per-frame shader cost entirely.
+// Self-contained — if a GL context can't be created the splash works from CSS alone.
 class BreakSplashGL {
   constructor() {
     this.canvas = document.createElement("canvas");
     this.canvas.className = "gluni-break-splash-gl";
     this.canvas.setAttribute("aria-hidden", "true");
     this.lifeMs = 1050;
-    this.intensityValue = 0.55;
-    this.seed = Math.random() * 100;
     this.raf = 0;
     this.start = 0;
     this.host = null;
     this.gl = null;
-    this.program = null;
+    this.playProgram = null;
+    this.frames = [];          // one baked WebGL texture per animation step
     this.uniforms = {};
+    this.cover = [1, 1];
     this.onResize = () => this.resize();
 
     this.colors = {
@@ -802,83 +842,162 @@ class BreakSplashGL {
   }
 
   init() {
-    const opts = { alpha: true, premultipliedAlpha: true, antialias: true };
+    const opts = { alpha: true, premultipliedAlpha: true, antialias: false };
     const gl = this.canvas.getContext("webgl", opts) || this.canvas.getContext("experimental-webgl", opts);
     if (!gl) return false;
     this.gl = gl;
 
-    const program = this.buildProgram(gl, BREAK_GL_VERT, BREAK_GL_FRAG);
-    if (!program) {
-      this.gl = null;
-      return false;
-    }
-    this.program = program;
-    gl.useProgram(program);
-
     const buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-    const loc = gl.getAttribLocation(program, "a_pos");
+
+    // Pay the heavy shader's full cost once, here at load: render every animation
+    // step into its own texture. After this the fracture shader is never run again.
+    if (!this.bake(gl, buffer)) {
+      this.gl = null;
+      return false;
+    }
+
+    // Lightweight playback program used per-frame at play time.
+    const play = this.buildProgram(gl, BREAK_GL_VERT, BREAK_GL_PLAY_FRAG);
+    if (!play) {
+      this.gl = null;
+      return false;
+    }
+    this.playProgram = play;
+    gl.useProgram(play);
+    const loc = gl.getAttribLocation(play, "a_pos");
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-
     this.uniforms = {
-      res: gl.getUniformLocation(program, "u_res"),
-      time: gl.getUniformLocation(program, "u_time"),
-      progress: gl.getUniformLocation(program, "u_progress"),
-      seed: gl.getUniformLocation(program, "u_seed"),
-      intensity: gl.getUniformLocation(program, "u_intensity"),
-      break: gl.getUniformLocation(program, "u_break"),
-      hot: gl.getUniformLocation(program, "u_hot")
+      tex: gl.getUniformLocation(play, "u_tex"),
+      texB: gl.getUniformLocation(play, "u_texB"),
+      mix: gl.getUniformLocation(play, "u_mix"),
+      cover: gl.getUniformLocation(play, "u_cover")
     };
-
-    gl.uniform3fv(this.uniforms.break, this.colors.break);
-    gl.uniform3fv(this.uniforms.hot, this.colors.hot);
+    gl.uniform1i(this.uniforms.tex, 0);
+    gl.uniform1i(this.uniforms.texB, 1);
 
     gl.disable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
-    // Premultiplied source-over (output is col*a, a); CSS screen-blends the
-    // canvas so the bright shards glow over the amber deck.
+    // Premultiplied source-over (baked frames store col*a, a); CSS screen-blends
+    // the canvas so the bright shards glow over the amber deck.
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
-    // Pre-warm: a single off-screen draw forces the driver to finish lazy shader
-    // compilation now, at load, rather than on the first guard break.
     this.resize();
-    gl.uniform1f(this.uniforms.seed, this.seed);
-    gl.uniform1f(this.uniforms.intensity, this.intensityValue);
-    gl.uniform1f(this.uniforms.time, 0);
-    gl.uniform1f(this.uniforms.progress, 0);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.finish();
-
     window.addEventListener("resize", this.onResize);
     return true;
   }
 
-  get available() {
-    return !!this.gl;
+  // Render SPLASH_BAKE_FRAMES steps of the heavy fracture shader into individual
+  // textures through an off-screen framebuffer. Each step is rendered at SS× into a
+  // scratch texture and box-averaged down into the stored frame, so the procedural
+  // cracks come out anti-aliased. Square (aspect 1) so playback can cover-fit any
+  // viewport. Blending is disabled so the premultiplied fragment (col*a, a) is
+  // written verbatim for later blitting.
+  bake(gl, buffer) {
+    const bakeProgram = this.buildProgram(gl, BREAK_GL_VERT, BREAK_GL_FRAG);
+    const downProgram = this.buildProgram(gl, BREAK_GL_VERT, BREAK_GL_DOWNSAMPLE_FRAG);
+    if (!bakeProgram || !downProgram) return false;
+
+    const S = SPLASH_BAKE_SIZE;
+    const hiRes = S * SPLASH_BAKE_SS;
+    const bakeLoc = gl.getAttribLocation(bakeProgram, "a_pos");
+    const downLoc = gl.getAttribLocation(downProgram, "a_pos");
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+
+    gl.useProgram(bakeProgram);
+    const u = name => gl.getUniformLocation(bakeProgram, name);
+    gl.uniform2f(u("u_res"), hiRes, hiRes);
+    gl.uniform1f(u("u_seed"), Math.random() * 100);
+    // Bake the fuller cinematic field; the calmer tiers read fine from the same frames.
+    gl.uniform1f(u("u_intensity"), 1.0);
+    gl.uniform3fv(u("u_break"), this.colors.break);
+    gl.uniform3fv(u("u_hot"), this.colors.hot);
+    const uProgress = u("u_progress"), uTime = u("u_time");
+
+    gl.useProgram(downProgram);
+    gl.uniform1i(gl.getUniformLocation(downProgram, "u_src"), 0);
+
+    // Scratch hi-res target the fracture is rendered into before averaging down.
+    const temp = this.makeTexture(gl, hiRes);
+    const fbo = gl.createFramebuffer();
+    gl.disable(gl.BLEND);
+
+    const refLifeSec = 1.05;   // reference GL life the flowing-glow term is baked against
+    let ok = true;
+    for (let i = 0; i < SPLASH_BAKE_FRAMES; i++) {
+      const tex = this.makeTexture(gl, S);
+      const progress = (i / (SPLASH_BAKE_FRAMES - 1)) * 1.05;
+
+      // 1) heavy fracture -> hi-res scratch
+      gl.useProgram(bakeProgram);
+      gl.enableVertexAttribArray(bakeLoc);
+      gl.vertexAttribPointer(bakeLoc, 2, gl.FLOAT, false, 0, 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, temp, 0);
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) { ok = false; gl.deleteTexture(tex); break; }
+      gl.viewport(0, 0, hiRes, hiRes);
+      gl.uniform1f(uProgress, progress);
+      gl.uniform1f(uTime, progress * refLifeSec);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+      // 2) box-average scratch -> stored frame
+      gl.useProgram(downProgram);
+      gl.enableVertexAttribArray(downLoc);
+      gl.vertexAttribPointer(downLoc, 2, gl.FLOAT, false, 0, 0);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      gl.viewport(0, 0, S, S);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, temp);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      this.frames.push(tex);
+    }
+    gl.finish();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(fbo);
+    gl.deleteTexture(temp);
+    gl.deleteProgram(bakeProgram);
+    gl.deleteProgram(downProgram);
+
+    if (!ok) {
+      for (const t of this.frames) gl.deleteTexture(t);
+      this.frames = [];
+      return false;
+    }
+    return true;
   }
 
-  // Attach the persistent canvas to a splash element and run one fracture cycle.
-  // Reuses the existing context/program — no recompilation. A second guard break
-  // that lands mid-cycle steals the canvas from the previous splash (whose CSS
-  // text/deck keep animating without the GL layer), which is fine.
-  play(host, { intensity = "default", lifeMs = 1050 } = {}) {
-    if (!this.gl || !host) return false;
+  // Allocate an empty RGBA texture with edge clamping + linear filtering.
+  makeTexture(gl, size) {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return tex;
+  }
+
+  get available() {
+    return !!this.gl && this.frames.length > 0;
+  }
+
+  // Attach the persistent canvas to a splash element and play back the baked
+  // frames. A second guard break that lands mid-cycle steals the canvas from the
+  // previous splash (whose CSS text/deck keep animating without the GL layer).
+  play(host, { lifeMs = 1050 } = {}) {
+    if (!this.available || !host) return false;
     if (this.raf) window.cancelAnimationFrame(this.raf);
     this.detach();
 
     this.host = host;
     this.lifeMs = Math.max(400, lifeMs);
-    this.intensityValue = intensity === "cinematic" ? 1.0 : 0.55;
-    this.seed = Math.random() * 100;
-
-    const gl = this.gl;
-    gl.useProgram(this.program);
-    gl.uniform1f(this.uniforms.seed, this.seed);
-    gl.uniform1f(this.uniforms.intensity, this.intensityValue);
 
     // Insert just after the burst so stacking matches the old inline canvas.
     const burst = host.querySelector(".gluni-break-splash-burst");
@@ -896,9 +1015,9 @@ class BreakSplashGL {
     this.host = null;
   }
 
-  // Stop the current cycle but keep the context/program alive for reuse. Only
-  // honours the request if `host` still owns the canvas (guards against a newer
-  // splash that has already taken it over).
+  // Stop the current cycle but keep the context/baked frames alive for reuse.
+  // Only honours the request if `host` still owns the canvas (guards against a
+  // newer splash that has already taken it over).
   stop(host = null) {
     if (host && this.host !== host) return;
     if (this.raf) window.cancelAnimationFrame(this.raf);
@@ -943,7 +1062,10 @@ class BreakSplashGL {
       this.canvas.height = h;
     }
     gl.viewport(0, 0, w, h);
-    gl.uniform2f(this.uniforms.res, w, h);
+    // Centre-crop the square baked frame to cover the viewport (keeps the impact
+    // circle circular at any aspect ratio).
+    const m = Math.max(w, h);
+    this.cover = [w / m, h / m];
   }
 
   frame() {
@@ -951,8 +1073,17 @@ class BreakSplashGL {
     if (!gl) return;
     const elapsed = performance.now() - this.start;
     const progress = elapsed / this.lifeMs;
-    gl.uniform1f(this.uniforms.time, elapsed / 1000);
-    gl.uniform1f(this.uniforms.progress, progress);
+    const last = this.frames.length - 1;
+    const fpos = Math.max(0, Math.min(last, (progress / 1.05) * last));
+    const i = Math.min(last, Math.floor(fpos));
+    const j = Math.min(last, i + 1);
+    gl.useProgram(this.playProgram);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.frames[i]);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.frames[j]);
+    gl.uniform1f(this.uniforms.mix, fpos - i);
+    gl.uniform2f(this.uniforms.cover, this.cover[0], this.cover[1]);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -971,6 +1102,10 @@ class BreakSplashGL {
     const gl = this.gl;
     this.gl = null;
     if (gl) {
+      for (const t of this.frames) {
+        try { gl.deleteTexture(t); } catch { /* best-effort cleanup */ }
+      }
+      this.frames = [];
       try {
         gl.getExtension("WEBGL_lose_context")?.loseContext();
       } catch {
@@ -5106,6 +5241,186 @@ void main(void){
   gl_FragColor = vec4(col * a, a);
 }`;
 
+// Bake variant of FX_FRAG_TURN. Two changes vs. the live shader:
+//   1. Animation is driven by uPhase in [0, TAU) instead of free-running uTime,
+//      and every phase-dependent term is made periodic over that range (integer
+//      angular rates; the drifting plasma flow becomes a closed circular orbit)
+//      so the rendered frame sequence loops with NO seam — frame[N] == frame[0].
+//   2. It is tint-agnostic: instead of a final colour it outputs the two MIX
+//      FACTORS the live shader used (base->hi in R, ->white-hot in G) plus the
+//      alpha in A. The playback shader reconstructs the per-disposition colour
+//      from those masks, so one baked sheet serves every disposition.
+const FX_FRAG_TURN_BAKE = `
+varying vec2 vTextureCoord;
+uniform float uPhase, uActive, uHigh;
+${FX_GLSL_NOISE}
+#define TAU 6.28318530718
+void main(void){
+  vec2 uv = vTextureCoord - 0.5;
+  float dist = length(uv) * 2.0;
+  float ang = atan(uv.y, uv.x);
+  float spin = uPhase;
+
+  float rMid = 0.62;
+  float band = smoothstep(0.30, rMid, dist) * (1.0 - smoothstep(rMid, 0.94, dist));
+  float innerRim = exp(-pow((dist - 0.34) / 0.030, 2.0));
+  float outerRim = exp(-pow((dist - 0.84) / 0.040, 2.0));
+
+  // Rings: rate 2 is already integer-periodic over [0, TAU).
+  float rings = pow(0.5 + 0.5 * sin(dist * 46.0 - spin * 2.0), 9.0) * band;
+  // Ticks: rate rounded 1.3 -> 1.0 so the ring lands back on itself at TAU.
+  float ticks = pow(0.5 + 0.5 * cos(ang * 36.0 + spin * 1.0), 20.0)
+              * smoothstep(0.54, 0.72, dist) * (1.0 - smoothstep(0.78, 0.93, dist));
+  // Comet: rate rounded 1.1 -> 1.0 so it orbits exactly once per loop.
+  float head = mod(ang - spin * 1.0, TAU);
+  float sweep = pow(smoothstep(2.0, 0.0, head), 1.7) * band;
+  float headGlow = pow(smoothstep(0.4, 0.0, head), 2.2) * band;
+  // Plasma flow on a closed circular path so the shimmer loops seamlessly.
+  float flow = gluFbm(vec2(ang * 3.0 + 0.6 * cos(spin), dist * 5.0 + 0.6 * sin(spin)));
+  float energy = (0.5 + 0.5 * flow) * band;
+  float core = (1.0 - smoothstep(0.0, rMid, dist)) * 0.12;
+
+  float ringsW = uHigh > 0.5 ? 0.85 : 0.55;
+  float ticksW = uHigh > 0.5 ? 0.8 : 0.45;
+
+  float activeI = band * (0.4 + 0.55 * energy)
+                + rings * ringsW + ticks * ticksW + sweep * 0.65
+                + outerRim * 0.95 + innerRim * 0.45 + core;
+
+  float nextBand = smoothstep(0.68, 0.78, dist) * (1.0 - smoothstep(0.84, 0.95, dist));
+  // Dash rate rounded 0.5 -> 1.0 for a clean single-orbit loop.
+  float dashes = 0.5 + 0.5 * sin(ang * 26.0 - spin * 1.0);
+  dashes = smoothstep(0.5, 0.82, dashes);
+  float nextRim = exp(-pow((dist - 0.90) / 0.035, 2.0));
+  float nextI = nextBand * dashes * (0.8 + 0.2 * flow) + nextRim * 0.55;
+
+  float intensity = mix(nextI, activeI, step(0.5, uActive));
+  // Breathing pulse, integer rate so it loops; active beats faster than next.
+  float pulse = 0.85 + 0.15 * sin(uPhase * (uActive > 0.5 ? 3.0 : 2.0));
+  intensity *= pulse;
+
+  // base->hi mix factor (R) and ->white-hot factor (G), matching the live shader.
+  float mixHi = mix(
+    clamp(dashes * 0.4 + nextRim * 0.5, 0.0, 1.0),
+    clamp(rings + ticks + sweep * 0.5 + headGlow + outerRim * 0.6, 0.0, 1.0),
+    step(0.5, uActive));
+  float white = clamp(headGlow * 0.85, 0.0, 1.0) * step(0.5, uActive);
+
+  float a = clamp(intensity, 0.0, 1.0) * (uActive > 0.5 ? 0.96 : 0.86);
+  a *= smoothstep(1.0, 0.9, dist);
+  // Written verbatim (bake disables blending): NOT premultiplied — these are data.
+  gl_FragColor = vec4(mixHi, white, 0.0, a);
+}`;
+
+// Playback shader for the baked turn-marker sheet. Samples two adjacent baked
+// frames and cross-fades them (uMix) for smooth motion between sparse frames,
+// then reconstructs the live two-tone + white-hot look from the mask channels
+// using the disposition colours. Costs two texture reads + two mixes per pixel
+// instead of the full procedural plasma field — the whole point of the bake.
+const FX_FRAG_TURN_PLAY = `
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;    // baked frame A
+uniform sampler2D uFrameB;     // baked frame B (next in the loop)
+uniform float uMix;            // 0..1 A->B
+uniform vec3 uColor, uColorHi;
+void main(void){
+  vec4 s = mix(texture2D(uSampler, vTextureCoord), texture2D(uFrameB, vTextureCoord), uMix);
+  vec3 col = mix(uColor, uColorHi, clamp(s.r, 0.0, 1.0));
+  col = mix(col, vec3(1.0), clamp(s.g, 0.0, 1.0));
+  float a = s.a;
+  gl_FragColor = vec4(col * a, a);   // premultiplied, matching the live shader
+}`;
+
+// Trivial passthrough used to downsample a supersampled bake. With the source at
+// LINEAR filtering and a 2x render scale, sampling it at the target resolution
+// box-averages each 2x2 block — anti-aliasing the shader's high-frequency detail
+// (ticks/dashes/rims), which polygon MSAA cannot do. Samples raw (texture2D) and
+// writes verbatim (blend disabled), so the tint-mask data isn't premultiplied.
+const FX_FRAG_DOWNSAMPLE = `
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+void main(void){ gl_FragColor = texture2D(uSampler, vTextureCoord); }`;
+
+// Supersample factor for the bake (render at SS× the stored size, average down).
+const MARKER_BAKE_SS = 2;
+
+// Baked turn-marker sheet: how many loop frames, at what resolution. The disc can
+// be drawn well above token size at high zoom, so it needs a generous baked
+// resolution (plus supersampling) or the crisp rims/ticks look blurry and
+// aliased; 512² (power-of-two), rendered at 2x and averaged down, stays sharp
+// deep into zoom. ~24 frames cross-faded is smooth for the slow orbit. Three
+// sheets (active-high, active-balanced, next) bake once → ~24 * 512² * 4 * 3
+// ≈ 75MB of GPU textures.
+const MARKER_BAKE_SIZE = 512;
+const MARKER_BAKE_FRAMES = 24;
+// Seconds for one full loop (one comet orbit). ~TAU / 1.1 matches the old spin
+// rate; cinematic plays it faster (see the speed multiplier in _syncMarker).
+const MARKER_LOOP_SEC = 5.7;
+
+// Lazily bake (and cache) the three shared turn-marker sheets. Returns null when
+// the renderer / PIXI render-to-texture isn't available, so callers fall back to
+// the live shader. Re-bakes if a canvas teardown invalidated the textures.
+let markerSheets = null;
+function getMarkerSheets() {
+  if (markerSheets && !markerSheets.next.frames[0]?.baseTexture?.destroyed) return markerSheets;
+  const renderer = canvas?.app?.renderer;
+  if (!renderer || !globalThis.PIXI?.RenderTexture || !globalThis.PIXI?.Mesh || !globalThis.PIXI?.Geometry) {
+    return null;
+  }
+  try {
+    if (markerSheets) destroyMarkerSheets(markerSheets);
+    markerSheets = {
+      activeHigh: bakeMarkerSheet(renderer, 1, 1),
+      activeBalanced: bakeMarkerSheet(renderer, 1, 0),
+      next: bakeMarkerSheet(renderer, 0, 1)
+    };
+    return markerSheets;
+  } catch (err) {
+    console.warn(`${MODULE_ID} | Turn-marker sheet bake failed, using live shader`, err);
+    markerSheets = null;
+    return null;
+  }
+}
+
+// Render the periodic bake shader into one RenderTexture per loop frame. Blending
+// is disabled so the mask/alpha fragment is stored verbatim (not premultiplied).
+function bakeMarkerSheet(renderer, active, high) {
+  const S = MARKER_BAKE_SIZE, N = MARKER_BAKE_FRAMES, SS = MARKER_BAKE_SS, TAU = Math.PI * 2;
+  const hiRes = S * SS;
+  // Scratch hi-res target the procedural disc is rendered into, then box-averaged
+  // down into each stored frame. One temp, reused across every frame.
+  const temp = PIXI.RenderTexture.create({ width: hiRes, height: hiRes });
+  temp.baseTexture.scaleMode = PIXI.SCALE_MODES.LINEAR;
+
+  const src = makeFxMesh(FX_FRAG_TURN_BAKE, { uPhase: 0, uActive: active, uHigh: high });
+  src.blendMode = PIXI.BLEND_MODES.NONE;
+  setFxMeshQuad(src, hiRes, hiRes, false);
+
+  const down = makeFxMesh(FX_FRAG_DOWNSAMPLE, { uSampler: temp });
+  down.blendMode = PIXI.BLEND_MODES.NONE;
+  setFxMeshQuad(down, S, S, false);
+
+  const frames = [];
+  for (let i = 0; i < N; i++) {
+    src.shader.uniforms.uPhase = (i / N) * TAU;
+    renderer.render(src, { renderTexture: temp, clear: true });
+    const rt = PIXI.RenderTexture.create({ width: S, height: S });
+    renderer.render(down, { renderTexture: rt, clear: true });
+    frames.push(rt);
+  }
+
+  destroyFxMesh(src);
+  destroyFxMesh(down);
+  try { temp.destroy(true); } catch {}
+  return { frames };
+}
+
+function destroyMarkerSheets(sheets) {
+  for (const sheet of Object.values(sheets)) {
+    for (const rt of sheet.frames) { try { rt.destroy(true); } catch {} }
+  }
+}
+
 function rgbFloat(hex) {
   return [((hex >> 16) & 0xff) / 255, ((hex >> 8) & 0xff) / 255, (hex & 0xff) / 255];
 }
@@ -5609,6 +5924,7 @@ class TokenOverlayManager {
     return {
       root, connector, echoWrap, echo, ringWrap, glow, frame, chipBg, chip,
       fxHolder, fxMesh: null, fxShader: null, fxOn: false, fxStart: 0, discR: 0,
+      fxBaked: false, fxSheet: null,
       token: null, role: null, disposition: null, shape: null, fidelity: null,
       w: 0, h: 0, origin: null, key: null,
       phase: Math.random() * Math.PI * 2
@@ -5717,15 +6033,50 @@ class TokenOverlayManager {
     }
   }
 
-  // Builds/updates the FX_FRAG_TURN energy disc as a world-space Mesh so it stays
-  // locked to the token under zoom. Returns false (hiding the mesh) when meshes are
-  // unavailable, so the hand-drawn ring fallback is used instead.
+  // Builds/updates the turn-marker energy disc as a world-space Mesh so it stays
+  // locked to the token under zoom. Prefers the pre-baked looping sheet (a cheap
+  // texture blit + tint per frame); if render-to-texture isn't available it falls
+  // back to running the live FX_FRAG_TURN plasma shader every frame. Returns false
+  // (hiding the mesh) when even that is unavailable, so the hand-drawn ring shows.
   _setupMarkerFx(marker, size, colors, isActive, high) {
     // Static marker (reduced motion): the frozen shader is indistinguishable from
     // a still image, so fall back to the hand-drawn rings and run no shader at all.
     if (!this._markerMotion()) { if (marker.fxMesh) marker.fxMesh.visible = false; return false; }
     if (!globalThis.PIXI?.Mesh || !globalThis.PIXI?.Geometry || !globalThis.PIXI?.Shader) return false;
     try {
+      const sheets = getMarkerSheets();
+      const wantBaked = !!sheets;
+      // The bake/live pipelines use different shaders, so rebuild the mesh when the
+      // available pipeline flips (e.g. sheets finish baking after a live marker).
+      if (marker.fxMesh && !marker.fxMesh.destroyed && marker.fxBaked !== wantBaked) {
+        destroyFxMesh(marker.fxMesh);
+        marker.fxMesh = null;
+        marker.fxShader = null;
+      }
+
+      if (wantBaked) {
+        const sheet = !isActive ? sheets.next : (high ? sheets.activeHigh : sheets.activeBalanced);
+        marker.fxSheet = sheet;
+        if (!marker.fxMesh || marker.fxMesh.destroyed) {
+          const mesh = makeFxMesh(FX_FRAG_TURN_PLAY, {
+            uSampler: sheet.frames[0], uFrameB: sheet.frames[0], uMix: 0,
+            uColor: [1, 1, 1], uColorHi: [1, 1, 1]
+          });
+          marker.fxMesh = mesh;
+          marker.fxShader = mesh.shader;
+          marker.fxStart = this._time;
+          marker.fxBaked = true;
+          marker.fxHolder.addChild(mesh);
+        }
+        const u = marker.fxShader.uniforms;
+        u.uColor = rgbFloat(colors.base);
+        u.uColorHi = rgbFloat(colors.hi);
+        setFxMeshQuad(marker.fxMesh, size, size, true);
+        marker.fxMesh.visible = true;
+        return true;
+      }
+
+      // Live-shader fallback (render-to-texture unavailable).
       if (!marker.fxMesh || marker.fxMesh.destroyed) {
         const mesh = makeFxMesh(FX_FRAG_TURN, {
           uTime: 0, uSeed: Math.random() * 100, uActive: 1, uReduced: 0, uHigh: 1,
@@ -5734,6 +6085,7 @@ class TokenOverlayManager {
         marker.fxMesh = mesh;
         marker.fxShader = mesh.shader;
         marker.fxStart = this._time;
+        marker.fxBaked = false;
         marker.fxHolder.addChild(mesh);
       }
       const u = marker.fxShader.uniforms;
@@ -5771,11 +6123,25 @@ class TokenOverlayManager {
     const t = this._time;
     const isActive = marker.role === "active";
 
-    // Drive the shader disc (rotation / shimmer / pulse all live in the shader).
+    // Drive the shader disc. Baked: pick + cross-fade the two loop frames for this
+    // instant. Live: advance the procedural clock as before.
     if (marker.fxOn && marker.fxShader && marker.fxMesh?.visible) {
       const speed = intensity === "cinematic" ? 1.5 : 1.0;
-      marker.fxShader.uniforms.uTime = (t - marker.fxStart) * speed;
-      marker.fxShader.uniforms.uReduced = motion ? 0 : 1;
+      if (marker.fxBaked && marker.fxSheet) {
+        const frames = marker.fxSheet.frames;
+        const n = frames.length;
+        let ph = ((t * speed) / MARKER_LOOP_SEC) % 1;
+        if (ph < 0) ph += 1;
+        const fpos = ph * n;
+        const i = Math.floor(fpos) % n;
+        const u = marker.fxShader.uniforms;
+        u.uSampler = frames[i];
+        u.uFrameB = frames[(i + 1) % n];
+        u.uMix = fpos - Math.floor(fpos);
+      } else {
+        marker.fxShader.uniforms.uTime = (t - marker.fxStart) * speed;
+        marker.fxShader.uniforms.uReduced = motion ? 0 : 1;
+      }
     } else {
       // Hand-drawn fallback ring: a gentle breathing pulse.
       if (motion) {
