@@ -4321,42 +4321,49 @@ void main(void){
   float spin = uReduced > 0.5 ? 1.7 : uTime;   // frozen-but-posed when reduced
 
   // Energy torus: clear centre (token shows), bright mid, soft outer fade.
-  float rMid = 0.66;
-  float band = smoothstep(0.32, rMid, dist) * (1.0 - smoothstep(rMid, 0.99, dist));
+  float rMid = 0.62;
+  float band = smoothstep(0.30, rMid, dist) * (1.0 - smoothstep(rMid, 0.94, dist));
 
-  // Drifting concentric hairline rings.
-  float rings = pow(0.5 + 0.5 * sin(dist * 50.0 - spin * 2.0), 6.0) * band;
+  // Crisp hairline rims give the disc a defined, machined edge instead of a soft
+  // blob — the main lever for "polished, not generic". Thin gaussian rings.
+  float innerRim = exp(-pow((dist - 0.34) / 0.030, 2.0));
+  float outerRim = exp(-pow((dist - 0.84) / 0.040, 2.0));
+
+  // Drifting concentric hairline rings (tighter, sharper than before).
+  float rings = pow(0.5 + 0.5 * sin(dist * 46.0 - spin * 2.0), 9.0) * band;
 
   // Rotating radial ticks around the outer band.
-  float ticks = pow(0.5 + 0.5 * cos(ang * 40.0 + spin * 1.4), 16.0)
-              * smoothstep(0.5, 0.72, dist) * (1.0 - smoothstep(0.78, 0.99, dist));
+  float ticks = pow(0.5 + 0.5 * cos(ang * 36.0 + spin * 1.3), 20.0)
+              * smoothstep(0.54, 0.72, dist) * (1.0 - smoothstep(0.78, 0.93, dist));
 
   // Orbiting comet sweep with a bright leading head.
-  float head = mod(ang - spin * 1.15, TAU);
-  float sweep = pow(smoothstep(2.4, 0.0, head), 1.4) * band;
-  float headGlow = pow(smoothstep(0.45, 0.0, head), 2.0) * band;
+  float head = mod(ang - spin * 1.1, TAU);
+  float sweep = pow(smoothstep(2.0, 0.0, head), 1.7) * band;
+  float headGlow = pow(smoothstep(0.4, 0.0, head), 2.2) * band;
 
-  // Flowing fbm energy so the band shimmers like plasma.
+  // Flowing fbm energy so the band shimmers like plasma (slightly calmer).
   float flow = gluFbm(vec2(ang * 3.0 + spin * 0.5, dist * 5.0 - spin));
-  float energy = (0.4 + 0.6 * flow) * band;
+  float energy = (0.5 + 0.5 * flow) * band;
 
   // A whisper of inner glow keeps the centre subtly lit without hiding the art.
-  float core = (1.0 - smoothstep(0.0, rMid, dist)) * 0.14;
+  float core = (1.0 - smoothstep(0.0, rMid, dist)) * 0.12;
 
-  float ringsW = uHigh > 0.5 ? 0.95 : 0.6;
-  float ticksW = uHigh > 0.5 ? 0.85 : 0.5;
+  float ringsW = uHigh > 0.5 ? 0.85 : 0.55;
+  float ticksW = uHigh > 0.5 ? 0.8 : 0.45;
 
-  // --- ACTIVE: the full plasma pedestal -------------------------------------
-  float activeI = band * (0.45 + 0.6 * energy)
-                + rings * ringsW + ticks * ticksW + sweep * 0.7 + core;
+  // --- ACTIVE: the full plasma pedestal with crisp rims ---------------------
+  float activeI = band * (0.4 + 0.55 * energy)
+                + rings * ringsW + ticks * ticksW + sweep * 0.65
+                + outerRim * 0.95 + innerRim * 0.45 + core;
 
-  // --- NEXT: a thin, marching dashed perimeter ("queued") -------------------
-  // A narrow outer band broken into rotating angular dashes so it reads as a
-  // dotted "on deck" outline rather than a dim version of the active disc.
-  float nextBand = smoothstep(0.60, 0.70, dist) * (1.0 - smoothstep(0.80, 0.92, dist));
-  float dashes = 0.5 + 0.5 * sin(ang * 22.0 - spin * 0.6);
-  dashes = smoothstep(0.45, 0.75, dashes);          // gaps between marching dashes
-  float nextI = nextBand * dashes * (0.7 + 0.3 * flow) + ticks * ticksW * 0.45;
+  // --- NEXT: a clean marching dashed ring sitting just OUTSIDE the token -----
+  // Pushed to the disc's outer edge so it reads as a crisp "on deck" outline
+  // ringing the token, never a dim copy of the active disc hidden under the art.
+  float nextBand = smoothstep(0.68, 0.78, dist) * (1.0 - smoothstep(0.84, 0.95, dist));
+  float dashes = 0.5 + 0.5 * sin(ang * 26.0 - spin * 0.5);
+  dashes = smoothstep(0.5, 0.82, dashes);           // crisper gaps between dashes
+  float nextRim = exp(-pow((dist - 0.90) / 0.035, 2.0));   // thin defining outer line
+  float nextI = nextBand * dashes * (0.8 + 0.2 * flow) + nextRim * 0.55;
 
   float intensity = mix(nextI, activeI, step(0.5, uActive));
 
@@ -4365,12 +4372,12 @@ void main(void){
 
   // Active leans bright/white-hot at its highlights; next stays cool, close to its
   // base hue so it never competes with the live token's glowing pedestal.
-  vec3 activeCol = mix(uColor, uColorHi, clamp(rings + ticks + sweep * 0.5 + headGlow, 0.0, 1.0));
+  vec3 activeCol = mix(uColor, uColorHi, clamp(rings + ticks + sweep * 0.5 + headGlow + outerRim * 0.6, 0.0, 1.0));
   activeCol = mix(activeCol, vec3(1.0), clamp(headGlow * 0.85, 0.0, 1.0));   // white-hot comet tip
-  vec3 nextCol = mix(uColor, uColorHi, clamp(dashes * 0.4, 0.0, 1.0));
+  vec3 nextCol = mix(uColor, uColorHi, clamp(dashes * 0.4 + nextRim * 0.5, 0.0, 1.0));
   vec3 col = mix(nextCol, activeCol, step(0.5, uActive));
 
-  float a = clamp(intensity, 0.0, 1.0) * (uActive > 0.5 ? 0.96 : 0.8);
+  float a = clamp(intensity, 0.0, 1.0) * (uActive > 0.5 ? 0.96 : 0.86);
   a *= smoothstep(1.0, 0.9, dist);          // clip to the disc; corners transparent
   gl_FragColor = vec4(col * a, a);
 }`;
@@ -4889,9 +4896,10 @@ class TokenOverlayManager {
     const high = marker.fidelity !== "balanced";
     const isActive = role === "active";
     const base = Math.max(w, h);
-    // Disc sits just outside the token footprint — a tight pedestal that hugs the
-    // art rather than a wide halo on the floor.
-    const discR = base * (isActive ? 0.68 : 0.58);
+    // Active disc is a tight pedestal hugging the art; the next disc is sized a
+    // touch wider so its dashed "on deck" ring lands clearly OUTSIDE the token
+    // footprint rather than hiding underneath the token art.
+    const discR = base * (isActive ? 0.70 : 0.82);
     marker.discR = discR;
 
     glow.clear(); glow.filters = null;
