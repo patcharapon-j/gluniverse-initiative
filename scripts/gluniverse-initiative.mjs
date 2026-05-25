@@ -1237,6 +1237,7 @@ class GLUniverseInitiativeOverlay {
 
     return `
       <article class="${classes}" data-gluni-key="${escapeAttr(card.key)}" data-combatant-id="${card.id}" data-round-offset="${card.roundOffset}"${style}>
+        <div class="gluni-card-surface">
         <div class="gluni-card-accent" aria-hidden="true"></div>
         <div class="gluni-card-spec" aria-hidden="true"></div>
         <div class="gluni-card-bracket" aria-hidden="true"></div>
@@ -1284,9 +1285,6 @@ class GLUniverseInitiativeOverlay {
             <div class="gluni-card-condition-repeat" aria-hidden="true">
               ${renderConditionRepeatText(card.conditions)}
             </div>
-            <div class="gluni-card-condition-labels">
-              ${renderConditionLabels(card.conditions)}
-            </div>
           `
           : ""}
         ${fxMode ? `<canvas class="gluni-card-portrait-fx gluni-card-portrait-fx--${fxMode}" data-fx="${fxMode}" aria-hidden="true"></canvas>` : ""}
@@ -1308,6 +1306,10 @@ class GLUniverseInitiativeOverlay {
         <span class="gluni-initiative-badge">${formatInitiative(card.initiative)}</span>
         ${card.active ? `<div class="gluni-card-holo" aria-hidden="true"></div><div class="gluni-card-sheen" aria-hidden="true"></div>` : ""}
         ${game.user.isGM ? this.renderGMControls(card) : ""}
+        </div>
+        ${card.conditions
+          ? `<div class="gluni-card-condition-labels">${renderConditionLabels(card.conditions)}</div>`
+          : ""}
       </article>
     `;
   }
@@ -2943,7 +2945,9 @@ class GLUniverseInitiativeOverlay {
     const lengthClass = text.length > 22 ? " gluni-status-flash--xlong" : text.length > 13 ? " gluni-status-flash--long" : "";
     flash.className = `gluni-status-flash gluni-status-flash--${colorClass}${lengthClass}`;
     flash.innerHTML = `<span>${escapeHTML(text)}</span>`;
-    card.appendChild(flash);
+    // Mount on the clipped surface (not the outer card) so clip-path: inherit
+    // keeps the flash within the card silhouette.
+    (card.querySelector(".gluni-card-surface") ?? card).appendChild(flash);
     window.requestAnimationFrame(() => flash.classList.add("gluni-status-flash--go"));
     window.setTimeout(() => flash.remove(), 620);
   }
@@ -3922,6 +3926,7 @@ function renderPortraitConfigPanel(mode, label, values, portrait, actorName) {
         <span>${mode === "expanded" ? localize("GLUNI.PortraitConfig.ActiveCard") : localize("GLUNI.PortraitConfig.NormalCard")}</span>
       </div>
       <article class="${previewClasses}" data-frame-preview="${mode}" style="${escapeAttr(frameStyle)}" title="${localize("GLUNI.PortraitConfig.PreviewHint")}">
+        <div class="gluni-card-surface">
         <div class="gluni-card-accent" aria-hidden="true"></div>
         <div class="gluni-card-bracket" aria-hidden="true"></div>
         <div class="gluni-card-portrait-wrap">
@@ -3932,6 +3937,7 @@ function renderPortraitConfigPanel(mode, label, values, portrait, actorName) {
           <h3>${escapeHTML(actorName)}</h3>
         </div>
         <span class="gluni-initiative-badge">18</span>
+        </div>
       </article>
       ${renderPortraitControl(mode, "x", localize("GLUNI.PortraitConfig.PositionX"), values.x, PORTRAIT_FRAME_LIMITS.x.min, PORTRAIT_FRAME_LIMITS.x.max, 1)}
       ${renderPortraitControl(mode, "y", localize("GLUNI.PortraitConfig.PositionY"), values.y, PORTRAIT_FRAME_LIMITS.y.min, PORTRAIT_FRAME_LIMITS.y.max, 1)}

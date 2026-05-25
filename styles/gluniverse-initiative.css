@@ -308,20 +308,8 @@
   position: relative;
   isolation: isolate;
   display: grid;
-  align-items: end;
   justify-self: stretch;
   width: 100%;
-  min-height: 58px;
-  container-type: inline-size;
-  contain: layout style;
-  background: linear-gradient(180deg, #0a1218 0%, #04080c 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.6),
-    inset 1px 0 0 rgba(255, 255, 255, 0.04),
-    inset 0 0 0 1px var(--gluni-line),
-    inset 0 0 28px rgba(0, 0, 0, 0.4);
-  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
   transform:
     translate(var(--gluni-flip-x), calc(var(--gluni-flip-y) + var(--gluni-card-lift-y) + var(--gluni-reorder-shift-y)))
     translateX(var(--gluni-active-shift))
@@ -336,6 +324,32 @@
     box-shadow var(--gluni-d-quick) var(--gluni-ease),
     filter var(--gluni-d-quick) var(--gluni-ease),
     opacity var(--gluni-d-quick) var(--gluni-ease);
+}
+
+/* The painted, clipped silhouette of the card. Split out from .gluni-card so
+   the condition badges (a sibling of this surface, see .gluni-card-condition-labels)
+   can ride the card's transform while escaping this clip-path. Everything that
+   draws the card body lives in here; .gluni-card keeps only layout + transform. */
+.gluni-card-surface {
+  position: relative;
+  z-index: 0;
+  display: grid;
+  align-items: end;
+  width: 100%;
+  min-height: 58px;
+  container-type: inline-size;
+  contain: layout style;
+  background: linear-gradient(180deg, #0a1218 0%, #04080c 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.6),
+    inset 1px 0 0 rgba(255, 255, 255, 0.04),
+    inset 0 0 0 1px var(--gluni-line),
+    inset 0 0 28px rgba(0, 0, 0, 0.4);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+  transition:
+    min-height var(--gluni-d-card) var(--gluni-ease),
+    box-shadow var(--gluni-d-quick) var(--gluni-ease);
 }
 
 .gluni-initiative--gm .gluni-rail .gluni-card {
@@ -358,15 +372,15 @@
   filter: brightness(1.16);
 }
 
-.gluni-card--drop-before,
-.gluni-card--drop-after {
+.gluni-card--drop-before .gluni-card-surface,
+.gluni-card--drop-after .gluni-card-surface {
   box-shadow:
     inset 0 0 0 1px var(--gluni-line),
     0 0 0 1px color-mix(in srgb, var(--gluni-cyan) 72%, transparent);
 }
 
-.gluni-card--drop-before::after,
-.gluni-card--drop-after::after {
+.gluni-card--drop-before .gluni-card-surface::after,
+.gluni-card--drop-after .gluni-card-surface::after {
   content: "";
   position: absolute;
   left: 0;
@@ -377,15 +391,15 @@
   box-shadow: 0 0 14px color-mix(in srgb, var(--gluni-cyan) 82%, transparent);
 }
 
-.gluni-card--drop-before::after {
+.gluni-card--drop-before .gluni-card-surface::after {
   top: -4px;
 }
 
-.gluni-card--drop-after::after {
+.gluni-card--drop-after .gluni-card-surface::after {
   bottom: -4px;
 }
 
-.gluni-card::before {
+.gluni-card-surface::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -399,7 +413,7 @@
   pointer-events: none;
 }
 
-.gluni-initiative--left .gluni-card::before {
+.gluni-initiative--left .gluni-card-surface::before {
   background: linear-gradient(
     -95deg,
     rgba(2, 5, 8, 0.95),
@@ -698,28 +712,29 @@
   flex: 0 0 auto;
 }
 
-/* Small condition chips stacked down the card's outer edge — the side opposite
-   the floating turn controls. They sit inside the card bounds because the card
-   clip-path would crop anything pushed outside. Long names ellipsis-truncate
-   with the full text preserved in the title attribute. */
+/* Small condition chips stacked just outside the card's inner (play-area) edge.
+   They are a sibling of .gluni-card-surface — i.e. children of .gluni-card but
+   outside its clip-path — so they ride the card's transform yet overhang past
+   the clipped silhouette. Long names ellipsis-truncate with the full text in
+   the title attribute. */
 .gluni-card-condition-labels {
   position: absolute;
-  top: 5px;
+  top: 6px;
   z-index: 8;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  max-width: 56%;
+  max-width: 132px;
   pointer-events: none;
 }
 
 .gluni-initiative--right .gluni-card-condition-labels {
-  right: 6px;
+  right: calc(100% + 6px);
   align-items: flex-end;
 }
 
 .gluni-initiative--left .gluni-card-condition-labels {
-  left: 6px;
+  left: calc(100% + 6px);
   align-items: flex-start;
 }
 
@@ -1340,6 +1355,10 @@
   --gluni-card-scale: 1.02;
   --gluni-card-lift-y: var(--gluni-active-lift-y);
   width: calc(100% + 12px);
+  overflow: visible;
+}
+
+.gluni-card--active .gluni-card-surface {
   min-height: 124px;
   overflow: visible;
   background: linear-gradient(180deg, #0d1822 0%, #04080c 100%);
@@ -1416,7 +1435,7 @@
   transform: scale(calc(var(--gluni-portrait-active-scale) * var(--gluni-portrait-quality-cap)));
 }
 
-.gluni-card--active::before {
+.gluni-card--active .gluni-card-surface::before {
   top: auto;
   bottom: 0;
   height: 38px;
@@ -1430,7 +1449,7 @@
   mask-image: linear-gradient(to top, #000 0%, rgba(0, 0, 0, 0.82) 48%, transparent 100%);
 }
 
-.gluni-card--active::after {
+.gluni-card--active .gluni-card-surface::after {
   content: "";
   position: absolute;
   inset: -42px 0 0 0;
@@ -1471,7 +1490,7 @@
   mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.86), rgba(0, 0, 0, 0.42) 66%, transparent 100%);
 }
 
-.gluni-initiative--left .gluni-card--active::before {
+.gluni-initiative--left .gluni-card--active .gluni-card-surface::before {
   background: linear-gradient(
     -95deg,
     rgba(2, 5, 8, 0.92),
@@ -1480,11 +1499,11 @@
   );
 }
 
-.gluni-initiative--left .gluni-card--active::after {
+.gluni-initiative--left .gluni-card--active .gluni-card-surface::after {
   animation-name: gluni-active-triangle-field-left;
 }
 
-.gluni-card--active.gluni-card--adhoc {
+.gluni-card--active.gluni-card--adhoc .gluni-card-surface {
   overflow: hidden;
   clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
 }
@@ -1494,7 +1513,7 @@
 }
 
 .gluni-card--active.gluni-card--adhoc .gluni-card-adhoc-bg,
-.gluni-card--active.gluni-card--adhoc::after {
+.gluni-card--active.gluni-card--adhoc .gluni-card-surface::after {
   inset: 0;
 }
 
@@ -1648,6 +1667,9 @@
 
 .gluni-card--dying {
   --gluni-accent: var(--gluni-dying);
+}
+
+.gluni-card--dying .gluni-card-surface {
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--gluni-dying) 68%, var(--gluni-line) 32%),
     0 0 24px color-mix(in srgb, var(--gluni-dying) 38%, transparent);
@@ -1700,11 +1722,14 @@
 
 .gluni-card--guard-broken {
   --gluni-break-accent: color-mix(in srgb, var(--gluni-break) 62%, var(--gluni-accent, var(--gluni-cyan)) 38%);
+  animation: gluni-guard-break-card-pulse 1280ms ease-in-out infinite;
+}
+
+.gluni-card--guard-broken .gluni-card-surface {
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--gluni-break-accent) 74%, var(--gluni-line) 26%),
     0 0 22px color-mix(in srgb, var(--gluni-break-accent) 44%, transparent),
     0 0 44px color-mix(in srgb, var(--gluni-break-deep) 16%, transparent);
-  animation: gluni-guard-break-card-pulse 1280ms ease-in-out infinite;
 }
 
 .gluni-card--guard-broken .gluni-card-portrait {
@@ -1736,7 +1761,7 @@
 }
 
 .gluni-card--guard-broken .gluni-card-sheen,
-.gluni-card--guard-broken:not(.gluni-card--active)::after {
+.gluni-card--guard-broken:not(.gluni-card--active) .gluni-card-surface::after {
   height: 2px;
   background: linear-gradient(
     90deg,
@@ -1751,7 +1776,7 @@
     0 0 28px color-mix(in srgb, var(--gluni-break-hot) 44%, transparent);
 }
 
-.gluni-card--guard-broken:not(.gluni-card--active)::after {
+.gluni-card--guard-broken:not(.gluni-card--active) .gluni-card-surface::after {
   opacity: 1;
   transform: scaleX(1);
   animation: gluni-guard-break-sheen 680ms ease-in-out infinite;
@@ -1767,21 +1792,21 @@
   animation: gluni-guard-break-crack-burst 620ms var(--gluni-snap) both;
 }
 
-.gluni-card--gm-hidden {
+.gluni-card--gm-hidden .gluni-card-surface {
   box-shadow: inset 0 0 0 1px var(--gluni-red);
 }
 
-.gluni-card--gm-mystery {
+.gluni-card--gm-mystery .gluni-card-surface {
   box-shadow: inset 0 0 0 1px var(--gluni-violet);
 }
 
-.gluni-card--gm-visible {
+.gluni-card--gm-visible .gluni-card-surface {
   box-shadow: inset 0 0 0 1px var(--gluni-cyan);
 }
 
-.gluni-card--guard-broken.gluni-card--gm-hidden,
-.gluni-card--guard-broken.gluni-card--gm-mystery,
-.gluni-card--guard-broken.gluni-card--gm-visible {
+.gluni-card--guard-broken.gluni-card--gm-hidden .gluni-card-surface,
+.gluni-card--guard-broken.gluni-card--gm-mystery .gluni-card-surface,
+.gluni-card--guard-broken.gluni-card--gm-visible .gluni-card-surface {
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--gluni-break-accent) 68%, var(--gluni-line) 32%),
     0 0 22px color-mix(in srgb, var(--gluni-break-accent) 42%, transparent),
@@ -2276,12 +2301,15 @@
 }
 
 .gluni-delayed-list .gluni-card {
-  min-height: 42px;
   opacity: 0.92;
+}
+
+.gluni-delayed-list .gluni-card .gluni-card-surface {
+  min-height: 42px;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gluni-delay) 38%, transparent);
 }
 
-.gluni-delayed-list .gluni-card--active {
+.gluni-delayed-list .gluni-card--active .gluni-card-surface {
   min-height: 70px;
 }
 
@@ -2310,7 +2338,7 @@
   will-change: transform, opacity;
 }
 
-.gluni-card--active::after {
+.gluni-card--active .gluni-card-surface::after {
   will-change: transform, opacity;
 }
 
@@ -2359,7 +2387,7 @@
   filter: contrast(1.08) saturate(1.06) brightness(1.06);
 }
 
-.gluni-card:not(.gluni-card--active)::after {
+.gluni-card:not(.gluni-card--active) .gluni-card-surface::after {
   content: "";
   position: absolute;
   top: 0;
@@ -2378,16 +2406,16 @@
     transform var(--gluni-d-quick) var(--gluni-ease);
 }
 
-.gluni-initiative--left .gluni-card:not(.gluni-card--active)::after {
+.gluni-initiative--left .gluni-card:not(.gluni-card--active) .gluni-card-surface::after {
   transform-origin: right center;
 }
 
-.gluni-card:hover:not(.gluni-card--active)::after {
+.gluni-card:hover:not(.gluni-card--active) .gluni-card-surface::after {
   opacity: 1;
   transform: scaleX(1);
 }
 
-.gluni-card--dying:not(.gluni-card--active)::after {
+.gluni-card--dying:not(.gluni-card--active) .gluni-card-surface::after {
   height: 2px;
   background: linear-gradient(
     90deg,
@@ -2405,8 +2433,8 @@
   animation: gluni-dying-sheen 820ms ease-in-out infinite;
 }
 
-.gluni-card--drop-before::after,
-.gluni-card--drop-after::after {
+.gluni-card--drop-before .gluni-card-surface::after,
+.gluni-card--drop-after .gluni-card-surface::after {
   content: "";
   position: absolute;
   inset: auto 0 auto 0;
@@ -2422,12 +2450,12 @@
   animation: none;
 }
 
-.gluni-card--drop-before::after {
+.gluni-card--drop-before .gluni-card-surface::after {
   top: -4px;
   bottom: auto;
 }
 
-.gluni-card--drop-after::after {
+.gluni-card--drop-after .gluni-card-surface::after {
   top: auto;
   bottom: -4px;
 }
@@ -2478,7 +2506,7 @@
 }
 
 /* Edge specular highlight sweep — mockup `.v4 .card::before`. Separate layer so the
-   existing dark veil (.gluni-card::before) is untouched. */
+   existing dark veil (.gluni-card-surface::before) is untouched. */
 .gluni-card-spec {
   content: "";
   position: absolute;
@@ -3126,7 +3154,7 @@
   animation: gluni-card-enter-bottom-reduced 200ms var(--gluni-ease) both;
 }
 
-.gluni-initiative--reduced .gluni-card:not(.gluni-card--active)::after {
+.gluni-initiative--reduced .gluni-card:not(.gluni-card--active) .gluni-card-surface::after {
   display: none;
 }
 
@@ -3217,7 +3245,7 @@
   animation: gluni-card-enter-bottom-cinematic 480ms var(--gluni-ease) both;
 }
 
-.gluni-initiative--cinematic .gluni-card:not(.gluni-card--active)::after {
+.gluni-initiative--cinematic .gluni-card:not(.gluni-card--active) .gluni-card-surface::after {
   transition-duration: 280ms;
 }
 
@@ -3857,14 +3885,17 @@
   transition: none;
 }
 
-.gluni-card--frame-preview-normal {
+.gluni-card--frame-preview-normal .gluni-card-surface {
   min-height: 52px;
 }
 
 .gluni-card--frame-preview-expanded {
   width: 200px;
-  min-height: 108px;
   margin-top: 42px;
+}
+
+.gluni-card--frame-preview-expanded .gluni-card-surface {
+  min-height: 108px;
 }
 
 .gluni-card--frame-preview .gluni-card-portrait,
@@ -5348,11 +5379,11 @@
     grid-template-columns: 1fr;
   }
 
-  .gluni-card {
+  .gluni-card .gluni-card-surface {
     min-height: 52px;
   }
 
-  .gluni-card--active {
+  .gluni-card--active .gluni-card-surface {
     min-height: 112px;
   }
 
@@ -5495,7 +5526,7 @@
   .gluni-card-guard-break-bg::after,
   .gluni-card-guard-break-repeat,
   .gluni-card--guard-broken,
-  .gluni-card--guard-broken:not(.gluni-card--active)::after,
+  .gluni-card--guard-broken:not(.gluni-card--active) .gluni-card-surface::after,
   .gluni-card--guard-break-impact,
   .gluni-card--dying-high,
   .gluni-card--dying-critical,
@@ -5519,7 +5550,7 @@
   .gluni-active-tag,
   .gluni-guard-break-tag,
   .gluni-dying-tag,
-  .gluni-card--active::after,
+  .gluni-card--active .gluni-card-surface::after,
   .gluni-card-holo,
   .gluni-card-shockwave,
   .gluni-card--impact,
@@ -5527,18 +5558,18 @@
   .gluni-card--impact-settle .gluni-initiative-badge,
   .gluni-card--impact-settle .gluni-card-portrait-wrap,
   .gluni-card--impact-settle .gluni-card-accent,
-  .gluni-card:not(.gluni-card--active)::after {
+  .gluni-card:not(.gluni-card--active) .gluni-card-surface::after {
     animation: none !important;
     transition: none !important;
   }
 
   .gluni-card-sheen,
   .gluni-card-sheen::after,
-  .gluni-card:not(.gluni-card--active)::after {
+  .gluni-card:not(.gluni-card--active) .gluni-card-surface::after {
     opacity: 0 !important;
   }
 
-  .gluni-card--active::after {
+  .gluni-card--active .gluni-card-surface::after {
     opacity: 0.18 !important;
     transform: none !important;
   }
@@ -5768,6 +5799,9 @@
 .gluni-card--stable {
   --gluni-accent: var(--gluni-stable);
   animation: none;
+}
+
+.gluni-card--stable .gluni-card-surface {
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--gluni-stable) 56%, var(--gluni-line) 44%),
     0 0 18px color-mix(in srgb, var(--gluni-stable) 26%, transparent);
