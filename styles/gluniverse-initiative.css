@@ -730,11 +730,10 @@
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 3px;
-  /* Anchored by right/left only, so the auto width would shrink-to-fit to a
-     single pill and force one pill per row. Pin the width to max-content (capped
-     by max-width) so rows fill out before wrapping. */
-  width: max-content;
-  max-width: 420px;
+  /* Anchored by right/left only, so an auto/max-content width can collapse and
+     force one pill per row. Give the strip a definite width so flex-wrap fills
+     each row out to the edge before starting a new one. */
+  width: 420px;
   max-height: calc(var(--gluni-pill-row) * 3 + 3px * 2);
   overflow: hidden;
   pointer-events: none;
@@ -794,6 +793,7 @@
   flex-wrap: nowrap;
   align-content: stretch;
   gap: 3px;
+  width: max-content;
   max-width: none;
   max-height: none;
   overflow: visible;
