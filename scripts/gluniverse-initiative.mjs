@@ -780,19 +780,23 @@ void main() {
 const BREAK_GL_PLAY_FRAG = `
 precision mediump float;
 varying vec2 v_uv;
-uniform sampler2D u_tex;
+uniform sampler2D u_tex;   // baked frame A
+uniform sampler2D u_texB;  // baked frame B (next step)
+uniform float u_mix;       // 0..1 A->B, so few baked frames still play smoothly
 uniform vec2 u_cover;      // (vw/max, vh/max): centre-crop the square to cover
 void main() {
   vec2 uv = (v_uv - 0.5) * u_cover + 0.5;
-  gl_FragColor = texture2D(u_tex, uv);   // already premultiplied (col*a, a)
+  // Both frames are already premultiplied (col*a, a); a lerp stays valid.
+  gl_FragColor = mix(texture2D(u_tex, uv), texture2D(u_texB, uv), u_mix);
 }`;
 
 // Bake resolution / step count for the pre-rendered fracture. The splash is a
-// glowing, screen-blended ~1s burst, so a 512² square upsampled to the viewport
-// reads fine, and ~30 steps is smooth for the short life. Memory is ~30 * 512² * 4
-// ≈ 31MB of GPU textures, allocated once at load.
-const SPLASH_BAKE_SIZE = 512;
-const SPLASH_BAKE_FRAMES = 30;
+// full-screen burst, so it needs a high baked resolution or it looks blurry and
+// aliased once cover-fit to the viewport; 1024² holds up to ~1440p. Frames are
+// cross-faded at playback (see frame()), so a modest count stays smooth. Memory
+// is ~20 * 1024² * 4 ≈ 84MB of GPU textures, allocated once at load.
+const SPLASH_BAKE_SIZE = 1024;
+const SPLASH_BAKE_FRAMES = 20;
 
 // One persistent renderer is reused across every guard break. The (fairly heavy)
 // Voronoi/fbm fracture shader is compiled AND fully evaluated exactly once at
@@ -856,9 +860,12 @@ class BreakSplashGL {
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     this.uniforms = {
       tex: gl.getUniformLocation(play, "u_tex"),
+      texB: gl.getUniformLocation(play, "u_texB"),
+      mix: gl.getUniformLocation(play, "u_mix"),
       cover: gl.getUniformLocation(play, "u_cover")
     };
     gl.uniform1i(this.uniforms.tex, 0);
+    gl.uniform1i(this.uniforms.texB, 1);
 
     gl.disable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
@@ -1022,10 +1029,15 @@ class BreakSplashGL {
     const elapsed = performance.now() - this.start;
     const progress = elapsed / this.lifeMs;
     const last = this.frames.length - 1;
-    const idx = Math.max(0, Math.min(last, Math.round((progress / 1.05) * last)));
+    const fpos = Math.max(0, Math.min(last, (progress / 1.05) * last));
+    const i = Math.min(last, Math.floor(fpos));
+    const j = Math.min(last, i + 1);
     gl.useProgram(this.playProgram);
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.frames[idx]);
+    gl.bindTexture(gl.TEXTURE_2D, this.frames[i]);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.frames[j]);
+    gl.uniform1f(this.uniforms.mix, fpos - i);
     gl.uniform2f(this.uniforms.cover, this.cover[0], this.cover[1]);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -5274,12 +5286,14 @@ void main(void){
   gl_FragColor = vec4(col * a, a);   // premultiplied, matching the live shader
 }`;
 
-// Baked turn-marker sheet: how many loop frames, at what resolution. The disc is
-// drawn at roughly token size, so 160² upsamples cleanly; ~36 frames cross-faded
-// is smooth for the slow orbit. Three sheets (active-high, active-balanced, next)
-// are baked once → ~36 * 160² * 4 * 3 ≈ 11MB of GPU textures.
-const MARKER_BAKE_SIZE = 160;
-const MARKER_BAKE_FRAMES = 36;
+// Baked turn-marker sheet: how many loop frames, at what resolution. The disc can
+// be drawn well above token size at high zoom, so it needs a generous baked
+// resolution (plus MSAA) or the crisp rims/ticks look blurry and aliased; 384² +
+// multisampling holds up. ~32 frames cross-faded is smooth for the slow orbit.
+// Three sheets (active-high, active-balanced, next) bake once → ~32 * 384² * 4 * 3
+// ≈ 57MB of GPU textures.
+const MARKER_BAKE_SIZE = 384;
+const MARKER_BAKE_FRAMES = 32;
 // Seconds for one full loop (one comet orbit). ~TAU / 1.1 matches the old spin
 // rate; cinematic plays it faster (see the speed multiplier in _syncMarker).
 const MARKER_LOOP_SEC = 5.7;
@@ -5313,14 +5327,19 @@ function getMarkerSheets() {
 // is disabled so the mask/alpha fragment is stored verbatim (not premultiplied).
 function bakeMarkerSheet(renderer, active, high) {
   const S = MARKER_BAKE_SIZE, N = MARKER_BAKE_FRAMES, TAU = Math.PI * 2;
+  // Multisample the bake so the thin rims/ticks/dashes come out anti-aliased
+  // (a plain RT would store the shader's hard edges and look jagged when scaled).
+  const multisample = PIXI.MSAA_QUALITY?.HIGH ?? PIXI.MSAA_QUALITY?.MEDIUM ?? 0;
   const mesh = makeFxMesh(FX_FRAG_TURN_BAKE, { uPhase: 0, uActive: active, uHigh: high });
   mesh.blendMode = PIXI.BLEND_MODES.NONE;
   setFxMeshQuad(mesh, S, S, false);
   const frames = [];
   for (let i = 0; i < N; i++) {
-    const rt = PIXI.RenderTexture.create({ width: S, height: S });
+    const rt = PIXI.RenderTexture.create({ width: S, height: S, multisample });
     mesh.shader.uniforms.uPhase = (i / N) * TAU;
     renderer.render(mesh, { renderTexture: rt, clear: true });
+    // Resolve the multisampled buffer down to the sampleable texture before reuse.
+    if (multisample) { try { renderer.framebuffer.blit(); } catch {} }
     frames.push(rt);
   }
   destroyFxMesh(mesh);
