@@ -576,117 +576,92 @@ void main() {
   gl_Position = vec4(a_pos, 0.0, 1.0);
 }`;
 
+// Fullscreen sibling of FX_FRAG_BREAK (the card / token break overlay). Same
+// Voronoi-shard glass fracture, warp, shatter front and flowing glow that read
+// so well on the cards — scaled up to the whole screen. Output is premultiplied
+// (col*a, a) and the layer is screen-blended in CSS so the shards glow over the
+// amber deck. A hard impact envelope fades the whole thing out fast so it never
+// sits frozen after the fracture lands.
 const BREAK_GL_FRAG = `
 precision highp float;
 varying vec2 v_uv;
 uniform vec2 u_res;
-uniform float u_progress;   // 0..1 over the splash life
+uniform float u_time;       // seconds since start (keeps the glow flowing)
+uniform float u_progress;   // 0..1 over the GL life
 uniform float u_seed;       // per-splash randomization
 uniform float u_intensity;  // 0..1 (default vs cinematic)
-uniform float u_crackCount; // active main cracks (quality gate)
-uniform vec3 u_break;
+uniform vec3 u_break;       // amber
 uniform vec3 u_hot;
-uniform vec3 u_deep;
 
-float hash11(float p) {
-  p = fract(p * 0.1031);
-  p *= p + 33.33;
-  p *= p + p;
-  return fract(p);
+vec2 gluHash2(vec2 p) {
+  p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+  return fract(sin(p + u_seed) * 43758.5453);
 }
+float gluHash1(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7)) + u_seed) * 43758.5453); }
+float gluVNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(gluHash1(i), gluHash1(i + vec2(1.0, 0.0)), f.x),
+             mix(gluHash1(i + vec2(0.0, 1.0)), gluHash1(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float gluFbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { s += a * gluVNoise(p); p *= 2.02; a *= 0.5; } return s; }
 
-// Piecewise-LINEAR value noise. Linear interpolation (not smoothstep) keeps the
-// segments straight with sharp corners at the breakpoints — angular glass-crack
-// kinks rather than smooth sinusoidal veins. Returns roughly -0.5..0.5.
-float angNoise(float x) {
-  float i = floor(x);
-  float f = fract(x);
-  return mix(hash11(i), hash11(i + 1.0), f) - 0.5;
+// Second-minus-first Voronoi distance: zero exactly on the cell seams -> crisp
+// shard edges, identical to the card/token break.
+float gluVoroEdge(vec2 x) {
+  vec2 n = floor(x), f = fract(x); float f1 = 9.0, f2 = 9.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 g = vec2(float(i), float(j)); vec2 o = gluHash2(n + g); vec2 r = g + o - f; float d = dot(r, r);
+    if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) { f2 = d; }
+  }
+  return sqrt(f2) - sqrt(f1);
 }
 
 void main() {
-  vec2 p = v_uv * 2.0 - 1.0;
-  p.x *= u_res.x / max(u_res.y, 1.0);
+  float aspect = u_res.x / max(u_res.y, 1.0);
+  vec2 uv = v_uv;
 
-  // Impact point: jittered slightly off-centre per splash.
-  vec2 impact = vec2((hash11(u_seed) - 0.5) * 0.16, (hash11(u_seed + 9.2) - 0.5) * 0.10);
-  vec2 d = p - impact;
-  float r = length(d);
-  float a = atan(d.y, d.x);
-  float a01 = (a + 3.14159265) / 6.28318530;
+  // Impact: slightly jittered off-centre per splash.
+  vec2 impact = vec2(0.5) + vec2((gluHash1(vec2(1.7)) - 0.5) * 0.12, (gluHash1(vec2(4.3)) - 0.5) * 0.08);
+  vec2 d = uv - impact; d.x *= aspect;
+  float dist = length(d);
+  float ang = atan(d.y, d.x);
 
-  // Crack growth: a hard, fast snap outward that settles (snappier + punchier).
-  float grow = clamp(u_progress * 3.4, 0.0, 1.0);
-  grow = 1.0 - pow(1.0 - grow, 4.0);
-  float maxLen = mix(0.85, 2.0, u_intensity) * grow;
+  // Warp the radius so the fracture front is irregular, not a clean circle.
+  float warp = 0.16 * gluFbm(vec2(ang * 1.2 + 3.0, 1.7)) + 0.08 * gluFbm(vec2(ang * 3.3, 5.0)) - 0.12;
+  float wdist = dist + warp;
 
-  const int N = 13;
-  float crack = 0.0;
-  float glow = 0.0;
-  float chroma = 0.0;
+  // Large bold shards near the impact, finer further out (sparse, like the card).
+  float scale = mix(6.5, 3.2, smoothstep(0.0, 1.0, dist));
+  float ce = gluVoroEdge(vec2(uv.x * aspect, uv.y) * scale + 7.0);
+  float texel = 1.0 / max(u_res.y, 1.0);
+  float aaWidth = max(0.011, 1.5 * scale * texel);
+  float edge = 1.0 - smoothstep(0.0, aaWidth, ce);
 
-  for (int i = 0; i < N; i++) {
-    float fi = float(i);
-    if (fi >= u_crackCount) { continue; }
-    float rnd = hash11(fi + u_seed * 7.0);
-    float base = (fi + rnd * 0.55) * 6.28318530 / u_crackCount;
+  // Fast, snappy shatter front that sweeps across the whole screen.
+  float shatterT = clamp(u_progress * 2.6, 0.0, 1.0);
+  shatterT = 1.0 - pow(1.0 - shatterT, 3.0);
+  float reach = mix(1.55, 1.9, u_intensity);
+  float front = smoothstep(0.07, -0.07, wdist - (0.05 + reach * shatterT));
+  float coverage = smoothstep(1.7, 0.08, wdist) * front;
+  float crack = edge * coverage;
 
-    // Angular (kinked) deviation: straight near the impact, kinking outward.
-    float freq = mix(5.0, 11.0, hash11(fi + 1.3));
-    float amp = mix(0.07, 0.17, hash11(fi + 3.7));
-    float jag = angNoise(r * freq + rnd * 13.0) * amp;
-    jag += angNoise(r * freq * 2.7 + rnd * 5.0) * amp * 0.45; // finer secondary kink
-    jag *= clamp(r * 1.6, 0.18, 1.0);                          // start straight, kink later
-    float ang = base + jag;
+  // Flowing glow pulses keep the fracture alive instead of freezing once drawn.
+  float settled = smoothstep(0.4, 1.0, shatterT);
+  float flow = pow(0.5 + 0.5 * sin(dist * 15.0 - u_time * 7.0), 8.0);
+  float glowFlow = crack * flow * settled;
 
-    float da = atan(sin(a - ang), cos(a - ang));
-    // Thin, crisp glass line that tightens with radius.
-    float lineW = mix(0.0028, 0.012, hash11(fi + 5.0)) / max(r, 0.05);
-    float thisLen = maxLen * mix(0.6, 1.2, hash11(fi + 6.0));
-    float along = smoothstep(thisLen, thisLen - 0.10, r);
-    crack = max(crack, smoothstep(lineW, 0.0, abs(da)) * along);
-    glow += smoothstep(lineW * 5.0, 0.0, abs(da)) * along * 0.13;
-    chroma = max(chroma, smoothstep(lineW * 2.2, 0.0, abs(da)) * along);
-  }
+  // Punchy white-hot impact core + flash, both gone almost instantly.
+  float core = smoothstep(0.17, 0.0, dist) * (1.0 - smoothstep(0.0, 0.10, u_progress));
+  float flash = smoothstep(0.72, 0.0, dist) * (1.0 - smoothstep(0.0, 0.16, u_progress));
 
-  // Polygonal concentric fracture rings — straight chords between the radials,
-  // a hallmark of shattered glass. They snap in just after the radials reach out.
-  float seg = u_crackCount;
-  float poly1 = maxLen * 0.46 + angNoise(a01 * seg + u_seed) * 0.07;
-  float poly2 = maxLen * 0.74 + angNoise(a01 * seg + u_seed + 3.0) * 0.06;
-  float ringPresent1 = smoothstep(0.18, 0.42, grow);
-  float ringPresent2 = smoothstep(0.34, 0.60, grow);
-  float ringCrack = smoothstep(0.006, 0.0, abs(r - poly1)) * ringPresent1
-                  + smoothstep(0.005, 0.0, abs(r - poly2)) * ringPresent2;
-  crack = max(crack, ringCrack * step(r, maxLen));
-  glow += ringCrack * 0.10;
+  // Hard hit, then a quick fade-out so nothing lingers static.
+  float env = 1.0 - smoothstep(0.30, 0.66, u_progress);
 
-  // Dual staggered shockwave rings for extra impact.
-  float ring1 = smoothstep(0.06, 0.0, abs(r - maxLen * 0.95))
-              * smoothstep(0.0, 0.14, grow) * (1.0 - grow * 0.4);
-  float ring2 = smoothstep(0.045, 0.0, abs(r - maxLen * 1.22))
-              * smoothstep(0.2, 0.5, grow) * (1.0 - grow * 0.6);
-  float ring = ring1 + ring2 * 0.7;
-
-  // Punchy white-hot core + amber flash, both gone almost instantly.
-  float core = smoothstep(0.12, 0.0, r) * (1.0 - smoothstep(0.0, 0.13, u_progress));
-  float flash = smoothstep(0.6, 0.0, r) * (1.0 - smoothstep(0.0, 0.2, u_progress));
-
-  // Overall fade-out at the tail of the splash.
-  float life = 1.0 - smoothstep(0.66, 1.0, u_progress);
-
-  vec3 col = vec3(0.0);
-  col += u_hot * crack * 1.9;
-  col += u_break * glow * 1.5;
-  col += u_deep * ring * 1.35;
-  col += u_hot * flash * 1.6;
-  col += vec3(1.0) * core * 1.5;     // white-hot impact centre
-  col.r += chroma * 0.24;
-  col.b += chroma * 0.10;
-  col *= life;
-
-  float alpha = clamp(max(max(crack, glow), max(max(ring, flash), core)), 0.0, 1.0) * life;
-  gl_FragColor = vec4(col, alpha);
+  vec3 amber = u_break, hot = u_hot, white = vec3(1.0);
+  vec3 col = mix(amber, hot, clamp(crack, 0.0, 1.0));
+  col = mix(col, white, clamp(core + glowFlow, 0.0, 1.0));
+  float a = clamp(crack * 0.92 + core * 0.9 + glowFlow * 0.7 + flash * 0.5, 0.0, 1.0) * env;
+  gl_FragColor = vec4(col * a, a);
 }`;
 
 class BreakSplashGL {
@@ -694,7 +669,6 @@ class BreakSplashGL {
     this.canvas = canvas;
     this.lifeMs = Math.max(400, lifeMs);
     this.intensityValue = intensity === "cinematic" ? 1.0 : 0.55;
-    this.crackCount = fidelity === "balanced" ? 9 : 13;
     this.seed = Math.random() * 100;
     this.raf = 0;
     this.start = 0;
@@ -705,16 +679,15 @@ class BreakSplashGL {
 
     this.colors = {
       break: readCSSColorVar("--gluni-break", [1.0, 0.694, 0.176]),
-      hot: readCSSColorVar("--gluni-break-hot", [1.0, 0.878, 0.439]),
-      deep: readCSSColorVar("--gluni-break-deep", [1.0, 0.435, 0.102])
+      hot: readCSSColorVar("--gluni-break-hot", [1.0, 0.878, 0.439])
     };
 
     this.init();
   }
 
   init() {
-    const gl = this.canvas.getContext("webgl", { alpha: true, premultipliedAlpha: false, antialias: true })
-      || this.canvas.getContext("experimental-webgl", { alpha: true, premultipliedAlpha: false, antialias: true });
+    const opts = { alpha: true, premultipliedAlpha: true, antialias: true };
+    const gl = this.canvas.getContext("webgl", opts) || this.canvas.getContext("experimental-webgl", opts);
     if (!gl) return false;
     this.gl = gl;
 
@@ -735,25 +708,24 @@ class BreakSplashGL {
 
     this.uniforms = {
       res: gl.getUniformLocation(program, "u_res"),
+      time: gl.getUniformLocation(program, "u_time"),
       progress: gl.getUniformLocation(program, "u_progress"),
       seed: gl.getUniformLocation(program, "u_seed"),
       intensity: gl.getUniformLocation(program, "u_intensity"),
-      crackCount: gl.getUniformLocation(program, "u_crackCount"),
       break: gl.getUniformLocation(program, "u_break"),
-      hot: gl.getUniformLocation(program, "u_hot"),
-      deep: gl.getUniformLocation(program, "u_deep")
+      hot: gl.getUniformLocation(program, "u_hot")
     };
 
     gl.uniform1f(this.uniforms.seed, this.seed);
     gl.uniform1f(this.uniforms.intensity, this.intensityValue);
-    gl.uniform1f(this.uniforms.crackCount, this.crackCount);
     gl.uniform3fv(this.uniforms.break, this.colors.break);
     gl.uniform3fv(this.uniforms.hot, this.colors.hot);
-    gl.uniform3fv(this.uniforms.deep, this.colors.deep);
 
     gl.disable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // additive over the amber deck
+    // Premultiplied source-over (output is col*a, a); CSS screen-blends the
+    // canvas so the bright shards glow over the amber deck.
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
     this.resize();
     window.addEventListener("resize", this.onResize);
@@ -805,7 +777,9 @@ class BreakSplashGL {
   frame() {
     const gl = this.gl;
     if (!gl) return;
-    const progress = (performance.now() - this.start) / this.lifeMs;
+    const elapsed = performance.now() - this.start;
+    const progress = elapsed / this.lifeMs;
+    gl.uniform1f(this.uniforms.time, elapsed / 1000);
     gl.uniform1f(this.uniforms.progress, progress);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -2659,7 +2633,7 @@ class GLUniverseInitiativeOverlay {
         const renderer = new BreakSplashGL(canvas, {
           intensity,
           fidelity,
-          lifeMs: this.getBreakSplashDuration()
+          lifeMs: this.getBreakGLLife()
         });
         if (renderer.gl) breakGL = renderer;
         else { renderer.destroy(); canvas.remove(); }
@@ -2685,16 +2659,24 @@ class GLUniverseInitiativeOverlay {
 
   getBreakSplashHold() {
     const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
-    if (intensity === "reduced") return 440;
-    if (intensity === "cinematic") return 1600;
-    return 1200;
+    if (intensity === "reduced") return 420;
+    if (intensity === "cinematic") return 1080;
+    return 820;
   }
 
   getBreakSplashDuration() {
     const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
-    if (intensity === "reduced") return 960;
-    if (intensity === "cinematic") return 2400;
-    return 1860;
+    if (intensity === "reduced") return 900;
+    if (intensity === "cinematic") return 1680;
+    return 1320;
+  }
+
+  // The WebGL fracture is the impact: it hits hard and fades out fast, well
+  // before the deck/text leaves, so the screen never sits frozen on a static
+  // crack. Kept shorter than the splash hold on purpose.
+  getBreakGLLife() {
+    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
+    return intensity === "cinematic" ? 1300 : 1050;
   }
 
   broadcastBreakSplash(name) {
