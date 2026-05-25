@@ -100,7 +100,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  min-height: 24px;
+  min-height: 26px;
   gap: 6px;
   pointer-events: none;
 }
@@ -212,51 +212,68 @@
   transform: translateY(-1px);
 }
 
-/* Horizontal round chip — sits in the header row above the rail. The rail's
-   42px top padding contains the active card's portrait overflow, so this chip
-   never collides with the actor image. */
+/* Horizontal round banner — fills the header row above the rail. The rail's
+   42px top padding contains the active card's portrait overflow, so this banner
+   never collides with the actor image. It stretches to the full rail width with
+   a label on the lead edge connected to a large glowing round number. */
 .gluni-round-chip {
   position: relative;
   z-index: 16;
-  display: inline-flex;
+  flex: 1 1 auto;
+  display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
+  gap: 10px;
   box-sizing: border-box;
-  height: 18px;
+  height: 26px;
   min-width: 0;
-  padding: 0 9px;
+  padding: 0 13px;
   pointer-events: none;
-  background: rgba(2, 7, 11, 0.86);
+  background: linear-gradient(90deg, rgba(2, 7, 11, 0.92), rgba(2, 7, 11, 0.74));
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--gluni-cyan) 38%, var(--gluni-line) 62%),
-    inset 0 0 12px rgba(94, 234, 255, 0.1);
-  clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px);
+    inset 0 0 0 1px color-mix(in srgb, var(--gluni-cyan) 46%, var(--gluni-line) 54%),
+    inset 0 0 18px rgba(94, 234, 255, 0.14),
+    0 2px 12px rgba(0, 0, 0, 0.5);
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+}
+
+.gluni-initiative--left .gluni-round-chip {
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 100%, 6px 100%);
 }
 
 .gluni-round-chip-label {
+  flex: 0 0 auto;
   color: var(--gluni-text-dim);
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 950;
   line-height: 1;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.34em;
   text-transform: uppercase;
 }
 
 .gluni-round-chip-divider {
-  width: 1px;
-  height: 10px;
-  background: var(--gluni-line-strong);
+  flex: 1 1 auto;
+  min-width: 8px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--gluni-cyan) 55%, transparent) 50%,
+    transparent
+  );
 }
 
 .gluni-round-chip-num {
+  flex: 0 0 auto;
   color: var(--gluni-cyan);
-  font-size: 12px;
+  font-size: 19px;
   font-weight: 950;
   line-height: 1;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
+  text-shadow:
+    0 0 14px color-mix(in srgb, var(--gluni-cyan) 60%, transparent),
+    0 0 30px rgba(94, 234, 255, 0.3);
 }
 
 .gluni-rail,
@@ -4036,6 +4053,92 @@
   letter-spacing: 0.06em;
 }
 
+/* Out-of-card condition announce banner. Mounted on document.body (fixed) and
+   anchored to the active card's midline; it deliberately overruns the card's
+   clip-path and reaches into the play area beside the rail. */
+.gluni-condition-banner {
+  z-index: 71;
+  display: grid;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 20px;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(2, 7, 11, 0.9) 16%,
+    rgba(2, 7, 11, 0.94) 50%,
+    color-mix(in srgb, var(--gluni-condition) 18%, rgba(2, 7, 11, 0.94)) 84%,
+    transparent 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--gluni-condition) 44%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--gluni-condition) 44%, transparent);
+}
+
+.gluni-condition-banner--right {
+  justify-items: start;
+}
+
+.gluni-condition-banner--left {
+  justify-items: end;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--gluni-condition) 18%, rgba(2, 7, 11, 0.94)) 16%,
+    rgba(2, 7, 11, 0.94) 50%,
+    rgba(2, 7, 11, 0.9) 84%,
+    transparent 100%
+  );
+}
+
+.gluni-condition-banner--go {
+  opacity: 1;
+  animation: gluni-condition-banner-in 920ms var(--gluni-snap) both;
+}
+
+.gluni-condition-banner span {
+  color: var(--gluni-condition-hot);
+  font-size: clamp(20px, 3.4vw, 30px);
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-shadow:
+    0 0 24px var(--gluni-condition),
+    0 0 52px color-mix(in srgb, var(--gluni-condition) 42%, transparent),
+    0 4px 14px rgba(0, 0, 0, 0.92);
+}
+
+.gluni-condition-banner--long span {
+  font-size: clamp(15px, 2.8vw, 22px);
+}
+
+.gluni-condition-banner--xlong span {
+  font-size: clamp(12px, 2.2vw, 18px);
+  letter-spacing: 0.06em;
+}
+
+@keyframes gluni-condition-banner-in {
+  0% { opacity: 0; transform: translateX(-22px); }
+  16% { opacity: 1; transform: translateX(0); }
+  80% { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(10px); }
+}
+
+.gluni-condition-banner--left.gluni-condition-banner--go {
+  animation-name: gluni-condition-banner-in-left;
+}
+
+@keyframes gluni-condition-banner-in-left {
+  0% { opacity: 0; transform: translateX(22px); }
+  16% { opacity: 1; transform: translateX(0); }
+  80% { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(-10px); }
+}
+
 /* Condition layer wipe reveal — reuses the dying wipe so the background field
    materialises with the same motion language when a condition is announced. */
 .gluni-card--condition-entering .gluni-card-condition-bg,
@@ -5498,6 +5601,9 @@
   .gluni-card-condition-repeat,
   .gluni-card--condition-entering .gluni-card-condition-bg,
   .gluni-card--condition-entering .gluni-card-condition-repeat,
+  .gluni-condition-banner,
+  .gluni-condition-banner--go,
+  .gluni-condition-banner span,
   .gluni-card--slide-in,
   .gluni-active-tag,
   .gluni-guard-break-tag,
