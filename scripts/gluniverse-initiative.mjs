@@ -1098,7 +1098,7 @@ class GLUniverseInitiativeOverlay {
     this.lastDyingIds = new Set();
     this.lastDelayedIds = new Set();
     this.lastBrokenIds = new Set();
-    this.lastConditionSlugs = new Map();
+    this.lastConditionKeys = new Map();
     this.pendingConditionFlashes = new Map();
     this.recentStatusAnimations = new Map();
     this.statusSnapshotInitialized = false;
@@ -3194,7 +3194,7 @@ class GLUniverseInitiativeOverlay {
       const conditionButton = clickEvent.target.closest("[data-context-action='toggle-condition']");
       if (conditionButton) {
         clickEvent.preventDefault();
-        await this.toggleHiddenCondition(combatant, conditionButton.dataset.slug);
+        await this.toggleHiddenCondition(combatant, conditionButton.dataset.key);
         const reopen = menu.getBoundingClientRect();
         this.closeInitiativeContextMenu();
         this.openInitiativeContextMenu(combatant, { clientX: reopen.left, clientY: reopen.top, preventDefault() {}, stopPropagation() {} });
@@ -3247,12 +3247,12 @@ class GLUniverseInitiativeOverlay {
     const items = getPrimaryConditionItems(combatant);
     if (!items.length) return "";
 
-    const hidden = getHiddenConditionSlugs(combatant);
+    const hidden = getHiddenConditionKeys(combatant);
     const rows = items.map(item => {
-      const isHidden = hidden.has(item.slug);
+      const isHidden = hidden.has(item.key);
       const title = localize(isHidden ? "GLUNI.Conditions.Show" : "GLUNI.Conditions.Hide");
       return `
-        <button type="button" class="gluni-context-condition${isHidden ? " gluni-context-condition--hidden" : ""}" data-context-action="toggle-condition" data-slug="${escapeAttr(item.slug)}" title="${escapeAttr(title)}" aria-label="${escapeAttr(title)}">
+        <button type="button" class="gluni-context-condition${isHidden ? " gluni-context-condition--hidden" : ""}" data-context-action="toggle-condition" data-key="${escapeAttr(item.key)}" title="${escapeAttr(title)}" aria-label="${escapeAttr(title)}">
           <i class="fa-solid ${isHidden ? "fa-eye-slash" : "fa-eye"}" aria-hidden="true"></i>
           <span>${escapeHTML(item.text)}</span>
         </button>
@@ -3267,11 +3267,11 @@ class GLUniverseInitiativeOverlay {
     `;
   }
 
-  async toggleHiddenCondition(combatant, slug) {
-    if (!game.user.isGM || !combatant || !slug) return;
-    const hidden = getHiddenConditionSlugs(combatant);
-    if (hidden.has(slug)) hidden.delete(slug);
-    else hidden.add(slug);
+  async toggleHiddenCondition(combatant, key) {
+    if (!game.user.isGM || !combatant || !key) return;
+    const hidden = getHiddenConditionKeys(combatant);
+    if (hidden.has(key)) hidden.delete(key);
+    else hidden.add(key);
     await combatant.setFlag(MODULE_ID, FLAGS.hiddenConditions, Array.from(hidden));
     this.broadcastRefresh();
   }
@@ -3528,7 +3528,7 @@ class GLUniverseInitiativeOverlay {
     const dying = new Set();
     const delayed = new Set();
     const broken = new Set();
-    // id -> Map(conditionSlug -> displayText). Tracked raw (ignoring override)
+    // id -> Map(conditionKey -> displayText). Tracked raw (ignoring override)
     // so override clearing never replays an announce; `conditionOverridden`
     // gates whether a transition is allowed to flash.
     const conditions = new Map();
@@ -3567,10 +3567,10 @@ class GLUniverseInitiativeOverlay {
       // announce loop can skip flashing them while still recording them.
       const primary = getPrimaryConditionItems(combatant);
       if (primary.length) {
-        const slugTexts = new Map();
-        for (const tag of primary) slugTexts.set(tag.slug, tag.text);
-        conditions.set(combatant.id, slugTexts);
-        const hidden = getHiddenConditionSlugs(combatant);
+        const keyTexts = new Map();
+        for (const tag of primary) keyTexts.set(tag.key, tag.text);
+        conditions.set(combatant.id, keyTexts);
+        const hidden = getHiddenConditionKeys(combatant);
         if (hidden.size) conditionHidden.set(combatant.id, hidden);
         if (isBroken || isDelayedNow || isDying) conditionOverridden.add(combatant.id);
       }
@@ -3630,23 +3630,23 @@ class GLUniverseInitiativeOverlay {
     // snapshot announces once; nested/linked children were already filtered out
     // upstream. Overridden combatants record their slugs silently so a later
     // override clear never replays the announce.
-    const nextConditionSlugs = new Map();
-    for (const [id, slugTexts] of currentConditions) {
-      nextConditionSlugs.set(id, new Set(slugTexts.keys()));
+    const nextConditionKeys = new Map();
+    for (const [id, keyTexts] of currentConditions) {
+      nextConditionKeys.set(id, new Set(keyTexts.keys()));
       if (!hadSnapshot || conditionOverridden.has(id)) continue;
-      const last = this.lastConditionSlugs.get(id) ?? new Set();
+      const last = this.lastConditionKeys.get(id) ?? new Set();
       const hidden = conditionHidden.get(id);
-      for (const [slug, text] of slugTexts) {
-        if (last.has(slug)) continue;
-        // Remember (via nextConditionSlugs above) but never announce a condition
+      for (const [key, text] of keyTexts) {
+        if (last.has(key)) continue;
+        // Remember (via nextConditionKeys above) but never announce a condition
         // the GM has hidden — otherwise unhiding it later would flash anew.
-        if (hidden?.has(slug)) continue;
-        if (this.statusAnimationRecentlyQueued(id, `condition:${slug}`)) continue;
+        if (hidden?.has(key)) continue;
+        if (this.statusAnimationRecentlyQueued(id, `condition:${key}`)) continue;
         if (!this.pendingConditionFlashes.has(id)) this.pendingConditionFlashes.set(id, []);
         this.pendingConditionFlashes.get(id).push(text);
       }
     }
-    this.lastConditionSlugs = nextConditionSlugs;
+    this.lastConditionKeys = nextConditionKeys;
 
     this.lastDyingIds = currentDying;
     this.lastDelayedIds = currentDelayed;
@@ -3872,30 +3872,31 @@ function getConditionBadgeValue(item) {
   return Number.isFinite(badge) ? badge : null;
 }
 
-// Slugs the GM has hidden on this combatant's card only (a module flag — the
-// underlying condition item on the actor/token is never touched).
-function getHiddenConditionSlugs(combatant) {
+// Per-item keys the GM has hidden on this combatant's card only (a module flag —
+// the underlying condition item on the actor/token is never touched).
+function getHiddenConditionKeys(combatant) {
   const raw = combatant?.getFlag?.(MODULE_ID, FLAGS.hiddenConditions);
-  return new Set(Array.isArray(raw) ? raw.map(slug => String(slug)) : []);
+  return new Set(Array.isArray(raw) ? raw.map(key => String(key)) : []);
 }
 
 // Every primary, temporary PF2e condition on a combatant the overlay does not
 // otherwise cover. PF2e models temporary statuses as `condition` items, so
 // stances (effects) and class features (feats) are naturally excluded. Each tag
 // carries the display `text` reused by the announce flash, the background field,
-// and the side labels.
+// and the side labels, plus a unique `key` (the item id) so distinct items that
+// share a slug — notably several persistent-damage entries of different types —
+// stay individually visible, hideable, and announceable.
 function getPrimaryConditionItems(combatant) {
   if (game.system?.id !== "pf2e") return [];
   const actor = combatant?.actor;
   if (!actor) return [];
 
   const tags = [];
-  const seen = new Set();
   for (const item of getActorItems(actor)) {
     if (item?.type !== "condition" || !isPrimaryCondition(item)) continue;
     const slug = getItemSlug(item);
-    if (!slug || COVERED_CONDITION_SLUGS.has(slug) || seen.has(slug)) continue;
-    seen.add(slug);
+    if (!slug || COVERED_CONDITION_SLUGS.has(slug)) continue;
+    const key = String(item.id ?? slug);
     const value = getConditionBadgeValue(item);
     // PF2e bakes the value into a valued condition's name (e.g. "Clumsy 2"), so
     // strip a trailing number before we render our own badge — otherwise the
@@ -3903,7 +3904,7 @@ function getPrimaryConditionItems(combatant) {
     const rawName = String(item.name ?? slug).trim();
     const name = value === null ? rawName : rawName.replace(/\s+\d+$/, "");
     const text = value === null ? name.toUpperCase() : `${name.toUpperCase()} ${value}`;
-    tags.push({ slug, name, value, text });
+    tags.push({ key, slug, name, value, text });
   }
   return tags;
 }
@@ -3911,8 +3912,8 @@ function getPrimaryConditionItems(combatant) {
 // Display set — primary conditions minus any the GM hid on this card. Returns
 // null when there is nothing to show so callers can branch cheaply.
 function getPF2eConditionTags(combatant) {
-  const hidden = getHiddenConditionSlugs(combatant);
-  const tags = getPrimaryConditionItems(combatant).filter(tag => !hidden.has(tag.slug));
+  const hidden = getHiddenConditionKeys(combatant);
+  const tags = getPrimaryConditionItems(combatant).filter(tag => !hidden.has(tag.key));
   return tags.length ? tags : null;
 }
 
