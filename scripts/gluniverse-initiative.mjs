@@ -3533,8 +3533,12 @@ class GLUniverseInitiativeOverlay {
     // gates whether a transition is allowed to flash.
     const conditions = new Map();
     const conditionOverridden = new Set();
+    // id -> Set(hidden slug). Transition tracking ignores the GM hide toggle so
+    // hiding/unhiding never fakes a "new condition"; these let the announce loop
+    // skip flashing a condition that is currently hidden.
+    const conditionHidden = new Map();
     const combat = this.combat;
-    if (!combat) return { dying, delayed, broken, conditions, conditionOverridden };
+    if (!combat) return { dying, delayed, broken, conditions, conditionOverridden, conditionHidden };
 
     const showDefeated = Boolean(game.settings.get(MODULE_ID, SETTINGS.showDefeated));
     const combatants = combat.combatants?.contents ?? Array.from(combat.combatants ?? []);
@@ -3557,15 +3561,21 @@ class GLUniverseInitiativeOverlay {
       if (isDelayedNow) delayed.add(combatant.id);
       if (isDying) dying.add(combatant.id);
 
-      const tags = getPF2eConditionTags(combatant);
-      if (tags) {
+      // Track the FULL primary set (ignoring the GM per-card hide toggle) so a
+      // long-standing condition that gets hidden then shown is not mistaken for
+      // a freshly applied one. Hidden slugs are remembered separately so the
+      // announce loop can skip flashing them while still recording them.
+      const primary = getPrimaryConditionItems(combatant);
+      if (primary.length) {
         const slugTexts = new Map();
-        for (const tag of tags) slugTexts.set(tag.slug, tag.text);
+        for (const tag of primary) slugTexts.set(tag.slug, tag.text);
         conditions.set(combatant.id, slugTexts);
+        const hidden = getHiddenConditionSlugs(combatant);
+        if (hidden.size) conditionHidden.set(combatant.id, hidden);
         if (isBroken || isDelayedNow || isDying) conditionOverridden.add(combatant.id);
       }
     }
-    return { dying, delayed, broken, conditions, conditionOverridden };
+    return { dying, delayed, broken, conditions, conditionOverridden, conditionHidden };
   }
 
   detectStatusTransitions() {
@@ -3576,7 +3586,8 @@ class GLUniverseInitiativeOverlay {
       delayed: currentDelayed,
       broken: currentBroken,
       conditions: currentConditions,
-      conditionOverridden
+      conditionOverridden,
+      conditionHidden
     } = this.collectStatusSets();
 
     for (const id of currentDying) {
@@ -3624,8 +3635,12 @@ class GLUniverseInitiativeOverlay {
       nextConditionSlugs.set(id, new Set(slugTexts.keys()));
       if (!hadSnapshot || conditionOverridden.has(id)) continue;
       const last = this.lastConditionSlugs.get(id) ?? new Set();
+      const hidden = conditionHidden.get(id);
       for (const [slug, text] of slugTexts) {
         if (last.has(slug)) continue;
+        // Remember (via nextConditionSlugs above) but never announce a condition
+        // the GM has hidden — otherwise unhiding it later would flash anew.
+        if (hidden?.has(slug)) continue;
         if (this.statusAnimationRecentlyQueued(id, `condition:${slug}`)) continue;
         if (!this.pendingConditionFlashes.has(id)) this.pendingConditionFlashes.set(id, []);
         this.pendingConditionFlashes.get(id).push(text);
