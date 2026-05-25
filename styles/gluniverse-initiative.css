@@ -730,10 +730,16 @@
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 3px;
-  max-width: 306px;
+  max-width: 420px;
   max-height: calc(var(--gluni-pill-row) * 3 + 3px * 2);
   overflow: hidden;
   pointer-events: none;
+}
+
+/* The active card is much taller (124px vs 58px), so it has room for more rows
+   of pills before the cap kicks in. */
+.gluni-card--active .gluni-card-condition-labels {
+  max-height: calc(var(--gluni-pill-row) * 6 + 3px * 5);
 }
 
 .gluni-initiative--right .gluni-card-condition-labels {
