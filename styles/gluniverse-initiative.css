@@ -717,16 +717,15 @@
    outside its clip-path — so they ride the card's transform yet overhang past
    the clipped silhouette. Long names ellipsis-truncate with the full text in
    the title attribute. */
-/* Bound to the card's height (top+bottom) so a long condition list can never
-   spill into the next card's row — surplus pills wrap into a new column that
-   grows toward the play area instead of running downward. */
+/* Pills flow left-to-right and wrap into stacked rows, spreading toward the
+   play area before wrapping so even a long condition list stays a couple of
+   rows tall and never runs down into the next card. */
 .gluni-card-condition-labels {
   position: absolute;
   top: 6px;
-  bottom: 6px;
   z-index: 8;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 3px;
@@ -736,14 +735,16 @@
 
 .gluni-initiative--right .gluni-card-condition-labels {
   right: calc(100% + 6px);
-  align-items: flex-end;
-  align-content: flex-end;
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  align-items: flex-start;
 }
 
 .gluni-initiative--left .gluni-card-condition-labels {
   left: calc(100% + 6px);
+  flex-direction: row;
+  justify-content: flex-start;
   align-items: flex-start;
-  align-content: flex-start;
 }
 
 .gluni-card-condition-label {
