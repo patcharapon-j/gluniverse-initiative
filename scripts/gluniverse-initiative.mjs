@@ -60,7 +60,8 @@ const FLAGS = {
   portraitFrame: "portraitFrame",
   adhoc: "adhoc",
   adhocActor: "adhocActor",
-  turnStart: "turnStart"
+  turnStart: "turnStart",
+  hiddenConditions: "hiddenConditions"
 };
 
 // Break gauge: a GM-managed resource bar that depletes toward a guard break.
@@ -170,6 +171,10 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.AdHoc.Visibility": "Visibility",
   "GLUNI.Delayed": "Delayed",
   "GLUNI.GuardBreak": "Break",
+  "GLUNI.Conditions.Title": "Conditions",
+  "GLUNI.Conditions.Hide": "Hide on tracker",
+  "GLUNI.Conditions.Show": "Show on tracker",
+  "GLUNI.Conditions.None": "No temporary conditions",
   "GLUNI.PF2e.BreakEffect.Name": "Break",
   "GLUNI.PF2e.BreakEffect.Description": "<p>Your guard has been broken. You take a -2 status penalty to AC and all saving throws, and you lose all resistances.</p>",
   "GLUNI.Dying": "Dying",
@@ -1278,6 +1283,9 @@ class GLUniverseInitiativeOverlay {
             <div class="gluni-card-condition-bg" aria-hidden="true"></div>
             <div class="gluni-card-condition-repeat" aria-hidden="true">
               ${renderConditionRepeatText(card.conditions)}
+            </div>
+            <div class="gluni-card-condition-labels">
+              ${renderConditionLabels(card.conditions)}
             </div>
           `
           : ""}
@@ -2725,6 +2733,7 @@ class GLUniverseInitiativeOverlay {
         <i class="fa-solid fa-gauge-high" aria-hidden="true"></i>
         <span>${escapeHTML(localize("GLUNI.BreakGauge.Title").toUpperCase())}</span>
       </button>
+      ${this.renderConditionContextSection(combatant)}
     `;
 
     document.body.appendChild(menu);
@@ -2751,6 +2760,15 @@ class GLUniverseInitiativeOverlay {
     });
 
     menu.addEventListener("click", async clickEvent => {
+      const conditionButton = clickEvent.target.closest("[data-context-action='toggle-condition']");
+      if (conditionButton) {
+        clickEvent.preventDefault();
+        await this.toggleHiddenCondition(combatant, conditionButton.dataset.slug);
+        const reopen = menu.getBoundingClientRect();
+        this.closeInitiativeContextMenu();
+        this.openInitiativeContextMenu(combatant, { clientX: reopen.left, clientY: reopen.top, preventDefault() {}, stopPropagation() {} });
+        return;
+      }
       const action = clickEvent.target.closest("[data-context-action]")?.dataset.contextAction;
       if (action === "break-gauge") {
         clickEvent.preventDefault();
@@ -2788,6 +2806,43 @@ class GLUniverseInitiativeOverlay {
     }
     this.contextMenu?.element?.remove();
     this.contextMenu = null;
+  }
+
+  // Per-card condition visibility toggles. Lists every primary temporary
+  // condition (PF2e only) so the GM can suppress one on the tracker without
+  // touching the actual condition on the actor/token.
+  renderConditionContextSection(combatant) {
+    if (game.system?.id !== "pf2e") return "";
+    const items = getPrimaryConditionItems(combatant);
+    if (!items.length) return "";
+
+    const hidden = getHiddenConditionSlugs(combatant);
+    const rows = items.map(item => {
+      const isHidden = hidden.has(item.slug);
+      const title = localize(isHidden ? "GLUNI.Conditions.Show" : "GLUNI.Conditions.Hide");
+      return `
+        <button type="button" class="gluni-context-condition${isHidden ? " gluni-context-condition--hidden" : ""}" data-context-action="toggle-condition" data-slug="${escapeAttr(item.slug)}" title="${escapeAttr(title)}" aria-label="${escapeAttr(title)}">
+          <i class="fa-solid ${isHidden ? "fa-eye-slash" : "fa-eye"}" aria-hidden="true"></i>
+          <span>${escapeHTML(item.text)}</span>
+        </button>
+      `;
+    }).join("");
+
+    return `
+      <div class="gluni-context-conditions">
+        <span class="gluni-context-conditions-label">${escapeHTML(localize("GLUNI.Conditions.Title").toUpperCase())}</span>
+        ${rows}
+      </div>
+    `;
+  }
+
+  async toggleHiddenCondition(combatant, slug) {
+    if (!game.user.isGM || !combatant || !slug) return;
+    const hidden = getHiddenConditionSlugs(combatant);
+    if (hidden.has(slug)) hidden.delete(slug);
+    else hidden.add(slug);
+    await combatant.setFlag(MODULE_ID, FLAGS.hiddenConditions, Array.from(hidden));
+    this.broadcastRefresh();
   }
 
   applyPosition(edge) {
@@ -2883,7 +2938,10 @@ class GLUniverseInitiativeOverlay {
 
   playInlineStatusFlash(card, text, colorClass) {
     const flash = document.createElement("div");
-    flash.className = `gluni-status-flash gluni-status-flash--${colorClass}`;
+    // Long condition names (e.g. "PERSISTENT FIRE DAMAGE") overflow the card at
+    // the default flash size; shrink them so they still read in one pass.
+    const lengthClass = text.length > 22 ? " gluni-status-flash--xlong" : text.length > 13 ? " gluni-status-flash--long" : "";
+    flash.className = `gluni-status-flash gluni-status-flash--${colorClass}${lengthClass}`;
     flash.innerHTML = `<span>${escapeHTML(text)}</span>`;
     card.appendChild(flash);
     window.requestAnimationFrame(() => flash.classList.add("gluni-status-flash--go"));
@@ -3352,23 +3410,36 @@ function isPrimaryCondition(item) {
 }
 
 // Numeric badge for valued conditions (e.g. frightened 2). Valueless conditions
-// (prone, blinded) carry no badge and return null.
+// (prone, blinded) carry `value: null` / `isValued: false` and return null —
+// `Number(null)` is 0, so a naive read would mislabel them "PRONE 0".
 function getConditionBadgeValue(item) {
-  const candidates = [item?.system?.value?.value, item?.system?.badge?.value];
-  for (const candidate of candidates) {
-    const value = Number(candidate);
-    if (Number.isFinite(value)) return value;
+  const valued = item?.system?.value;
+  if (valued && typeof valued === "object") {
+    if (valued.isValued === false) return null;
+    if (valued.value === null || valued.value === undefined) return null;
+    const value = Number(valued.value);
+    return Number.isFinite(value) ? value : null;
   }
-  return null;
+  const badge = Number(item?.system?.badge?.value);
+  return Number.isFinite(badge) ? badge : null;
 }
 
-// View-model of every primary PF2e condition on a combatant that the overlay
-// does not otherwise cover. Each tag carries the display `text` reused by both
-// the one-shot announce flash and the repeated background field.
-function getPF2eConditionTags(combatant) {
-  if (game.system?.id !== "pf2e") return null;
+// Slugs the GM has hidden on this combatant's card only (a module flag — the
+// underlying condition item on the actor/token is never touched).
+function getHiddenConditionSlugs(combatant) {
+  const raw = combatant?.getFlag?.(MODULE_ID, FLAGS.hiddenConditions);
+  return new Set(Array.isArray(raw) ? raw.map(slug => String(slug)) : []);
+}
+
+// Every primary, temporary PF2e condition on a combatant the overlay does not
+// otherwise cover. PF2e models temporary statuses as `condition` items, so
+// stances (effects) and class features (feats) are naturally excluded. Each tag
+// carries the display `text` reused by the announce flash, the background field,
+// and the side labels.
+function getPrimaryConditionItems(combatant) {
+  if (game.system?.id !== "pf2e") return [];
   const actor = combatant?.actor;
-  if (!actor) return null;
+  if (!actor) return [];
 
   const tags = [];
   const seen = new Set();
@@ -3382,6 +3453,14 @@ function getPF2eConditionTags(combatant) {
     const text = value === null ? name.toUpperCase() : `${name.toUpperCase()} ${value}`;
     tags.push({ slug, name, value, text });
   }
+  return tags;
+}
+
+// Display set — primary conditions minus any the GM hid on this card. Returns
+// null when there is nothing to show so callers can branch cheaply.
+function getPF2eConditionTags(combatant) {
+  const hidden = getHiddenConditionSlugs(combatant);
+  const tags = getPrimaryConditionItems(combatant).filter(tag => !hidden.has(tag.slug));
   return tags.length ? tags : null;
 }
 
@@ -3393,6 +3472,26 @@ function renderConditionRepeatText(conditions) {
       ${line}
     </div>
   `).join("");
+}
+
+// PF2e exposes no positive/negative flag on conditions; tone is "neutral" for
+// now (single colour) but kept as a hook so a future classifier can colour the
+// labels without touching the markup.
+function getConditionTone() {
+  return "neutral";
+}
+
+// Small per-condition chips anchored to the card's outer side (opposite the
+// floating turn controls). Long names are clipped with an ellipsis and the full
+// text is preserved in the title attribute.
+function renderConditionLabels(conditions) {
+  return conditions.map(condition => {
+    const tone = getConditionTone(condition);
+    const display = condition.value === null
+      ? escapeHTML(condition.name)
+      : `${escapeHTML(condition.name)}<b>${escapeHTML(String(condition.value))}</b>`;
+    return `<span class="gluni-card-condition-label gluni-card-condition-label--${tone}" title="${escapeAttr(condition.text)}">${display}</span>`;
+  }).join("");
 }
 
 function findPF2eGuardBreakEffects(actor) {

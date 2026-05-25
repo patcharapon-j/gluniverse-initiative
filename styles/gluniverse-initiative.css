@@ -212,34 +212,27 @@
   transform: translateY(-1px);
 }
 
+/* Horizontal round chip — sits in the header row above the rail. The rail's
+   42px top padding contains the active card's portrait overflow, so this chip
+   never collides with the actor image. */
 .gluni-round-chip {
-  position: absolute;
-  top: 32px;
+  position: relative;
   z-index: 16;
   display: inline-flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 6px;
   box-sizing: border-box;
-  width: 18px;
+  height: 18px;
   min-width: 0;
-  height: 132px;
-  padding: 8px 0;
+  padding: 0 9px;
   pointer-events: none;
   background: rgba(2, 7, 11, 0.86);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--gluni-cyan) 38%, var(--gluni-line) 62%),
     inset 0 0 12px rgba(94, 234, 255, 0.1);
-  clip-path: none;
-}
-
-.gluni-initiative--left .gluni-round-chip {
-  right: calc(100% + 6px);
-}
-
-.gluni-initiative--right .gluni-round-chip {
-  left: calc(100% + 6px);
+  clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px);
 }
 
 .gluni-round-chip-label {
@@ -249,13 +242,11 @@
   line-height: 1;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  text-orientation: mixed;
-  writing-mode: vertical-rl;
 }
 
 .gluni-round-chip-divider {
   width: 1px;
-  height: 28px;
+  height: 10px;
   background: var(--gluni-line-strong);
 }
 
@@ -265,9 +256,7 @@
   font-weight: 950;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
-  text-orientation: upright;
-  writing-mode: vertical-rl;
+  letter-spacing: 0.04em;
 }
 
 .gluni-rail,
@@ -690,6 +679,58 @@
 
 .gluni-card-condition-repeat-line span {
   flex: 0 0 auto;
+}
+
+/* Small condition chips stacked down the card's outer edge — the side opposite
+   the floating turn controls. They sit inside the card bounds because the card
+   clip-path would crop anything pushed outside. Long names ellipsis-truncate
+   with the full text preserved in the title attribute. */
+.gluni-card-condition-labels {
+  position: absolute;
+  top: 5px;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 56%;
+  pointer-events: none;
+}
+
+.gluni-initiative--right .gluni-card-condition-labels {
+  right: 6px;
+  align-items: flex-end;
+}
+
+.gluni-initiative--left .gluni-card-condition-labels {
+  left: 6px;
+  align-items: flex-start;
+}
+
+.gluni-card-condition-label {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 2px 6px;
+  overflow: hidden;
+  pointer-events: auto;
+  background: rgba(2, 7, 11, 0.82);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gluni-condition) 46%, var(--gluni-line) 54%);
+  color: var(--gluni-condition-hot);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  clip-path: polygon(3px 0, 100% 0, 100% 100%, 0 100%, 0 3px);
+}
+
+.gluni-card-condition-label b {
+  margin-left: 4px;
+  padding: 0 3px;
+  background: color-mix(in srgb, var(--gluni-condition) 30%, transparent);
+  color: var(--gluni-white);
+  font-variant-numeric: tabular-nums;
 }
 
 .gluni-card-dying-bg,
@@ -1985,6 +2026,63 @@
 .gluni-context-gauge--active {
   color: var(--gluni-ink);
   background: linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break));
+}
+
+.gluni-context-conditions {
+  display: grid;
+  gap: 3px;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--gluni-line);
+}
+
+.gluni-context-conditions-label {
+  color: var(--gluni-text-dim);
+  font-size: 7px;
+  font-weight: 950;
+  letter-spacing: 0.22em;
+}
+
+.gluni-context-condition {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 7px;
+  border: 0;
+  color: var(--gluni-condition-hot);
+  background: rgba(3, 8, 12, 0.86);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gluni-condition) 32%, var(--gluni-line) 68%);
+  font: inherit;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-align: left;
+  cursor: pointer;
+  clip-path: polygon(4px 0, 100% 0, 100% 100%, 0 100%, 0 4px);
+}
+
+.gluni-context-condition span {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gluni-context-condition i {
+  flex: 0 0 auto;
+  width: 10px;
+  text-align: center;
+}
+
+.gluni-context-condition:hover {
+  color: var(--gluni-ink);
+  background: var(--gluni-condition);
+}
+
+.gluni-context-condition--hidden {
+  color: var(--gluni-text-dim);
+  box-shadow: inset 0 0 0 1px var(--gluni-line);
 }
 
 .gluni-break-gauge-editor {
@@ -3926,6 +4024,16 @@
     0 0 24px var(--gluni-condition),
     0 0 52px color-mix(in srgb, var(--gluni-condition) 42%, transparent),
     0 4px 14px rgba(0, 0, 0, 0.92);
+}
+
+/* Shrink long announce text so it still reads in a single horizontal pass. */
+.gluni-status-flash--long span {
+  font-size: clamp(16px, 12cqw, 24px);
+}
+
+.gluni-status-flash--xlong span {
+  font-size: clamp(11px, 8cqw, 17px);
+  letter-spacing: 0.06em;
 }
 
 /* Condition layer wipe reveal — reuses the dying wipe so the background field
