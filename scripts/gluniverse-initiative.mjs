@@ -555,6 +555,308 @@ function getVisualFidelity() {
   }
 }
 
+function prefersReducedMotion() {
+  try {
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  } catch {
+    return false;
+  }
+}
+
+// Reads a CSS custom property off the document root and parses it to a [r,g,b]
+// triple in 0..1 space. Falls back to the supplied default when the variable is
+// missing or unparseable (e.g. a non-hex color() value).
+function readCSSColorVar(name, fallback) {
+  let raw = "";
+  try {
+    raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  } catch {
+    raw = "";
+  }
+  const parsed = parseHexColor(raw);
+  return parsed || fallback;
+}
+
+function parseHexColor(value) {
+  if (typeof value !== "string") return null;
+  let hex = value.trim();
+  if (hex[0] !== "#") return null;
+  hex = hex.slice(1);
+  if (hex.length === 3) hex = hex.split("").map(c => c + c).join("");
+  if (hex.length !== 6) return null;
+  const num = Number.parseInt(hex, 16);
+  if (!Number.isFinite(num)) return null;
+  return [((num >> 16) & 255) / 255, ((num >> 8) & 255) / 255, (num & 255) / 255];
+}
+
+// WebGL renderer for the guard-break splash: a procedural glass-crack + shatter
+// shockwave drawn additively over the existing CSS deck. It is purely
+// decorative and self-contained — if a GL context can't be created the splash
+// still works from CSS alone. One instance lives for the lifetime of a single
+// splash element and tears itself down via destroy().
+const BREAK_GL_VERT = `
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main() {
+  v_uv = a_pos * 0.5 + 0.5;
+  gl_Position = vec4(a_pos, 0.0, 1.0);
+}`;
+
+// Fullscreen sibling of FX_FRAG_BREAK (the card / token break overlay). Same
+// Voronoi-shard glass fracture, warp, shatter front and flowing glow that read
+// so well on the cards — scaled up to the whole screen. Output is premultiplied
+// (col*a, a) and the layer is screen-blended in CSS so the shards glow over the
+// amber deck. A hard impact envelope fades the whole thing out fast so it never
+// sits frozen after the fracture lands.
+const BREAK_GL_FRAG = `
+precision highp float;
+varying vec2 v_uv;
+uniform vec2 u_res;
+uniform float u_time;       // seconds since start (keeps the glow flowing)
+uniform float u_progress;   // 0..1 over the GL life
+uniform float u_seed;       // per-splash randomization
+uniform float u_intensity;  // 0..1 (default vs cinematic)
+uniform vec3 u_break;       // amber
+uniform vec3 u_hot;
+
+vec2 gluHash2(vec2 p) {
+  p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+  return fract(sin(p + u_seed) * 43758.5453);
+}
+float gluHash1(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7)) + u_seed) * 43758.5453); }
+float gluVNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(gluHash1(i), gluHash1(i + vec2(1.0, 0.0)), f.x),
+             mix(gluHash1(i + vec2(0.0, 1.0)), gluHash1(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float gluFbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { s += a * gluVNoise(p); p *= 2.02; a *= 0.5; } return s; }
+
+// Second-minus-first Voronoi distance: zero exactly on the cell seams -> crisp
+// shard edges, identical to the card/token break.
+float gluVoroEdge(vec2 x) {
+  vec2 n = floor(x), f = fract(x); float f1 = 9.0, f2 = 9.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 g = vec2(float(i), float(j)); vec2 o = gluHash2(n + g); vec2 r = g + o - f; float d = dot(r, r);
+    if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) { f2 = d; }
+  }
+  return sqrt(f2) - sqrt(f1);
+}
+
+void main() {
+  float aspect = u_res.x / max(u_res.y, 1.0);
+  vec2 uv = v_uv;
+
+  // Impact dead-centre on screen.
+  vec2 impact = vec2(0.5);
+  vec2 d = uv - impact; d.x *= aspect;
+  float dist = length(d);
+  float ang = atan(d.y, d.x);
+  float texel = 1.0 / max(u_res.y, 1.0);
+
+  // Warp the radius so the fracture front is irregular, not a clean circle.
+  float warp = 0.16 * gluFbm(vec2(ang * 1.2 + 3.0, 1.7)) + 0.08 * gluFbm(vec2(ang * 3.3, 5.0)) - 0.12;
+  float wdist = dist + warp;
+
+  // Fast, snappy shatter front that sweeps out from the centre.
+  float shatterT = clamp(u_progress * 2.6, 0.0, 1.0);
+  shatterT = 1.0 - pow(1.0 - shatterT, 3.0);
+  float reach = mix(1.6, 1.95, u_intensity);
+  float frontR = 0.05 + reach * shatterT;
+  float front = smoothstep(0.07, -0.07, wdist - frontR);
+  float coverage = smoothstep(1.75, 0.06, wdist) * front;
+
+  // Coarse shards: large bold cells near the impact, finer toward the rim.
+  float scaleC = mix(6.0, 3.0, smoothstep(0.0, 1.0, dist));
+  float ceC = gluVoroEdge(vec2(uv.x * aspect, uv.y) * scaleC + 7.0);
+  float edgeC = 1.0 - smoothstep(0.0, max(0.011, 1.5 * scaleC * texel), ceC);
+
+  // Fine shards: a denser second octave that snaps in slightly later for detail.
+  float scaleF = scaleC * 2.5;
+  float ceF = gluVoroEdge(vec2(uv.x * aspect, uv.y) * scaleF + 21.0);
+  float edgeF = 1.0 - smoothstep(0.0, max(0.011, 1.5 * scaleF * texel), ceF);
+  float fineGate = smoothstep(0.28, 0.72, shatterT) * 0.6;
+  float shards = max(edgeC, edgeF * fineGate) * coverage;
+
+  // Bold radial cracks shooting straight out from the centre, jittered so they
+  // wander like real glass and growing with the shatter front.
+  float radial = 0.0;
+  for (int i = 0; i < 7; i++) {
+    float fi = float(i);
+    float a0 = (fi + gluHash1(vec2(fi, 3.0)) * 0.8) * 6.28318530 / 7.0;
+    float jit = (gluVNoise(vec2(dist * 5.5, fi * 2.0 + 1.0)) - 0.5) * 0.45 * smoothstep(0.04, 0.4, dist);
+    float da = atan(sin(ang - a0 - jit), cos(ang - a0 - jit));
+    float w = mix(0.004, 0.013, gluHash1(vec2(fi, 9.0))) / max(dist, 0.05);
+    float along = smoothstep(frontR * 1.05, frontR * 0.3, dist);
+    radial = max(radial, smoothstep(w, 0.0, abs(da)) * along);
+  }
+  float crack = max(shards, radial * front);
+
+  // Expanding shockwave ring riding the fracture front.
+  float ring = smoothstep(0.05, 0.0, abs(dist - frontR)) * smoothstep(0.04, 0.3, shatterT) * (1.0 - shatterT * 0.5);
+
+  // Flowing glow + twinkling glints keep the fracture alive, never frozen.
+  float settled = smoothstep(0.4, 1.0, shatterT);
+  float flow = pow(0.5 + 0.5 * sin(dist * 15.0 - u_time * 7.0), 8.0);
+  float glints = pow(0.5 + 0.5 * sin(ang * 38.0 + dist * 26.0 - u_time * 5.0), 18.0) * crack;
+  float glowFlow = crack * flow * settled + glints * 0.85;
+
+  // Punchy white-hot impact core + flash, both gone almost instantly.
+  float core = smoothstep(0.17, 0.0, dist) * (1.0 - smoothstep(0.0, 0.10, u_progress));
+  float flash = smoothstep(0.72, 0.0, dist) * (1.0 - smoothstep(0.0, 0.16, u_progress));
+
+  // Hard hit, then a quick fade-out so nothing lingers static.
+  float env = 1.0 - smoothstep(0.30, 0.66, u_progress);
+
+  vec3 amber = u_break, hot = u_hot, white = vec3(1.0);
+  vec3 col = mix(amber, hot, clamp(crack + ring * 0.6, 0.0, 1.0));
+  col = mix(col, white, clamp(core + glowFlow, 0.0, 1.0));
+  float a = clamp(crack * 0.92 + core * 0.9 + glowFlow * 0.7 + flash * 0.5 + ring * 0.55, 0.0, 1.0) * env;
+  gl_FragColor = vec4(col * a, a);
+}`;
+
+class BreakSplashGL {
+  constructor(canvas, { intensity = "default", fidelity = "high", lifeMs = 1860 } = {}) {
+    this.canvas = canvas;
+    this.lifeMs = Math.max(400, lifeMs);
+    this.intensityValue = intensity === "cinematic" ? 1.0 : 0.55;
+    this.seed = Math.random() * 100;
+    this.raf = 0;
+    this.start = 0;
+    this.gl = null;
+    this.program = null;
+    this.uniforms = {};
+    this.onResize = () => this.resize();
+
+    this.colors = {
+      break: readCSSColorVar("--gluni-break", [1.0, 0.694, 0.176]),
+      hot: readCSSColorVar("--gluni-break-hot", [1.0, 0.878, 0.439])
+    };
+
+    this.init();
+  }
+
+  init() {
+    const opts = { alpha: true, premultipliedAlpha: true, antialias: true };
+    const gl = this.canvas.getContext("webgl", opts) || this.canvas.getContext("experimental-webgl", opts);
+    if (!gl) return false;
+    this.gl = gl;
+
+    const program = this.buildProgram(gl, BREAK_GL_VERT, BREAK_GL_FRAG);
+    if (!program) {
+      this.gl = null;
+      return false;
+    }
+    this.program = program;
+    gl.useProgram(program);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(program, "a_pos");
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+    this.uniforms = {
+      res: gl.getUniformLocation(program, "u_res"),
+      time: gl.getUniformLocation(program, "u_time"),
+      progress: gl.getUniformLocation(program, "u_progress"),
+      seed: gl.getUniformLocation(program, "u_seed"),
+      intensity: gl.getUniformLocation(program, "u_intensity"),
+      break: gl.getUniformLocation(program, "u_break"),
+      hot: gl.getUniformLocation(program, "u_hot")
+    };
+
+    gl.uniform1f(this.uniforms.seed, this.seed);
+    gl.uniform1f(this.uniforms.intensity, this.intensityValue);
+    gl.uniform3fv(this.uniforms.break, this.colors.break);
+    gl.uniform3fv(this.uniforms.hot, this.colors.hot);
+
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    // Premultiplied source-over (output is col*a, a); CSS screen-blends the
+    // canvas so the bright shards glow over the amber deck.
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+    this.resize();
+    window.addEventListener("resize", this.onResize);
+    this.start = performance.now();
+    this.raf = window.requestAnimationFrame(() => this.frame());
+    return true;
+  }
+
+  buildProgram(gl, vertSrc, fragSrc) {
+    const vert = this.compile(gl, gl.VERTEX_SHADER, vertSrc);
+    const frag = this.compile(gl, gl.FRAGMENT_SHADER, fragSrc);
+    if (!vert || !frag) return null;
+    const program = gl.createProgram();
+    gl.attachShader(program, vert);
+    gl.attachShader(program, frag);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.warn(`${MODULE_ID} | break-splash GL link failed`, gl.getProgramInfoLog(program));
+      return null;
+    }
+    return program;
+  }
+
+  compile(gl, type, src) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, src);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      console.warn(`${MODULE_ID} | break-splash GL compile failed`, gl.getShaderInfoLog(shader));
+      return null;
+    }
+    return shader;
+  }
+
+  resize() {
+    const gl = this.gl;
+    if (!gl) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.round(window.innerWidth * dpr));
+    const h = Math.max(1, Math.round(window.innerHeight * dpr));
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+    }
+    gl.viewport(0, 0, w, h);
+    gl.uniform2f(this.uniforms.res, w, h);
+  }
+
+  frame() {
+    const gl = this.gl;
+    if (!gl) return;
+    const elapsed = performance.now() - this.start;
+    const progress = elapsed / this.lifeMs;
+    gl.uniform1f(this.uniforms.time, elapsed / 1000);
+    gl.uniform1f(this.uniforms.progress, progress);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (progress >= 1.05) {
+      this.destroy();
+      return;
+    }
+    this.raf = window.requestAnimationFrame(() => this.frame());
+  }
+
+  destroy() {
+    if (this.raf) window.cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    window.removeEventListener("resize", this.onResize);
+    const gl = this.gl;
+    this.gl = null;
+    if (gl) {
+      try {
+        gl.getExtension("WEBGL_lose_context")?.loseContext();
+      } catch {
+        /* best-effort cleanup */
+      }
+    }
+  }
+}
+
 function isRelevantCombatantUpdate(changed) {
   if (!changed || typeof changed !== "object") return true;
   const keys = Object.keys(changed);
@@ -2381,6 +2683,7 @@ class GLUniverseInitiativeOverlay {
     splash.className = `gluni-break-splash gluni-break-splash--${intensity} gluni-fidelity--${fidelity}`;
     splash.innerHTML = `
       <div class="gluni-break-splash-burst" aria-hidden="true"></div>
+      <canvas class="gluni-break-splash-gl" aria-hidden="true"></canvas>
       <div class="gluni-break-splash-rule" aria-hidden="true"></div>
       <div class="gluni-break-splash-inner">
         <div class="gluni-break-deck" aria-hidden="true"></div>
@@ -2394,6 +2697,24 @@ class GLUniverseInitiativeOverlay {
     `;
     document.body.appendChild(splash);
 
+    // WebGL glass-crack + shockwave layer. Decorative and additive over the CSS
+    // deck — skipped on the reduced tier or when the user prefers reduced motion.
+    let breakGL = null;
+    if (intensity !== "reduced" && !prefersReducedMotion()) {
+      const canvas = splash.querySelector(".gluni-break-splash-gl");
+      if (canvas) {
+        const renderer = new BreakSplashGL(canvas, {
+          intensity,
+          fidelity,
+          lifeMs: this.getBreakGLLife()
+        });
+        if (renderer.gl) breakGL = renderer;
+        else { renderer.destroy(); canvas.remove(); }
+      }
+    } else {
+      splash.querySelector(".gluni-break-splash-gl")?.remove();
+    }
+
     window.requestAnimationFrame(() => splash.classList.add("gluni-break-splash--show"));
     // Short screen-shake on impact (skipped on reduced tier via the class gate in CSS).
     if (intensity !== "reduced") {
@@ -2403,21 +2724,32 @@ class GLUniverseInitiativeOverlay {
       });
     }
     window.setTimeout(() => splash.classList.add("gluni-break-splash--leave"), this.getBreakSplashHold());
-    window.setTimeout(() => splash.remove(), this.getBreakSplashDuration());
+    window.setTimeout(() => {
+      breakGL?.destroy();
+      splash.remove();
+    }, this.getBreakSplashDuration());
   }
 
   getBreakSplashHold() {
     const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
-    if (intensity === "reduced") return 440;
-    if (intensity === "cinematic") return 1600;
-    return 1200;
+    if (intensity === "reduced") return 420;
+    if (intensity === "cinematic") return 1080;
+    return 820;
   }
 
   getBreakSplashDuration() {
     const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
-    if (intensity === "reduced") return 960;
-    if (intensity === "cinematic") return 2400;
-    return 1860;
+    if (intensity === "reduced") return 900;
+    if (intensity === "cinematic") return 1680;
+    return 1320;
+  }
+
+  // The WebGL fracture is the impact: it hits hard and fades out fast, well
+  // before the deck/text leaves, so the screen never sits frozen on a static
+  // crack. Kept shorter than the splash hold on purpose.
+  getBreakGLLife() {
+    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
+    return intensity === "cinematic" ? 1300 : 1050;
   }
 
   broadcastBreakSplash(name) {
