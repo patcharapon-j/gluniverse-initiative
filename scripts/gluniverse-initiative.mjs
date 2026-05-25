@@ -15,7 +15,9 @@ const SETTINGS = {
   startMarkerEnabled: "startMarkerEnabled",
   startConnectorEnabled: "startConnectorEnabled",
   conditionBadges: "conditionBadges",
-  conditionBadgeLayout: "conditionBadgeLayout"
+  conditionBadgeLayout: "conditionBadgeLayout",
+  guardBreakSound: "guardBreakSound",
+  guardBreakSoundVolume: "guardBreakSoundVolume"
 };
 
 const TOKEN_OVERLAY_PALETTE = {
@@ -123,6 +125,10 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.ConditionBadgeLayout.Hint": "Arrange the condition badges as stacked horizontal pills, or as a slim vertical strip of rotated text along the card.",
   "GLUNI.Settings.ConditionBadgeLayout.Horizontal": "Horizontal pills",
   "GLUNI.Settings.ConditionBadgeLayout.Vertical": "Vertical strip",
+  "GLUNI.Settings.GuardBreakSound.Name": "Guard break sound",
+  "GLUNI.Settings.GuardBreakSound.Hint": "Audio file played for everyone when a combatant's guard is broken. Leave empty for no sound.",
+  "GLUNI.Settings.GuardBreakSoundVolume.Name": "Guard break sound volume",
+  "GLUNI.Settings.GuardBreakSoundVolume.Hint": "Playback volume of the guard break sound for this user.",
   "GLUNI.TurnMarker.Next": "Next",
   "GLUNI.Settings.VisibleCount.Hint": "Number of normal initiative combatants to show from the current turn forward.",
   "GLUNI.Settings.VisibleCount.Name": "Visible combatants",
@@ -546,6 +552,26 @@ function registerSettings() {
     onChange: rerender
   });
 
+  game.settings.register(MODULE_ID, SETTINGS.guardBreakSound, {
+    name: localize("GLUNI.Settings.GuardBreakSound.Name"),
+    hint: localize("GLUNI.Settings.GuardBreakSound.Hint"),
+    scope: "world",
+    config: true,
+    type: String,
+    filePicker: "audio",
+    default: ""
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.guardBreakSoundVolume, {
+    name: localize("GLUNI.Settings.GuardBreakSoundVolume.Name"),
+    hint: localize("GLUNI.Settings.GuardBreakSoundVolume.Hint"),
+    scope: "client",
+    config: true,
+    type: Number,
+    range: { min: 0, max: 1, step: 0.05 },
+    default: 0.8
+  });
+
   game.settings.register(MODULE_ID, SETTINGS.position, {
     scope: "client",
     config: false,
@@ -579,6 +605,308 @@ function getConditionBadgeLayout() {
     return game.settings.get(MODULE_ID, SETTINGS.conditionBadgeLayout) === "vertical" ? "vertical" : "horizontal";
   } catch {
     return "horizontal";
+  }
+}
+
+function prefersReducedMotion() {
+  try {
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  } catch {
+    return false;
+  }
+}
+
+// Reads a CSS custom property off the document root and parses it to a [r,g,b]
+// triple in 0..1 space. Falls back to the supplied default when the variable is
+// missing or unparseable (e.g. a non-hex color() value).
+function readCSSColorVar(name, fallback) {
+  let raw = "";
+  try {
+    raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  } catch {
+    raw = "";
+  }
+  const parsed = parseHexColor(raw);
+  return parsed || fallback;
+}
+
+function parseHexColor(value) {
+  if (typeof value !== "string") return null;
+  let hex = value.trim();
+  if (hex[0] !== "#") return null;
+  hex = hex.slice(1);
+  if (hex.length === 3) hex = hex.split("").map(c => c + c).join("");
+  if (hex.length !== 6) return null;
+  const num = Number.parseInt(hex, 16);
+  if (!Number.isFinite(num)) return null;
+  return [((num >> 16) & 255) / 255, ((num >> 8) & 255) / 255, (num & 255) / 255];
+}
+
+// WebGL renderer for the guard-break splash: a procedural glass-crack + shatter
+// shockwave drawn additively over the existing CSS deck. It is purely
+// decorative and self-contained — if a GL context can't be created the splash
+// still works from CSS alone. One instance lives for the lifetime of a single
+// splash element and tears itself down via destroy().
+const BREAK_GL_VERT = `
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main() {
+  v_uv = a_pos * 0.5 + 0.5;
+  gl_Position = vec4(a_pos, 0.0, 1.0);
+}`;
+
+// Fullscreen sibling of FX_FRAG_BREAK (the card / token break overlay). Same
+// Voronoi-shard glass fracture, warp, shatter front and flowing glow that read
+// so well on the cards — scaled up to the whole screen. Output is premultiplied
+// (col*a, a) and the layer is screen-blended in CSS so the shards glow over the
+// amber deck. A hard impact envelope fades the whole thing out fast so it never
+// sits frozen after the fracture lands.
+const BREAK_GL_FRAG = `
+precision highp float;
+varying vec2 v_uv;
+uniform vec2 u_res;
+uniform float u_time;       // seconds since start (keeps the glow flowing)
+uniform float u_progress;   // 0..1 over the GL life
+uniform float u_seed;       // per-splash randomization
+uniform float u_intensity;  // 0..1 (default vs cinematic)
+uniform vec3 u_break;       // amber
+uniform vec3 u_hot;
+
+vec2 gluHash2(vec2 p) {
+  p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+  return fract(sin(p + u_seed) * 43758.5453);
+}
+float gluHash1(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7)) + u_seed) * 43758.5453); }
+float gluVNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(gluHash1(i), gluHash1(i + vec2(1.0, 0.0)), f.x),
+             mix(gluHash1(i + vec2(0.0, 1.0)), gluHash1(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float gluFbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { s += a * gluVNoise(p); p *= 2.02; a *= 0.5; } return s; }
+
+// Second-minus-first Voronoi distance: zero exactly on the cell seams -> crisp
+// shard edges, identical to the card/token break.
+float gluVoroEdge(vec2 x) {
+  vec2 n = floor(x), f = fract(x); float f1 = 9.0, f2 = 9.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 g = vec2(float(i), float(j)); vec2 o = gluHash2(n + g); vec2 r = g + o - f; float d = dot(r, r);
+    if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) { f2 = d; }
+  }
+  return sqrt(f2) - sqrt(f1);
+}
+
+void main() {
+  float aspect = u_res.x / max(u_res.y, 1.0);
+  vec2 uv = v_uv;
+
+  // Impact dead-centre on screen.
+  vec2 impact = vec2(0.5);
+  vec2 d = uv - impact; d.x *= aspect;
+  float dist = length(d);
+  float ang = atan(d.y, d.x);
+  float texel = 1.0 / max(u_res.y, 1.0);
+
+  // Warp the radius so the fracture front is irregular, not a clean circle.
+  float warp = 0.16 * gluFbm(vec2(ang * 1.2 + 3.0, 1.7)) + 0.08 * gluFbm(vec2(ang * 3.3, 5.0)) - 0.12;
+  float wdist = dist + warp;
+
+  // Fast, snappy shatter front that sweeps out from the centre.
+  float shatterT = clamp(u_progress * 2.6, 0.0, 1.0);
+  shatterT = 1.0 - pow(1.0 - shatterT, 3.0);
+  float reach = mix(1.6, 1.95, u_intensity);
+  float frontR = 0.05 + reach * shatterT;
+  float front = smoothstep(0.07, -0.07, wdist - frontR);
+  float coverage = smoothstep(1.75, 0.06, wdist) * front;
+
+  // Coarse shards: large bold cells near the impact, finer toward the rim.
+  float scaleC = mix(6.0, 3.0, smoothstep(0.0, 1.0, dist));
+  float ceC = gluVoroEdge(vec2(uv.x * aspect, uv.y) * scaleC + 7.0);
+  float edgeC = 1.0 - smoothstep(0.0, max(0.011, 1.5 * scaleC * texel), ceC);
+
+  // Fine shards: a denser second octave that snaps in slightly later for detail.
+  float scaleF = scaleC * 2.5;
+  float ceF = gluVoroEdge(vec2(uv.x * aspect, uv.y) * scaleF + 21.0);
+  float edgeF = 1.0 - smoothstep(0.0, max(0.011, 1.5 * scaleF * texel), ceF);
+  float fineGate = smoothstep(0.28, 0.72, shatterT) * 0.6;
+  float shards = max(edgeC, edgeF * fineGate) * coverage;
+
+  // Bold radial cracks shooting straight out from the centre, jittered so they
+  // wander like real glass and growing with the shatter front.
+  float radial = 0.0;
+  for (int i = 0; i < 7; i++) {
+    float fi = float(i);
+    float a0 = (fi + gluHash1(vec2(fi, 3.0)) * 0.8) * 6.28318530 / 7.0;
+    float jit = (gluVNoise(vec2(dist * 5.5, fi * 2.0 + 1.0)) - 0.5) * 0.45 * smoothstep(0.04, 0.4, dist);
+    float da = atan(sin(ang - a0 - jit), cos(ang - a0 - jit));
+    float w = mix(0.004, 0.013, gluHash1(vec2(fi, 9.0))) / max(dist, 0.05);
+    float along = smoothstep(frontR * 1.05, frontR * 0.3, dist);
+    radial = max(radial, smoothstep(w, 0.0, abs(da)) * along);
+  }
+  float crack = max(shards, radial * front);
+
+  // Expanding shockwave ring riding the fracture front.
+  float ring = smoothstep(0.05, 0.0, abs(dist - frontR)) * smoothstep(0.04, 0.3, shatterT) * (1.0 - shatterT * 0.5);
+
+  // Flowing glow + twinkling glints keep the fracture alive, never frozen.
+  float settled = smoothstep(0.4, 1.0, shatterT);
+  float flow = pow(0.5 + 0.5 * sin(dist * 15.0 - u_time * 7.0), 8.0);
+  float glints = pow(0.5 + 0.5 * sin(ang * 38.0 + dist * 26.0 - u_time * 5.0), 18.0) * crack;
+  float glowFlow = crack * flow * settled + glints * 0.85;
+
+  // Punchy white-hot impact core + flash, both gone almost instantly.
+  float core = smoothstep(0.17, 0.0, dist) * (1.0 - smoothstep(0.0, 0.10, u_progress));
+  float flash = smoothstep(0.72, 0.0, dist) * (1.0 - smoothstep(0.0, 0.16, u_progress));
+
+  // Hard hit, then a quick fade-out so nothing lingers static.
+  float env = 1.0 - smoothstep(0.30, 0.66, u_progress);
+
+  vec3 amber = u_break, hot = u_hot, white = vec3(1.0);
+  vec3 col = mix(amber, hot, clamp(crack + ring * 0.6, 0.0, 1.0));
+  col = mix(col, white, clamp(core + glowFlow, 0.0, 1.0));
+  float a = clamp(crack * 0.92 + core * 0.9 + glowFlow * 0.7 + flash * 0.5 + ring * 0.55, 0.0, 1.0) * env;
+  gl_FragColor = vec4(col * a, a);
+}`;
+
+class BreakSplashGL {
+  constructor(canvas, { intensity = "default", fidelity = "high", lifeMs = 1860 } = {}) {
+    this.canvas = canvas;
+    this.lifeMs = Math.max(400, lifeMs);
+    this.intensityValue = intensity === "cinematic" ? 1.0 : 0.55;
+    this.seed = Math.random() * 100;
+    this.raf = 0;
+    this.start = 0;
+    this.gl = null;
+    this.program = null;
+    this.uniforms = {};
+    this.onResize = () => this.resize();
+
+    this.colors = {
+      break: readCSSColorVar("--gluni-break", [1.0, 0.694, 0.176]),
+      hot: readCSSColorVar("--gluni-break-hot", [1.0, 0.878, 0.439])
+    };
+
+    this.init();
+  }
+
+  init() {
+    const opts = { alpha: true, premultipliedAlpha: true, antialias: true };
+    const gl = this.canvas.getContext("webgl", opts) || this.canvas.getContext("experimental-webgl", opts);
+    if (!gl) return false;
+    this.gl = gl;
+
+    const program = this.buildProgram(gl, BREAK_GL_VERT, BREAK_GL_FRAG);
+    if (!program) {
+      this.gl = null;
+      return false;
+    }
+    this.program = program;
+    gl.useProgram(program);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(program, "a_pos");
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+    this.uniforms = {
+      res: gl.getUniformLocation(program, "u_res"),
+      time: gl.getUniformLocation(program, "u_time"),
+      progress: gl.getUniformLocation(program, "u_progress"),
+      seed: gl.getUniformLocation(program, "u_seed"),
+      intensity: gl.getUniformLocation(program, "u_intensity"),
+      break: gl.getUniformLocation(program, "u_break"),
+      hot: gl.getUniformLocation(program, "u_hot")
+    };
+
+    gl.uniform1f(this.uniforms.seed, this.seed);
+    gl.uniform1f(this.uniforms.intensity, this.intensityValue);
+    gl.uniform3fv(this.uniforms.break, this.colors.break);
+    gl.uniform3fv(this.uniforms.hot, this.colors.hot);
+
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    // Premultiplied source-over (output is col*a, a); CSS screen-blends the
+    // canvas so the bright shards glow over the amber deck.
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+    this.resize();
+    window.addEventListener("resize", this.onResize);
+    this.start = performance.now();
+    this.raf = window.requestAnimationFrame(() => this.frame());
+    return true;
+  }
+
+  buildProgram(gl, vertSrc, fragSrc) {
+    const vert = this.compile(gl, gl.VERTEX_SHADER, vertSrc);
+    const frag = this.compile(gl, gl.FRAGMENT_SHADER, fragSrc);
+    if (!vert || !frag) return null;
+    const program = gl.createProgram();
+    gl.attachShader(program, vert);
+    gl.attachShader(program, frag);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.warn(`${MODULE_ID} | break-splash GL link failed`, gl.getProgramInfoLog(program));
+      return null;
+    }
+    return program;
+  }
+
+  compile(gl, type, src) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, src);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      console.warn(`${MODULE_ID} | break-splash GL compile failed`, gl.getShaderInfoLog(shader));
+      return null;
+    }
+    return shader;
+  }
+
+  resize() {
+    const gl = this.gl;
+    if (!gl) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.round(window.innerWidth * dpr));
+    const h = Math.max(1, Math.round(window.innerHeight * dpr));
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+    }
+    gl.viewport(0, 0, w, h);
+    gl.uniform2f(this.uniforms.res, w, h);
+  }
+
+  frame() {
+    const gl = this.gl;
+    if (!gl) return;
+    const elapsed = performance.now() - this.start;
+    const progress = elapsed / this.lifeMs;
+    gl.uniform1f(this.uniforms.time, elapsed / 1000);
+    gl.uniform1f(this.uniforms.progress, progress);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (progress >= 1.05) {
+      this.destroy();
+      return;
+    }
+    this.raf = window.requestAnimationFrame(() => this.frame());
+  }
+
+  destroy() {
+    if (this.raf) window.cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    window.removeEventListener("resize", this.onResize);
+    const gl = this.gl;
+    this.gl = null;
+    if (gl) {
+      try {
+        gl.getExtension("WEBGL_lose_context")?.loseContext();
+      } catch {
+        /* best-effort cleanup */
+      }
+    }
   }
 }
 
@@ -2368,7 +2696,30 @@ class GLUniverseInitiativeOverlay {
     if (!data?.combatantId) return;
     if (data.combatId && this.combat?.id !== data.combatId) return;
     this.pendingGuardBreakImpactId = data.combatantId;
+    this.playGuardBreakSound();
     this.renderSoon();
+  }
+
+  // Plays the configured guard-break sting locally. queueGuardBreakImpact runs on
+  // every client (the GM applies it; players receive the broadcast), so each
+  // client plays its own copy — never socket-push the sound or it doubles up.
+  playGuardBreakSound() {
+    let src = "";
+    try { src = game.settings.get(MODULE_ID, SETTINGS.guardBreakSound) || ""; } catch { src = ""; }
+    if (!src) return;
+
+    let volume = 0.8;
+    try {
+      const raw = Number(game.settings.get(MODULE_ID, SETTINGS.guardBreakSoundVolume));
+      if (Number.isFinite(raw)) volume = clamp(raw, 0, 1);
+    } catch { volume = 0.8; }
+    if (volume <= 0) return;
+
+    try {
+      foundry.audio.AudioHelper.play({ src, volume, autoplay: true, loop: false }, false);
+    } catch (err) {
+      console.error(`${MODULE_ID} | failed to play guard break sound`, err);
+    }
   }
 
   playPendingGuardBreakImpact() {
@@ -2410,6 +2761,7 @@ class GLUniverseInitiativeOverlay {
     splash.className = `gluni-break-splash gluni-break-splash--${intensity} gluni-fidelity--${fidelity}`;
     splash.innerHTML = `
       <div class="gluni-break-splash-burst" aria-hidden="true"></div>
+      <canvas class="gluni-break-splash-gl" aria-hidden="true"></canvas>
       <div class="gluni-break-splash-rule" aria-hidden="true"></div>
       <div class="gluni-break-splash-inner">
         <div class="gluni-break-deck" aria-hidden="true"></div>
@@ -2423,6 +2775,24 @@ class GLUniverseInitiativeOverlay {
     `;
     document.body.appendChild(splash);
 
+    // WebGL glass-crack + shockwave layer. Decorative and additive over the CSS
+    // deck — skipped on the reduced tier or when the user prefers reduced motion.
+    let breakGL = null;
+    if (intensity !== "reduced" && !prefersReducedMotion()) {
+      const canvas = splash.querySelector(".gluni-break-splash-gl");
+      if (canvas) {
+        const renderer = new BreakSplashGL(canvas, {
+          intensity,
+          fidelity,
+          lifeMs: this.getBreakGLLife()
+        });
+        if (renderer.gl) breakGL = renderer;
+        else { renderer.destroy(); canvas.remove(); }
+      }
+    } else {
+      splash.querySelector(".gluni-break-splash-gl")?.remove();
+    }
+
     window.requestAnimationFrame(() => splash.classList.add("gluni-break-splash--show"));
     // Short screen-shake on impact (skipped on reduced tier via the class gate in CSS).
     if (intensity !== "reduced") {
@@ -2432,21 +2802,32 @@ class GLUniverseInitiativeOverlay {
       });
     }
     window.setTimeout(() => splash.classList.add("gluni-break-splash--leave"), this.getBreakSplashHold());
-    window.setTimeout(() => splash.remove(), this.getBreakSplashDuration());
+    window.setTimeout(() => {
+      breakGL?.destroy();
+      splash.remove();
+    }, this.getBreakSplashDuration());
   }
 
   getBreakSplashHold() {
     const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
-    if (intensity === "reduced") return 440;
-    if (intensity === "cinematic") return 1600;
-    return 1200;
+    if (intensity === "reduced") return 420;
+    if (intensity === "cinematic") return 1080;
+    return 820;
   }
 
   getBreakSplashDuration() {
     const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
-    if (intensity === "reduced") return 960;
-    if (intensity === "cinematic") return 2400;
-    return 1860;
+    if (intensity === "reduced") return 900;
+    if (intensity === "cinematic") return 1680;
+    return 1320;
+  }
+
+  // The WebGL fracture is the impact: it hits hard and fades out fast, well
+  // before the deck/text leaves, so the screen never sits frozen on a static
+  // crack. Kept shorter than the splash hold on purpose.
+  getBreakGLLife() {
+    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
+    return intensity === "cinematic" ? 1300 : 1050;
   }
 
   broadcastBreakSplash(name) {
@@ -4575,42 +4956,49 @@ void main(void){
   float spin = uReduced > 0.5 ? 1.7 : uTime;   // frozen-but-posed when reduced
 
   // Energy torus: clear centre (token shows), bright mid, soft outer fade.
-  float rMid = 0.66;
-  float band = smoothstep(0.32, rMid, dist) * (1.0 - smoothstep(rMid, 0.99, dist));
+  float rMid = 0.62;
+  float band = smoothstep(0.30, rMid, dist) * (1.0 - smoothstep(rMid, 0.94, dist));
 
-  // Drifting concentric hairline rings.
-  float rings = pow(0.5 + 0.5 * sin(dist * 50.0 - spin * 2.0), 6.0) * band;
+  // Crisp hairline rims give the disc a defined, machined edge instead of a soft
+  // blob — the main lever for "polished, not generic". Thin gaussian rings.
+  float innerRim = exp(-pow((dist - 0.34) / 0.030, 2.0));
+  float outerRim = exp(-pow((dist - 0.84) / 0.040, 2.0));
+
+  // Drifting concentric hairline rings (tighter, sharper than before).
+  float rings = pow(0.5 + 0.5 * sin(dist * 46.0 - spin * 2.0), 9.0) * band;
 
   // Rotating radial ticks around the outer band.
-  float ticks = pow(0.5 + 0.5 * cos(ang * 40.0 + spin * 1.4), 16.0)
-              * smoothstep(0.5, 0.72, dist) * (1.0 - smoothstep(0.78, 0.99, dist));
+  float ticks = pow(0.5 + 0.5 * cos(ang * 36.0 + spin * 1.3), 20.0)
+              * smoothstep(0.54, 0.72, dist) * (1.0 - smoothstep(0.78, 0.93, dist));
 
   // Orbiting comet sweep with a bright leading head.
-  float head = mod(ang - spin * 1.15, TAU);
-  float sweep = pow(smoothstep(2.4, 0.0, head), 1.4) * band;
-  float headGlow = pow(smoothstep(0.45, 0.0, head), 2.0) * band;
+  float head = mod(ang - spin * 1.1, TAU);
+  float sweep = pow(smoothstep(2.0, 0.0, head), 1.7) * band;
+  float headGlow = pow(smoothstep(0.4, 0.0, head), 2.2) * band;
 
-  // Flowing fbm energy so the band shimmers like plasma.
+  // Flowing fbm energy so the band shimmers like plasma (slightly calmer).
   float flow = gluFbm(vec2(ang * 3.0 + spin * 0.5, dist * 5.0 - spin));
-  float energy = (0.4 + 0.6 * flow) * band;
+  float energy = (0.5 + 0.5 * flow) * band;
 
   // A whisper of inner glow keeps the centre subtly lit without hiding the art.
-  float core = (1.0 - smoothstep(0.0, rMid, dist)) * 0.14;
+  float core = (1.0 - smoothstep(0.0, rMid, dist)) * 0.12;
 
-  float ringsW = uHigh > 0.5 ? 0.95 : 0.6;
-  float ticksW = uHigh > 0.5 ? 0.85 : 0.5;
+  float ringsW = uHigh > 0.5 ? 0.85 : 0.55;
+  float ticksW = uHigh > 0.5 ? 0.8 : 0.45;
 
-  // --- ACTIVE: the full plasma pedestal -------------------------------------
-  float activeI = band * (0.45 + 0.6 * energy)
-                + rings * ringsW + ticks * ticksW + sweep * 0.7 + core;
+  // --- ACTIVE: the full plasma pedestal with crisp rims ---------------------
+  float activeI = band * (0.4 + 0.55 * energy)
+                + rings * ringsW + ticks * ticksW + sweep * 0.65
+                + outerRim * 0.95 + innerRim * 0.45 + core;
 
-  // --- NEXT: a thin, marching dashed perimeter ("queued") -------------------
-  // A narrow outer band broken into rotating angular dashes so it reads as a
-  // dotted "on deck" outline rather than a dim version of the active disc.
-  float nextBand = smoothstep(0.60, 0.70, dist) * (1.0 - smoothstep(0.80, 0.92, dist));
-  float dashes = 0.5 + 0.5 * sin(ang * 22.0 - spin * 0.6);
-  dashes = smoothstep(0.45, 0.75, dashes);          // gaps between marching dashes
-  float nextI = nextBand * dashes * (0.7 + 0.3 * flow) + ticks * ticksW * 0.45;
+  // --- NEXT: a clean marching dashed ring sitting just OUTSIDE the token -----
+  // Pushed to the disc's outer edge so it reads as a crisp "on deck" outline
+  // ringing the token, never a dim copy of the active disc hidden under the art.
+  float nextBand = smoothstep(0.68, 0.78, dist) * (1.0 - smoothstep(0.84, 0.95, dist));
+  float dashes = 0.5 + 0.5 * sin(ang * 26.0 - spin * 0.5);
+  dashes = smoothstep(0.5, 0.82, dashes);           // crisper gaps between dashes
+  float nextRim = exp(-pow((dist - 0.90) / 0.035, 2.0));   // thin defining outer line
+  float nextI = nextBand * dashes * (0.8 + 0.2 * flow) + nextRim * 0.55;
 
   float intensity = mix(nextI, activeI, step(0.5, uActive));
 
@@ -4619,12 +5007,12 @@ void main(void){
 
   // Active leans bright/white-hot at its highlights; next stays cool, close to its
   // base hue so it never competes with the live token's glowing pedestal.
-  vec3 activeCol = mix(uColor, uColorHi, clamp(rings + ticks + sweep * 0.5 + headGlow, 0.0, 1.0));
+  vec3 activeCol = mix(uColor, uColorHi, clamp(rings + ticks + sweep * 0.5 + headGlow + outerRim * 0.6, 0.0, 1.0));
   activeCol = mix(activeCol, vec3(1.0), clamp(headGlow * 0.85, 0.0, 1.0));   // white-hot comet tip
-  vec3 nextCol = mix(uColor, uColorHi, clamp(dashes * 0.4, 0.0, 1.0));
+  vec3 nextCol = mix(uColor, uColorHi, clamp(dashes * 0.4 + nextRim * 0.5, 0.0, 1.0));
   vec3 col = mix(nextCol, activeCol, step(0.5, uActive));
 
-  float a = clamp(intensity, 0.0, 1.0) * (uActive > 0.5 ? 0.96 : 0.8);
+  float a = clamp(intensity, 0.0, 1.0) * (uActive > 0.5 ? 0.96 : 0.86);
   a *= smoothstep(1.0, 0.9, dist);          // clip to the disc; corners transparent
   gl_FragColor = vec4(col * a, a);
 }`;
@@ -5143,9 +5531,10 @@ class TokenOverlayManager {
     const high = marker.fidelity !== "balanced";
     const isActive = role === "active";
     const base = Math.max(w, h);
-    // Disc sits just outside the token footprint — a tight pedestal that hugs the
-    // art rather than a wide halo on the floor.
-    const discR = base * (isActive ? 0.68 : 0.58);
+    // Active disc is a tight pedestal hugging the art; the next disc is sized a
+    // touch wider so its dashed "on deck" ring lands clearly OUTSIDE the token
+    // footprint rather than hiding underneath the token art.
+    const discR = base * (isActive ? 0.70 : 0.82);
     marker.discR = discR;
 
     glow.clear(); glow.filters = null;
