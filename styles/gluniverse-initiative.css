@@ -6118,40 +6118,65 @@
 /* ===================================================================== */
 /* CARD MODE — DISTINCT DECK SKIN                                         */
 /* ===================================================================== */
-/* Card mode reads as an arcane deck rather than a spaced rail: cards overlap
-   into a stack, the active card deals out, a persistent face-down stub anchors
-   the metaphor, and the chrome leans violet -> magenta. The per-card accent edge
-   keeps its disposition colour (set on .gluni-card--friendly/hostile/neutral) so
-   ally/enemy triage is preserved. Visual/animation correctness must be confirmed
-   in a live Foundry world — static checks can't validate it. */
+/* Card mode reads as a held hand of cards rather than a vertical rail: the
+   cards fan out horizontally, the active card lifts up out of the hand, a
+   persistent face-down stub anchors the metaphor, and the chrome leans
+   violet -> magenta. The whole tracker stays free-floating (drag the header
+   handle) rather than edge-anchored. The per-card accent edge keeps its
+   disposition colour so ally/enemy triage is preserved. Visual/animation
+   correctness must be confirmed in a live Foundry world — static checks
+   can't validate it. */
 
 .gluni-initiative--card-mode {
   --gluni-deck-a: var(--gluni-violet);
   --gluni-deck-b: var(--gluni-magenta);
   --gluni-deck-edge: color-mix(in srgb, var(--gluni-violet) 55%, var(--gluni-magenta));
+  --gluni-card-w: 86px;
+  --gluni-card-active-w: 112px;
+  /* The hand is as wide as its cards, not the 188px vertical-rail column. */
+  width: max-content;
+  max-width: calc(100vw - 20px);
 }
 
-/* --- Accordion stacking ------------------------------------------------ */
+/* --- Horizontal hand --------------------------------------------------- */
 .gluni-initiative--card-mode .gluni-rail {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: flex-start;
   gap: 0;
 }
 
 .gluni-initiative--card-mode .gluni-rail .gluni-card {
+  flex: 0 0 auto;
+  justify-self: auto;
+  width: var(--gluni-card-w);
   z-index: var(--gluni-deck-z, 1);
 }
 
-/* Each card after the first tucks under the card above it (which paints on top
-   via the descending --gluni-deck-z), giving a stacked-deck seam while leaving
-   the lower name/badge band of the card beneath it visible. */
-.gluni-initiative--card-mode .gluni-rail .gluni-card + .gluni-card {
-  margin-top: -11px;
+/* The inline "reshuffle / next round" divider is a vertical-rail device; in the
+   horizontal hand the deck stub already carries the cards-left / reshuffle read,
+   so the divider is dropped to keep the hand clean. */
+.gluni-initiative--card-mode .gluni-rail .gluni-round-separator {
+  display: none;
 }
 
-/* Compressed slivers: portrait-cropped cards peeking from the stack; the lower
-   band carries the identity (name + draw-order badge + status icons). Taller
-   than a flat bar so each reads as a real card edge in the deck. */
+/* Each upcoming card tucks behind the card to its left (which paints on top via
+   the descending --gluni-deck-z), giving a fanned-hand seam. The card right
+   after the active one keeps a small gap so the lifted active card reads clear. */
+.gluni-initiative--card-mode .gluni-rail .gluni-card + .gluni-card {
+  margin-top: 0;
+  margin-left: -16px;
+}
+
+.gluni-initiative--card-mode .gluni-rail .gluni-card--active + .gluni-card {
+  margin-left: 6px;
+}
+
+/* Upcoming cards are full portrait cards (not vertical slivers): fixed height,
+   identity carried by the portrait + name band + draw-order badge. */
 .gluni-initiative--card-mode .gluni-card--card-compressed .gluni-card-surface {
-  min-height: 54px;
+  min-height: 122px;
 }
 
 .gluni-initiative--card-mode .gluni-card--card-compressed .gluni-card-kicker,
@@ -6173,45 +6198,33 @@
   font-size: 14px;
 }
 
-/* The active (dealt-out) card lifts clear of the stack and slides a touch
-   further toward screen-centre than in standard mode. In card mode it also
-   stands taller, reading as a held playing card rather than a wide rail row. */
+/* The active (current-turn) card is wider and lifts up out of the hand, reading
+   as the card the player is holding forward. No sideways shift — it rises. */
 .gluni-initiative--card-mode .gluni-card--active {
   z-index: 39;
+  width: var(--gluni-card-active-w);
+  --gluni-active-shift: 0px;
+  --gluni-active-lift-y: -10px;
 }
 
 .gluni-initiative--card-mode .gluni-card--active .gluni-card-surface {
   min-height: 178px;
 }
 
-.gluni-initiative--card-mode.gluni-initiative--left .gluni-card--active {
-  --gluni-active-shift: 9px;
-}
-
-.gluni-initiative--card-mode.gluni-initiative--right .gluni-card--active {
-  --gluni-active-shift: -9px;
-}
-
-.gluni-initiative--card-mode .gluni-card--active {
-  --gluni-active-lift-y: -4px;
-}
-
-/* --- Hover-to-expand: peek a compressed card without changing turn order --- */
+/* --- Hover-to-peek: raise a card to the front without changing turn order --- */
 .gluni-initiative--card-mode .gluni-card--card-compressed:hover {
-  z-index: 38;
-}
-
-.gluni-initiative--card-mode .gluni-card--card-compressed:hover .gluni-card-surface {
-  min-height: 108px;
+  z-index: 41;
+  --gluni-card-lift-y: -14px;
 }
 
 .gluni-initiative--card-mode .gluni-card--card-compressed:hover .gluni-card-kicker {
   display: flex;
 }
 
-/* --- Force-expand: broken / dying combatants pop out of the stack --------- */
-.gluni-initiative--card-mode .gluni-card--card-alert-expand .gluni-card-surface {
-  min-height: 112px;
+/* --- Force-raise: broken / dying combatants stand proud of the hand ------- */
+.gluni-initiative--card-mode .gluni-card--card-alert-expand {
+  z-index: 40;
+  --gluni-card-lift-y: -7px;
 }
 
 .gluni-initiative--card-mode .gluni-card--card-alert-expand .gluni-card-kicker {
@@ -6588,21 +6601,23 @@
 }
 
 /* --- GM drag-to-reorder drop line (card mode) --------------------------- */
+/* The hand is horizontal, so the insertion line is vertical, drawn on the left
+   (before) or right (after) edge of the target card. */
 .gluni-initiative--card-mode .gluni-card--drop-before::before,
 .gluni-initiative--card-mode .gluni-card--drop-after::after {
   content: "";
   position: absolute;
-  left: 4px;
-  right: 4px;
-  height: 2px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
   z-index: 40;
-  background: linear-gradient(90deg, transparent, var(--gluni-deck-a, var(--gluni-violet)), transparent);
+  background: linear-gradient(180deg, transparent, var(--gluni-deck-a, var(--gluni-violet)), transparent);
   box-shadow: 0 0 10px color-mix(in srgb, var(--gluni-deck-a, var(--gluni-violet)) 80%, transparent);
   pointer-events: none;
 }
 
-.gluni-initiative--card-mode .gluni-card--drop-before::before { top: -2px; }
-.gluni-initiative--card-mode .gluni-card--drop-after::after { bottom: -2px; }
+.gluni-initiative--card-mode .gluni-card--drop-before::before { left: -2px; }
+.gluni-initiative--card-mode .gluni-card--drop-after::after { right: -2px; }
 
 .gluni-initiative--card-mode .gluni-card--card-reorderable {
   cursor: grab;
@@ -6612,10 +6627,28 @@
   cursor: default;
 }
 
-/* A dragged card must float above the whole deck (the per-slot z-indices would
-   otherwise let neighbours paint over it). */
+/* A dragged card floats above the whole hand and follows the cursor on the X
+   axis (the per-slot z-indices would otherwise let neighbours paint over it). */
 .gluni-initiative--card-mode .gluni-card--dragging {
   z-index: 60;
+  transform:
+    translate(var(--gluni-card-drag-x, 0px), calc(var(--gluni-card-drag-y, 0px) - 8px))
+    scale(1.04);
+}
+
+/* --- Turn controls: a horizontal bar under the hand (not an edge column) -- */
+.gluni-initiative--card-mode .gluni-floating-turn-controls {
+  position: static;
+  left: auto;
+  right: auto;
+  top: auto;
+  margin-top: 2px;
+  display: flex;
+  justify-content: center;
+}
+
+.gluni-initiative--card-mode .gluni-turn-controls {
+  flex-direction: row;
 }
 
 /* --- Accessibility: drop the heavy beats under reduced motion ----------- */

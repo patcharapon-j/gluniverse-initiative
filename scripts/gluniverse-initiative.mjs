@@ -1882,6 +1882,9 @@ class GLUniverseInitiativeOverlay {
   }
 
   positionFloatingControls() {
+    // Card mode flows its controls as a static horizontal bar under the hand, so
+    // there's no active-card-relative offset to compute.
+    if (this.isCardMode()) return;
     const shell = this.root?.querySelector(".gluni-shell");
     const activeCard = this.root?.querySelector(".gluni-card--active");
     const controls = this.root?.querySelector(".gluni-floating-turn-controls");
@@ -3269,6 +3272,7 @@ class GLUniverseInitiativeOverlay {
         pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
+        lastClientX: event.clientX,
         lastClientY: event.clientY,
         moved: false,
         card
@@ -3344,10 +3348,20 @@ class GLUniverseInitiativeOverlay {
   onCardPointerMove = event => {
     if (!this.cardDrag) return;
 
+    this.cardDrag.lastClientX = event.clientX;
     this.cardDrag.lastClientY = event.clientY;
     const distance = Math.hypot(event.clientX - this.cardDrag.startX, event.clientY - this.cardDrag.startY);
     if (distance > 4) this.cardDrag.moved = true;
     if (!this.cardDrag.moved) return;
+
+    // Card mode is a horizontal hand, so the drag + drop axis is X; standard mode
+    // is a vertical rail and stays on Y.
+    if (this.cardDrag.cardMode) {
+      this.cardDrag.card.style.setProperty("--gluni-card-drag-x", `${Math.round(event.clientX - this.cardDrag.startX)}px`);
+      this.cardDrag.card.style.setProperty("--gluni-card-drag-y", `${Math.round(event.clientY - this.cardDrag.startY)}px`);
+      this.updateCardReorder(event.clientX);
+      return;
+    }
 
     this.cardDrag.card.style.setProperty("--gluni-card-drag-y", `${Math.round(event.clientY - this.cardDrag.startY)}px`);
     this.updateCardReorder(event.clientY);
@@ -3358,7 +3372,7 @@ class GLUniverseInitiativeOverlay {
     if (!drag) return;
 
     if (drag.cardMode) {
-      const target = drag.moved ? this.getCardDropTargetCard(event.clientY) : null;
+      const target = drag.moved ? this.getCardDropTargetCard(event.clientX) : null;
       this.finishCardDrag();
       if (!target || target.toSlot === drag.fromSlot) return;
       await this.moveCardSlot(drag.fromSlot, target.toSlot);
@@ -3390,6 +3404,7 @@ class GLUniverseInitiativeOverlay {
       entry.el?.style.removeProperty("--gluni-reorder-shift-y");
     }
     this.cardDrag.card.classList.remove("gluni-card--dragging");
+    this.cardDrag.card.style.removeProperty("--gluni-card-drag-x");
     this.cardDrag.card.style.removeProperty("--gluni-card-drag-y");
     this.root.classList.remove("gluni-initiative--card-dragging");
     this.cardDrag = null;
@@ -3424,8 +3439,9 @@ class GLUniverseInitiativeOverlay {
       newCard.classList.add("gluni-card--dragging");
       newCard.setPointerCapture?.(drag.pointerId);
       if (drag.moved) {
+        newCard.style.setProperty("--gluni-card-drag-x", `${Math.round((drag.lastClientX ?? drag.startX) - drag.startX)}px`);
         newCard.style.setProperty("--gluni-card-drag-y", `${Math.round(drag.lastClientY - drag.startY)}px`);
-        this.updateCardReorder(drag.lastClientY);
+        this.updateCardReorder(drag.lastClientX ?? drag.startX);
       }
       return;
     }
@@ -3456,21 +3472,23 @@ class GLUniverseInitiativeOverlay {
 
   // Shift the surrounding cards to open a gap where the dragged card will land,
   // and draw the drop line at that boundary.
-  updateCardReorder(clientY) {
+  // `coord` is the cursor position along the rail's main axis: clientX for the
+  // horizontal card-mode hand, clientY for the vertical standard rail.
+  updateCardReorder(coord) {
     this.clearCardDropMarkers();
 
-    // Card mode: overlapping, variable-height cards make a slot-height gap shift
-    // unreliable, so just draw the insertion line; the FLIP reflow animates the
-    // cards into their new order on drop.
+    // Card mode: overlapping, fanned cards make a slot gap-shift unreliable, so
+    // just draw the insertion line; the FLIP reflow animates the cards into
+    // their new order on drop.
     if (this.cardDrag?.cardMode) {
-      const target = this.getCardDropTargetCard(clientY);
+      const target = this.getCardDropTargetCard(coord);
       if (target?.marker) {
         target.marker.classList.add(target.position === "before" ? "gluni-card--drop-before" : "gluni-card--drop-after");
       }
       return;
     }
 
-    const target = this.getCardDropTarget(clientY);
+    const target = this.getCardDropTarget(coord);
     if (!target) return;
 
     const fromIndex = target.fromIndex;
@@ -3526,7 +3544,8 @@ class GLUniverseInitiativeOverlay {
 
   // Card-mode drop target: find where, among the upcoming rail cards, the cursor
   // wants to land and return the absolute deal-sequence slot to insert before.
-  getCardDropTargetCard(clientY) {
+  // The hand is horizontal, so targeting is on the X axis.
+  getCardDropTargetCard(clientX) {
     const drag = this.cardDrag;
     if (!drag) return null;
 
@@ -3536,7 +3555,7 @@ class GLUniverseInitiativeOverlay {
         return {
           el,
           slot: Number(el.dataset.cardSlot),
-          mid: rect.top + rect.height / 2,
+          mid: rect.left + rect.width / 2,
           active: el.classList.contains("gluni-card--active")
         };
       })
@@ -3546,7 +3565,7 @@ class GLUniverseInitiativeOverlay {
     const others = cards.filter(card => card.slot !== drag.fromSlot);
     if (!others.length) return null;
 
-    const before = others.find(card => clientY < card.mid);
+    const before = others.find(card => clientX < card.mid);
     if (before) {
       return { toSlot: before.slot, marker: before.el, position: "before" };
     }
