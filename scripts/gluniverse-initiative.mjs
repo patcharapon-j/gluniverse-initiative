@@ -4535,12 +4535,18 @@ function injectCardConfigTitlebarButton(app, html) {
 function openCardConfigDialog(actor) {
   const config = getActorCardConfig(actor);
 
-  new Dialog({
-    title: formatLocalized("GLUNI.Card.Config.Title", { name: actor.name }),
+  const DialogV2 = foundry.applications?.api?.DialogV2;
+  if (!DialogV2) return;
+
+  new DialogV2({
+    window: { title: formatLocalized("GLUNI.Card.Config.Title", { name: actor.name }) },
+    classes: ["gluni-card-config-dialog"],
+    position: { width: 440 },
     content: renderCardConfigDialog(config),
-    buttons: {
-      reset: {
-        icon: '<i class="fa-solid fa-rotate-left"></i>',
+    buttons: [
+      {
+        action: "reset",
+        icon: "fa-solid fa-rotate-left",
         label: localize("GLUNI.Card.Config.Reset"),
         callback: async () => {
           await actor.unsetFlag(MODULE_ID, FLAGS.cardConfig);
@@ -4548,22 +4554,20 @@ function openCardConfigDialog(actor) {
           overlay?.broadcastRefresh();
         }
       },
-      save: {
-        icon: '<i class="fa-solid fa-check"></i>',
+      {
+        action: "save",
+        icon: "fa-solid fa-check",
         label: localize("GLUNI.Card.Config.Save"),
-        callback: async html => {
-          const next = readCardConfigForm(html);
+        default: true,
+        callback: async (event, button) => {
+          const next = readCardConfigForm(button.form);
           await actor.setFlag(MODULE_ID, FLAGS.cardConfig, next);
           overlay?.maybeRedealCards();
           overlay?.broadcastRefresh();
         }
       }
-    },
-    default: "save"
-  }, {
-    classes: ["gluni-card-config-dialog"],
-    width: 440
-  }).render(true);
+    ]
+  }).render({ force: true });
 }
 
 function renderCardConfigDialog(config) {
@@ -4583,11 +4587,11 @@ function renderCardConfigDialog(config) {
   );
 
   return `
-    <form class="gluni-card-config-form" autocomplete="off">
+    <div class="gluni-card-config-form" autocomplete="off">
       <p class="gluni-card-config-note">${localize("GLUNI.Card.Config.Hint")}</p>
       ${cardsField}
       ${turnsField}
-    </form>
+    </div>
   `;
 }
 
@@ -4614,46 +4618,50 @@ function openPortraitConfigDialog(actor) {
   const frame = getPortraitFrame(actor);
   const portrait = actor.img || FALLBACK_PORTRAIT;
 
-  new Dialog({
-    title: formatLocalized("GLUNI.PortraitConfig.Title", { name: actor.name }),
+  const DialogV2 = foundry.applications?.api?.DialogV2;
+  if (!DialogV2) return;
+
+  const dialog = new DialogV2({
+    window: { title: formatLocalized("GLUNI.PortraitConfig.Title", { name: actor.name }), resizable: false },
+    classes: ["gluni-portrait-dialog"],
+    position: { width: 560 },
     content: renderPortraitConfigDialog(actor, frame, portrait),
-    buttons: {
-      reset: {
-        icon: '<i class="fa-solid fa-rotate-left"></i>',
+    buttons: [
+      {
+        action: "reset",
+        icon: "fa-solid fa-rotate-left",
         label: localize("GLUNI.PortraitConfig.Reset"),
         callback: async () => {
           await actor.unsetFlag(MODULE_ID, FLAGS.portraitFrame);
           overlay?.broadcastRefresh();
         }
       },
-      save: {
-        icon: '<i class="fa-solid fa-check"></i>',
+      {
+        action: "save",
+        icon: "fa-solid fa-check",
         label: localize("GLUNI.PortraitConfig.Save"),
-        callback: async html => {
-          const nextFrame = readPortraitConfigForm(html);
+        default: true,
+        callback: async (event, button) => {
+          const nextFrame = readPortraitConfigForm(button.form);
           await actor.setFlag(MODULE_ID, FLAGS.portraitFrame, nextFrame);
           overlay?.broadcastRefresh();
         }
       }
-    },
-    default: "save",
-    render: html => activatePortraitConfigDialog(html)
-  }, {
-    classes: ["gluni-portrait-dialog"],
-    width: 560,
-    resizable: false
-  }).render(true);
+    ],
+    render: (event, dlg) => activatePortraitConfigDialog(dlg ?? dialog)
+  });
+  dialog.render({ force: true });
 }
 
 function renderPortraitConfigDialog(actor, frame, portrait) {
   return `
-    <form class="gluni-portrait-config-form" autocomplete="off">
+    <div class="gluni-portrait-config-form" autocomplete="off">
       <p class="gluni-portrait-config-note">${localize("GLUNI.PortraitConfig.Hint")}</p>
       <div class="gluni-portrait-config-grid">
         ${renderPortraitConfigPanel("normal", localize("GLUNI.PortraitConfig.Normal"), frame.normal, portrait, actor.name)}
         ${renderPortraitConfigPanel("expanded", localize("GLUNI.PortraitConfig.Expanded"), frame.expanded, portrait, actor.name)}
       </div>
-    </form>
+    </div>
   `;
 }
 
@@ -4782,15 +4790,22 @@ function activatePortraitConfigDialog(html) {
 function openAdhocInitiativeDialog({ combat, onCreate }) {
   const defaults = getAdhocDialogDefaults(combat);
 
-  new Dialog({
-    title: localize("GLUNI.AdHoc.DialogTitle"),
+  const DialogV2 = foundry.applications?.api?.DialogV2;
+  if (!DialogV2) return;
+
+  const dialog = new DialogV2({
+    window: { title: localize("GLUNI.AdHoc.DialogTitle"), resizable: false },
+    classes: ["gluni-adhoc-dialog"],
+    position: { width: 420 },
     content: renderAdhocInitiativeDialog(defaults),
-    buttons: {
-      create: {
-        icon: '<i class="fa-solid fa-plus"></i>',
+    buttons: [
+      {
+        action: "create",
+        icon: "fa-solid fa-plus",
         label: localize("GLUNI.AdHoc.Create"),
-        callback: async html => {
-          const data = readAdhocInitiativeForm(html, combat);
+        default: true,
+        callback: async (event, button) => {
+          const data = readAdhocInitiativeForm(button.form, combat);
           if (!data.name) {
             globalThis.ui?.notifications?.warn(localize("GLUNI.AdHoc.NameRequired"));
             return false;
@@ -4798,14 +4813,10 @@ function openAdhocInitiativeDialog({ combat, onCreate }) {
           await onCreate(data);
         }
       }
-    },
-    default: "create",
-    render: html => activateAdhocInitiativeDialog(html)
-  }, {
-    classes: ["gluni-adhoc-dialog"],
-    width: 420,
-    resizable: false
-  }).render(true);
+    ],
+    render: (event, dlg) => activateAdhocInitiativeDialog(dlg ?? dialog)
+  });
+  dialog.render({ force: true });
 }
 
 function getAdhocDialogDefaults(combat) {
@@ -4823,7 +4834,7 @@ function getAdhocDialogDefaults(combat) {
 
 function renderAdhocInitiativeDialog(defaults) {
   return `
-    <form class="gluni-adhoc-form" autocomplete="off">
+    <div class="gluni-adhoc-form" autocomplete="off">
       <label class="gluni-adhoc-field">
         <span>${localize("GLUNI.AdHoc.Name")}</span>
         <input type="text" name="name" value="${escapeAttr(defaults.name)}" required>
@@ -4873,16 +4884,17 @@ function renderAdhocInitiativeDialog(defaults) {
           <option value="${VISIBILITY.hidden}">${localize("GLUNI.Controls.Hidden")}</option>
         </select>
       </label>
-    </form>
+    </div>
   `;
 }
 
 function activateAdhocInitiativeDialog(html) {
-  const form = getHTMLElement(html)?.querySelector(".gluni-adhoc-form");
+  const root = getHTMLElement(html);
+  const form = root?.querySelector(".gluni-adhoc-form") ?? root;
   if (!form) return;
 
-  const typeSelect = form.elements.type;
-  const iconInput = form.elements.icon;
+  const typeSelect = form.querySelector('[name="type"]');
+  const iconInput = form.querySelector('[name="icon"]');
   const iconPreview = form.querySelector("[data-adhoc-icon-preview]");
   const lifecycleSelect = form.querySelector("[data-adhoc-lifecycle]");
   const roundInput = form.querySelector("[data-adhoc-round]");
@@ -4907,7 +4919,8 @@ function activateAdhocInitiativeDialog(html) {
 }
 
 function readAdhocInitiativeForm(html, combat) {
-  const form = getHTMLElement(html)?.querySelector?.(".gluni-adhoc-form") ?? getHTMLElement(html);
+  const el = getHTMLElement(html);
+  const form = el instanceof HTMLFormElement ? el : (el?.closest?.("form") ?? el?.querySelector?.("form") ?? el);
   const data = new FormData(form);
   return normalizeAdhocPayload({
     name: data.get("name"),
@@ -5021,13 +5034,13 @@ function getAdhocActorType() {
 
 async function confirmAdhocDelete(combatant) {
   const name = getAdhocData(combatant)?.name ?? combatant?.name ?? localize("GLUNI.AdHoc.DefaultName");
-  if (typeof globalThis.Dialog?.confirm === "function") {
-    return globalThis.Dialog.confirm({
-      title: localize("GLUNI.AdHoc.Delete"),
+  const DialogV2 = foundry.applications?.api?.DialogV2;
+  if (typeof DialogV2?.confirm === "function") {
+    return DialogV2.confirm({
+      window: { title: localize("GLUNI.AdHoc.Delete") },
       content: `<p>${formatLocalized("GLUNI.AdHoc.DeleteConfirm", { name: escapeHTML(name) })}</p>`,
-      yes: () => true,
-      no: () => false,
-      defaultYes: false
+      modal: true,
+      rejectClose: false
     });
   }
 

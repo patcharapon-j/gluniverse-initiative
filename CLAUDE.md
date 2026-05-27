@@ -4,7 +4,7 @@ Guidance for AI assistants working in this repository.
 
 ## What this is
 
-**GLUniverse Initiative** is a [Foundry VTT](https://foundryvtt.com) **v13** module that renders a cinematic, portrait-first initiative overlay on top of the default combat tracker (it complements, never replaces, the core tracker). It is system-agnostic with extra handling for PF2e (Delay, dying, etc.).
+**GLUniverse Initiative** is a [Foundry VTT](https://foundryvtt.com) **v13/v14** module that renders a cinematic, portrait-first initiative overlay on top of the default combat tracker (it complements, never replaces, the core tracker). It is system-agnostic with extra handling for PF2e (Delay, dying, etc.).
 
 There is **no build step, no package manager, and no test suite**. The repository ships as raw Foundry module files. Foundry loads the ES module and CSS directly as declared in `module.json`.
 
