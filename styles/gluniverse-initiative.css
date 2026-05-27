@@ -6115,6 +6115,409 @@
   color: var(--gluni-violet);
 }
 
+/* ===================================================================== */
+/* CARD MODE — DISTINCT DECK SKIN                                         */
+/* ===================================================================== */
+/* Card mode reads as an arcane deck rather than a spaced rail: cards overlap
+   into a stack, the active card deals out, a persistent face-down stub anchors
+   the metaphor, and the chrome leans violet -> magenta. The per-card accent edge
+   keeps its disposition colour (set on .gluni-card--friendly/hostile/neutral) so
+   ally/enemy triage is preserved. Visual/animation correctness must be confirmed
+   in a live Foundry world — static checks can't validate it. */
+
+.gluni-initiative--card-mode {
+  --gluni-deck-a: var(--gluni-violet);
+  --gluni-deck-b: var(--gluni-magenta);
+  --gluni-deck-edge: color-mix(in srgb, var(--gluni-violet) 55%, var(--gluni-magenta));
+}
+
+/* --- Accordion stacking ------------------------------------------------ */
+.gluni-initiative--card-mode .gluni-rail {
+  gap: 0;
+}
+
+.gluni-initiative--card-mode .gluni-rail .gluni-card {
+  z-index: var(--gluni-deck-z, 1);
+}
+
+/* Each card after the first tucks under the card above it (which paints on top
+   via the descending --gluni-deck-z), giving a stacked-deck seam while leaving
+   the lower name/badge band of the card beneath it visible. */
+.gluni-initiative--card-mode .gluni-rail .gluni-card + .gluni-card {
+  margin-top: -9px;
+}
+
+/* Compressed slivers: short and portrait-cropped; the lower band carries the
+   identity (name + draw-order badge + status icons). */
+.gluni-initiative--card-mode .gluni-card--card-compressed .gluni-card-surface {
+  min-height: 42px;
+}
+
+.gluni-initiative--card-mode .gluni-card--card-compressed .gluni-card-kicker,
+.gluni-initiative--card-mode .gluni-card--card-compressed .gluni-dying-pips,
+.gluni-initiative--card-mode .gluni-card--card-compressed .gluni-deathsave-pips,
+.gluni-initiative--card-mode .gluni-card--card-compressed .gluni-break-gauge {
+  display: none;
+}
+
+.gluni-initiative--card-mode .gluni-card--card-compressed .gluni-card-content {
+  padding-bottom: 5px;
+}
+
+.gluni-initiative--card-mode .gluni-card--card-compressed .gluni-card-content h3 {
+  font-size: 12px;
+}
+
+.gluni-initiative--card-mode .gluni-card--card-compressed .gluni-card-badge {
+  font-size: 14px;
+}
+
+/* The active (dealt-out) card lifts clear of the stack and slides a touch
+   further toward screen-centre than in standard mode. */
+.gluni-initiative--card-mode .gluni-card--active {
+  z-index: 39;
+}
+
+.gluni-initiative--card-mode.gluni-initiative--left .gluni-card--active {
+  --gluni-active-shift: 9px;
+}
+
+.gluni-initiative--card-mode.gluni-initiative--right .gluni-card--active {
+  --gluni-active-shift: -9px;
+}
+
+.gluni-initiative--card-mode .gluni-card--active {
+  --gluni-active-lift-y: -4px;
+}
+
+/* --- Hover-to-expand: peek a compressed card without changing turn order --- */
+.gluni-initiative--card-mode .gluni-card--card-compressed:hover {
+  z-index: 38;
+}
+
+.gluni-initiative--card-mode .gluni-card--card-compressed:hover .gluni-card-surface {
+  min-height: 92px;
+}
+
+.gluni-initiative--card-mode .gluni-card--card-compressed:hover .gluni-card-kicker {
+  display: flex;
+}
+
+/* --- Force-expand: broken / dying combatants pop out of the stack --------- */
+.gluni-initiative--card-mode .gluni-card--card-alert-expand .gluni-card-surface {
+  min-height: 96px;
+}
+
+.gluni-initiative--card-mode .gluni-card--card-alert-expand .gluni-card-kicker {
+  display: flex;
+}
+
+/* Always-on status edge: even fully compressed, a broken/dying sliver recolours
+   its accent bar so triage survives the compression. */
+.gluni-initiative--card-mode .gluni-card--card-alert.gluni-card--guard-broken .gluni-card-accent {
+  background: linear-gradient(180deg, var(--gluni-break-hot), var(--gluni-break-deep));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--gluni-break) 70%, transparent);
+}
+
+.gluni-initiative--card-mode .gluni-card--card-alert.gluni-card--dying .gluni-card-accent {
+  background: linear-gradient(180deg, var(--gluni-dying-hot), var(--gluni-dying));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--gluni-dying) 70%, transparent);
+}
+
+/* --- Compact sliver status icons --------------------------------------- */
+.gluni-card-sliver-status {
+  position: absolute;
+  top: 5px;
+  z-index: 10;
+  display: none;
+  gap: 4px;
+  align-items: center;
+  pointer-events: none;
+}
+
+.gluni-initiative--right .gluni-card-sliver-status {
+  left: 9px;
+}
+
+.gluni-initiative--left .gluni-card-sliver-status {
+  right: 9px;
+  flex-direction: row-reverse;
+}
+
+/* Visible only while compressed (and not popped open). */
+.gluni-initiative--card-mode .gluni-card--card-compressed .gluni-card-sliver-status {
+  display: flex;
+}
+
+.gluni-initiative--card-mode .gluni-card--card-compressed:hover .gluni-card-sliver-status,
+.gluni-initiative--card-mode .gluni-card--card-alert-expand .gluni-card-sliver-status {
+  display: none;
+}
+
+.gluni-sliver-icon {
+  display: grid;
+  place-items: center;
+  min-width: 13px;
+  height: 13px;
+  font-size: 10px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
+}
+
+.gluni-sliver-icon--break { color: var(--gluni-break-hot); }
+.gluni-sliver-icon--dying { color: var(--gluni-dying-hot); }
+.gluni-sliver-icon--stable { color: var(--gluni-stable-hot); }
+
+.gluni-sliver-icon--cond {
+  padding: 0 3px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--gluni-condition) 32%, rgba(2, 7, 11, 0.8));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gluni-condition) 55%, transparent);
+  color: var(--gluni-condition-hot);
+  font-size: 9px;
+  font-weight: 950;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Card-back motif (holo emblem on a patterned panel) ----------------- */
+.gluni-card-back {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--gluni-deck-b, var(--gluni-magenta)) 26%, transparent), transparent 60%),
+    linear-gradient(150deg, #160a26 0%, #0a0716 55%, #05030c 100%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gluni-deck-edge, var(--gluni-violet)) 55%, transparent);
+}
+
+.gluni-card-back-lattice {
+  position: absolute;
+  inset: 4px;
+  border: 1px solid color-mix(in srgb, var(--gluni-deck-a, var(--gluni-violet)) 38%, transparent);
+  background-image:
+    repeating-linear-gradient(45deg, color-mix(in srgb, var(--gluni-deck-a, var(--gluni-violet)) 16%, transparent) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(-45deg, color-mix(in srgb, var(--gluni-deck-b, var(--gluni-magenta)) 12%, transparent) 0 2px, transparent 2px 7px);
+  opacity: 0.7;
+}
+
+.gluni-card-back-emblem {
+  position: relative;
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--gluni-deck-a, var(--gluni-violet)) 70%, var(--gluni-white));
+  font-size: 22px;
+  text-shadow:
+    0 0 12px color-mix(in srgb, var(--gluni-deck-b, var(--gluni-magenta)) 80%, transparent),
+    0 0 4px color-mix(in srgb, var(--gluni-deck-a, var(--gluni-violet)) 90%, transparent);
+}
+
+.gluni-card-back-sheen {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 30%, color-mix(in srgb, var(--gluni-white) 22%, transparent) 48%, transparent 66%);
+  transform: translateX(-60%);
+  opacity: 0.6;
+}
+
+/* --- Persistent deck stub at the rail tail ------------------------------ */
+.gluni-card-deck-stub {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  pointer-events: auto;
+}
+
+.gluni-initiative--left .gluni-card-deck-stub {
+  flex-direction: row-reverse;
+}
+
+.gluni-card-deck-stub-pile {
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 46px;
+  /* The pile's apparent thickness grows with the draws remaining this round. */
+  filter:
+    drop-shadow(calc(var(--gluni-deck-depth, 0) * 0.7px) calc(var(--gluni-deck-depth, 0) * 0.7px) 0 color-mix(in srgb, var(--gluni-deck-a, var(--gluni-violet)) 22%, transparent))
+    drop-shadow(0 6px 12px rgba(0, 0, 0, 0.6));
+}
+
+.gluni-card-deck-stub-pile .gluni-card-back {
+  position: relative;
+  inset: auto;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 1;
+  visibility: visible;
+  border-radius: 3px;
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
+}
+
+.gluni-card-deck-stub-pile .gluni-card-back-emblem {
+  font-size: 16px;
+}
+
+.gluni-card-deck-stub-meta {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.gluni-card-deck-stub-label {
+  color: var(--gluni-text-dim);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.gluni-card-deck-stub-count {
+  color: color-mix(in srgb, var(--gluni-deck-a, var(--gluni-violet)) 60%, var(--gluni-white));
+  font-size: 18px;
+  font-weight: 950;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Deal-in: freshly dealt cards rise out of the deck and resolve ------- */
+.gluni-initiative--card-mode .gluni-item--entering,
+.gluni-initiative--card-mode .gluni-item--entering-bottom {
+  animation: gluni-card-deal-in 460ms var(--gluni-snap) both;
+}
+
+@keyframes gluni-card-deal-in {
+  from {
+    opacity: 0;
+    transform:
+      translate(var(--gluni-flip-x), calc(var(--gluni-flip-y) + 16px))
+      translateX(var(--gluni-active-shift))
+      scaleX(var(--gluni-flip-scale-x))
+      scaleY(var(--gluni-flip-scale-y))
+      scale(0.9)
+      rotateY(26deg);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform:
+      translate(0, 0)
+      translateX(var(--gluni-active-shift))
+      scaleX(1)
+      scaleY(1)
+      scale(var(--gluni-card-scale))
+      rotateY(0deg);
+    filter: blur(0);
+  }
+}
+
+/* --- Reshuffle flourish: a holo sweep + a brief flash of card-backs ------ */
+.gluni-initiative--reshuffling .gluni-rail {
+  animation: gluni-deck-shimmer 760ms var(--gluni-ease);
+}
+
+.gluni-initiative--reshuffling .gluni-card-deck-stub-pile {
+  animation: gluni-deck-riffle 520ms var(--gluni-ease);
+}
+
+/* Cards flash their face-down back as the deck re-deals, then reveal face-up. */
+.gluni-initiative--reshuffling .gluni-rail .gluni-card .gluni-card-back {
+  animation: gluni-deck-veil 480ms var(--gluni-ease);
+}
+
+@keyframes gluni-deck-veil {
+  0% { opacity: 0; visibility: visible; }
+  30% { opacity: 0.92; visibility: visible; }
+  100% { opacity: 0; visibility: visible; }
+}
+
+@keyframes gluni-deck-shimmer {
+  0% { filter: none; }
+  40% { filter: drop-shadow(0 0 14px color-mix(in srgb, var(--gluni-deck-b, var(--gluni-magenta)) 55%, transparent)) saturate(1.25); }
+  100% { filter: none; }
+}
+
+@keyframes gluni-deck-riffle {
+  0% { transform: translateY(0) rotate(0deg); }
+  30% { transform: translateY(-3px) rotate(-3deg); }
+  60% { transform: translateY(1px) rotate(2deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+
+/* --- Collect ghosts: throwaway clones that fly into the deck stub -------- */
+.gluni-card-ghost-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 71;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  contain: strict;
+}
+
+.gluni-card-ghost {
+  position: fixed;
+  transform-origin: center;
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+
+.gluni-card-ghost .gluni-card {
+  width: 100%;
+}
+
+/* --- GM drag-to-reorder drop line (card mode) --------------------------- */
+.gluni-initiative--card-mode .gluni-card--drop-before::before,
+.gluni-initiative--card-mode .gluni-card--drop-after::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  z-index: 40;
+  background: linear-gradient(90deg, transparent, var(--gluni-deck-a, var(--gluni-violet)), transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--gluni-deck-a, var(--gluni-violet)) 80%, transparent);
+  pointer-events: none;
+}
+
+.gluni-initiative--card-mode .gluni-card--drop-before::before { top: -2px; }
+.gluni-initiative--card-mode .gluni-card--drop-after::after { bottom: -2px; }
+
+.gluni-initiative--card-mode .gluni-card--card-reorderable {
+  cursor: grab;
+}
+
+.gluni-initiative--card-mode .gluni-card--active {
+  cursor: default;
+}
+
+/* A dragged card must float above the whole deck (the per-slot z-indices would
+   otherwise let neighbours paint over it). */
+.gluni-initiative--card-mode .gluni-card--dragging {
+  z-index: 60;
+}
+
+/* --- Accessibility: drop the heavy beats under reduced motion ----------- */
+@media (prefers-reduced-motion: reduce) {
+  .gluni-initiative--reshuffling .gluni-rail,
+  .gluni-initiative--reshuffling .gluni-card-deck-stub-pile,
+  .gluni-initiative--reshuffling .gluni-rail .gluni-card .gluni-card-back,
+  .gluni-initiative--card-mode .gluni-item--entering,
+  .gluni-initiative--card-mode .gluni-item--entering-bottom {
+    animation: none;
+  }
+  .gluni-card-back-sheen {
+    display: none;
+  }
+}
+
 /* ---- Card deck config dialog --------------------------------------- */
 .gluni-card-config-form {
   display: grid;

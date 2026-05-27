@@ -1244,10 +1244,18 @@ class GLUniverseInitiativeOverlay {
     const previousActiveKey = this.lastActiveKey;
     const previousActiveInitiative = this.lastActiveInitiative ?? null;
     const isDelayReturn = Boolean(this.pendingDelayReturnId && view.activeId === this.pendingDelayReturnId);
+    const isCardView = Boolean(view.cardMode);
+    // A reshuffle is signalled purely by the deal flag's round advancing: the
+    // whole sequence was re-dealt. (The combat round + deal often update together,
+    // so leaning on roundDelta here would miss the render that shows the new
+    // order.) Drives the collect -> shuffle -> deal beat.
+    const isReshuffle = isCardView
+      && Number.isFinite(this.lastDealRound) && view.dealRound > this.lastDealRound;
     const rootClassName = [
       "gluni-initiative",
       `gluni-initiative--${settings.edge}`,
       settings.isGM ? "gluni-initiative--gm" : "gluni-initiative--player",
+      isCardView ? "gluni-initiative--card-mode" : "",
       isTurnChange ? "gluni-initiative--turn-change" : "",
       isDelayReturn ? "gluni-initiative--delay-return" : ""
     ].filter(Boolean).join(" ");
@@ -1255,6 +1263,10 @@ class GLUniverseInitiativeOverlay {
     const markupChanged = markup !== this.lastMarkup;
     const shouldAnimateTurnChange = isTurnChange && markupChanged && !prefersReducedMotion();
     const oldRects = shouldAnimateTurnChange ? this.captureItemRects() : new Map();
+    // Card mode collect/deal beats fly clones of the outgoing cards into (and new
+    // cards out of) the deck stub, so snapshot the rail's current look + geometry
+    // before the markup is swapped out.
+    const cardSnapshot = (isCardView && shouldAnimateTurnChange) ? this.snapshotRailCards() : null;
     this.lastTurnKey = turnKey;
 
     if (rootClassName !== this.lastRootClassName) {
@@ -1282,6 +1294,10 @@ class GLUniverseInitiativeOverlay {
         previousActiveInitiative
       });
     }
+    if (cardSnapshot) {
+      this.playCardModeMotion(cardSnapshot, { isReshuffle, edge: settings.edge });
+    }
+    this.lastDealRound = isCardView ? view.dealRound : null;
     this.playPendingGuardBreakImpact();
     this.playPendingSlideIns();
     this.playPendingDyingWipes();
@@ -1362,6 +1378,7 @@ class GLUniverseInitiativeOverlay {
         <div class="gluni-rail">
           ${view.normal.map(item => this.renderRailItem(item)).join("")}
         </div>
+        ${view.cardMode ? this.renderDeckStub(view) : ""}
         ${this.renderDelayedSection(view.delayed)}
         ${this.renderFloatingTurnControls(view)}
       </div>
@@ -1479,6 +1496,13 @@ class GLUniverseInitiativeOverlay {
     const totalByCid = new Map();
     for (const slot of sequence) totalByCid.set(slot.cid, (totalByCid.get(slot.cid) ?? 0) + 1);
 
+    // A chaotic fight could leave many combatants broken/dying at once; force-
+    // expanding all of them would un-compress the whole deck and defeat the
+    // stacked look. Cap how many non-active alert cards pop out of the stack —
+    // the rest keep their always-on status edge but stay compressed.
+    const ALERT_EXPAND_CAP = 2;
+    let alertExpands = 0;
+
     let added = 0;
     for (let index = pointer; index < sequence.length && added < settings.visibleCount; index++) {
       const slot = sequence[index];
@@ -1497,13 +1521,21 @@ class GLUniverseInitiativeOverlay {
       if (!card) continue;
 
       card.cardMode = true;
+      card.cardSlot = index;
       card.cardOrder = index - pointer + 1;
+      card.cardCompressed = !isActive;
+      // Critical states keep an always-on status edge even when compressed; the
+      // first few also force-expand out of the stack for triage.
+      card.cardAlert = !isActive && (card.guardBroken || Boolean(card.dying && !card.dying.stable));
+      card.cardAlertExpand = card.cardAlert && alertExpands < ALERT_EXPAND_CAP;
+      if (card.cardAlertExpand) alertExpands += 1;
       const total = totalByCid.get(slot.cid) ?? 1;
       if (total > 1) {
         card.cardTurn = slot.n + 1;
         card.cardTurnTotal = total;
       }
       card.canSwap = isActive && controlsActive && index < sequence.length - 1;
+      card.canReorder = settings.isGM && !isActive;
       card.swapPending = isActive && swapPending;
       card.swapTarget = swapPending && index > pointer;
       normal.push(card);
@@ -1520,7 +1552,16 @@ class GLUniverseInitiativeOverlay {
     }
 
     const activeKey = normal.find(item => item.type === "combatant" && item.active)?.key ?? null;
-    return { normal, delayed: [], activeId, activeKey };
+    return {
+      normal,
+      delayed: [],
+      activeId,
+      activeKey,
+      cardMode: true,
+      dealRound,
+      deckRemaining: Math.max(0, sequence.length - pointer),
+      deckTotal: sequence.length
+    };
   }
 
   buildCombatantCard(combatant, options) {
@@ -1601,6 +1642,54 @@ class GLUniverseInitiativeOverlay {
     `;
   }
 
+  // The face-down deck identity: a holo emblem on a patterned panel. Shown on the
+  // persistent deck stub and, transiently, on cards as they flip during a
+  // reshuffle. Pure CSS + a FontAwesome centrepiece — no shipped art.
+  renderCardBack() {
+    return `
+      <span class="gluni-card-back" aria-hidden="true">
+        <span class="gluni-card-back-lattice"></span>
+        <span class="gluni-card-back-emblem"><i class="fa-solid fa-clone"></i></span>
+        <span class="gluni-card-back-sheen"></span>
+      </span>
+    `;
+  }
+
+  // The persistent face-down pile at the rail tail. Cards deal out of it and are
+  // collected back into it; its depth hints at how many draws remain this round.
+  renderDeckStub(view) {
+    const remaining = Math.max(0, Number(view.deckRemaining) || 0);
+    const depth = clamp(remaining, 0, 6);
+    const label = formatLocalized("GLUNI.Card.DeckRemaining", { count: remaining });
+    return `
+      <div class="gluni-card-deck-stub" style="--gluni-deck-depth:${depth};" data-remaining="${remaining}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">
+        <span class="gluni-card-deck-stub-pile" aria-hidden="true">${this.renderCardBack()}</span>
+        <span class="gluni-card-deck-stub-meta" aria-hidden="true">
+          <span class="gluni-card-deck-stub-label">${localize("GLUNI.Card.Deck").toUpperCase()}</span>
+          <span class="gluni-card-deck-stub-count">${remaining}</span>
+        </span>
+      </div>
+    `;
+  }
+
+  // Compact always-on status row for compressed sliver cards: keeps break / dying
+  // / condition-count readable at a glance without expanding the card.
+  renderCardSliverStatus(card) {
+    const icons = [];
+    if (card.guardBroken) {
+      icons.push(`<i class="fa-solid fa-shield-halved gluni-sliver-icon gluni-sliver-icon--break"></i>`);
+    }
+    if (card.dying && !card.dying.stable) {
+      icons.push(`<i class="fa-solid fa-skull gluni-sliver-icon gluni-sliver-icon--dying"></i>`);
+    } else if (card.dying?.stable) {
+      icons.push(`<i class="fa-solid fa-heart-pulse gluni-sliver-icon gluni-sliver-icon--stable"></i>`);
+    }
+    if (Array.isArray(card.conditions) && card.conditions.length) {
+      icons.push(`<span class="gluni-sliver-icon gluni-sliver-icon--cond">${card.conditions.length}</span>`);
+    }
+    return icons.join("");
+  }
+
   renderCardSwapControl(card) {
     const pending = card.swapPending;
     const label = pending ? localize("GLUNI.Card.SwapCancel") : localize("GLUNI.Card.Swap");
@@ -1628,6 +1717,10 @@ class GLUniverseInitiativeOverlay {
       card.mystery ? "gluni-card--mystery" : "",
       card.defeated ? "gluni-card--defeated" : "",
       card.cardMode ? "gluni-card--card-mode" : "",
+      card.cardCompressed ? "gluni-card--card-compressed" : "",
+      card.cardAlert ? "gluni-card--card-alert" : "",
+      card.cardAlertExpand ? "gluni-card--card-alert-expand" : "",
+      card.canReorder ? "gluni-card--card-reorderable" : "",
       card.swapPending ? "gluni-card--swap-source" : "",
       card.swapTarget ? "gluni-card--swap-target" : "",
       `gluni-card--${card.disposition}`,
@@ -1644,8 +1737,10 @@ class GLUniverseInitiativeOverlay {
       ? (card.guardBroken ? "break" : card.dying && !card.dying.stable ? "dying" : null)
       : null;
 
+    const slotAttr = Number.isInteger(card.cardSlot) ? ` data-card-slot="${card.cardSlot}"` : "";
+
     return `
-      <article class="${classes}" data-gluni-key="${escapeAttr(card.key)}" data-combatant-id="${card.id}" data-round-offset="${card.roundOffset}"${style}>
+      <article class="${classes}" data-gluni-key="${escapeAttr(card.key)}" data-combatant-id="${card.id}" data-round-offset="${card.roundOffset}"${slotAttr}${style}>
         <div class="gluni-card-surface">
         <div class="gluni-card-accent" aria-hidden="true"></div>
         <div class="gluni-card-spec" aria-hidden="true"></div>
@@ -1716,6 +1811,8 @@ class GLUniverseInitiativeOverlay {
         ${card.active ? `<div class="gluni-card-holo" aria-hidden="true"></div><div class="gluni-card-sheen" aria-hidden="true"></div>` : ""}
         ${card.canSwap ? this.renderCardSwapControl(card) : ""}
         ${game.user.isGM ? this.renderGMControls(card) : ""}
+        ${card.cardMode ? `<div class="gluni-card-sliver-status" aria-hidden="true">${this.renderCardSliverStatus(card)}</div>` : ""}
+        ${card.cardMode ? this.renderCardBack() : ""}
         </div>
         ${card.swapTarget ? `<button class="gluni-card-swap-pick" type="button" data-action="cardSwapPick" data-target-id="${card.id}" title="${localize("GLUNI.Card.SwapPick")}" aria-label="${localize("GLUNI.Card.SwapPick")}"><i class="fa-solid fa-arrow-up-from-bracket" aria-hidden="true"></i><span>${localize("GLUNI.Card.SwapPickShort").toUpperCase()}</span></button>` : ""}
         ${card.conditions && getConditionBadgesEnabled()
@@ -1908,6 +2005,102 @@ class GLUniverseInitiativeOverlay {
     // ---- Magic-move hand-off: the card morphs from its small rail size into the active
     // size purely via the FLIP transform above. No slam, shake, shockwave, swipe, or badge
     // count-up — the initiative number simply snaps to its new value to match the move. ----
+  }
+
+  // ---- Card-mode collect / deal / reshuffle motion --------------------------
+  //
+  // These beats are additive overlays: clones of the cards that left the rail
+  // fly into the deck stub (collect), while the freshly-dealt cards play their
+  // CSS deal-in keyframe. Because the ghosts are throwaway clones and the deal-in
+  // rides the existing enter animation, none of this fights the FLIP reflow that
+  // moves the cards that simply shifted position. All of it is gated behind
+  // !prefersReducedMotion() by the caller (the snapshot is only taken then).
+
+  snapshotRailCards() {
+    if (!this.root) return null;
+    const cards = Array.from(this.root.querySelectorAll(".gluni-rail .gluni-card[data-gluni-key]"));
+    if (!cards.length) return null;
+    const stubPile = this.root.querySelector(".gluni-card-deck-stub-pile");
+    return {
+      stubRect: stubPile?.getBoundingClientRect() ?? null,
+      cards: cards.map(el => ({
+        key: el.dataset.gluniKey,
+        rect: el.getBoundingClientRect(),
+        html: el.outerHTML
+      }))
+    };
+  }
+
+  playCardModeMotion(snapshot, { isReshuffle = false, edge = "right" } = {}) {
+    if (!this.root || !snapshot?.cards?.length) return;
+    // The stub lives in the freshly rendered DOM; fall back to the pre-swap
+    // position if the new one hasn't been laid out yet.
+    const stubPile = this.root.querySelector(".gluni-card-deck-stub-pile");
+    const stubRect = stubPile?.getBoundingClientRect() || snapshot.stubRect;
+    if (!stubRect || !stubRect.width) return;
+
+    const presentKeys = new Set(
+      Array.from(this.root.querySelectorAll(".gluni-rail .gluni-card[data-gluni-key]"))
+        .map(el => el.dataset.gluniKey)
+    );
+    // On a reshuffle every card is re-dealt, so collect them all; on a normal
+    // turn only the cards that left the visible window (the spent active card)
+    // are collected.
+    const leaving = snapshot.cards.filter(card => isReshuffle || !presentKeys.has(card.key));
+    if (isReshuffle) this.flashReshuffle();
+    this.spawnCollectGhosts(leaving, stubRect, { stagger: isReshuffle, edge });
+  }
+
+  flashReshuffle() {
+    if (!this.root) return;
+    this.root.classList.add("gluni-initiative--reshuffling");
+    window.clearTimeout(this._reshuffleTimer);
+    this._reshuffleTimer = window.setTimeout(() => {
+      this.root?.classList.remove("gluni-initiative--reshuffling");
+    }, 900);
+  }
+
+  spawnCollectGhosts(items, stubRect, { stagger = false, edge = "right" } = {}) {
+    if (!items?.length) return;
+    const layer = document.createElement("div");
+    // Carry the overlay's scoping classes so the cloned cards keep their styling,
+    // but live on <body> so the shell's UI-scale transform doesn't double-apply.
+    layer.className = `gluni-initiative gluni-initiative--${edge} gluni-initiative--card-mode gluni-card-ghost-layer`;
+    document.body.appendChild(layer);
+
+    const stubCx = stubRect.left + stubRect.width / 2;
+    const stubCy = stubRect.top + stubRect.height / 2;
+    let alive = items.length;
+    const finish = () => { if (--alive <= 0) layer.remove(); };
+
+    items.forEach((item, index) => {
+      const ghost = document.createElement("div");
+      ghost.className = "gluni-card-ghost gluni-card-ghost--collect";
+      ghost.innerHTML = item.html;
+      ghost.style.left = `${item.rect.left}px`;
+      ghost.style.top = `${item.rect.top}px`;
+      ghost.style.width = `${item.rect.width}px`;
+      ghost.style.height = `${item.rect.height}px`;
+      layer.appendChild(ghost);
+
+      const dx = stubCx - (item.rect.left + item.rect.width / 2);
+      const dy = stubCy - (item.rect.top + item.rect.height / 2);
+      const delay = stagger ? index * 55 : 0;
+      // Keep the tilt under 90° so the cloned face never mirrors into a backwards
+      // card on its way into the deck; the stub's card-back carries the "now
+      // face-down in the deck" read.
+      const anim = ghost.animate([
+        { transform: "translate(0px, 0px) scale(1) rotateY(0deg)", opacity: 1, offset: 0 },
+        { transform: `translate(${dx * 0.4}px, ${dy * 0.4}px) scale(0.82) rotateY(34deg)`, opacity: 0.9, offset: 0.55 },
+        { transform: `translate(${dx}px, ${dy}px) scale(0.14) rotateY(58deg)`, opacity: 0, offset: 1 }
+      ], { duration: 440, delay, easing: "cubic-bezier(0.55, 0, 0.36, 1)", fill: "forwards" });
+      anim.onfinish = finish;
+      anim.oncancel = finish;
+    });
+
+    // Safety net: if WAAPI events never fire (e.g. the tab was hidden), make sure
+    // the throwaway layer is still cleaned up.
+    window.setTimeout(() => layer.isConnected && layer.remove(), 440 + items.length * 55 + 400);
   }
 
   getContinuityRect(oldRects, key, roundDelta = 0) {
@@ -3017,6 +3210,38 @@ class GLUniverseInitiativeOverlay {
   startCardDrag(event, card) {
     const combatant = this.combat?.combatants?.get(card.dataset.combatantId);
     if (!combatant) return;
+
+    // Card mode reorders the deal sequence rather than initiative. Only upcoming
+    // (non-active) slots may move — the active/spent slots are fixed — and the
+    // drop maths works off the live, possibly-overlapping card rects.
+    const cardMode = this.isCardMode();
+    if (cardMode) {
+      if (card.classList.contains("gluni-card--active")) return;
+      const fromSlot = Number(card.dataset.cardSlot);
+      if (!Number.isInteger(fromSlot)) return;
+      event.preventDefault();
+      this.closeInitiativeContextMenu();
+      card.setPointerCapture?.(event.pointerId);
+      this.cardDrag = {
+        cardMode: true,
+        combatantId: combatant.id,
+        dragKey: card.dataset.gluniKey,
+        fromSlot,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        lastClientY: event.clientY,
+        moved: false,
+        card
+      };
+      this.root.classList.add("gluni-initiative--card-dragging");
+      card.classList.add("gluni-card--dragging");
+      window.addEventListener("pointermove", this.onCardPointerMove);
+      window.addEventListener("pointerup", this.onCardPointerUp, { once: true });
+      window.addEventListener("pointercancel", this.onCardPointerCancel, { once: true });
+      return;
+    }
+
     const railCards = Array.from(this.root?.querySelectorAll(".gluni-rail .gluni-card[data-combatant-id]") ?? []);
     const originalIndex = railCards.indexOf(card);
 
@@ -3093,6 +3318,14 @@ class GLUniverseInitiativeOverlay {
     const drag = this.cardDrag;
     if (!drag) return;
 
+    if (drag.cardMode) {
+      const target = drag.moved ? this.getCardDropTargetCard(event.clientY) : null;
+      this.finishCardDrag();
+      if (!target || target.toSlot === drag.fromSlot) return;
+      await this.moveCardSlot(drag.fromSlot, target.toSlot);
+      return;
+    }
+
     const target = drag.moved ? this.getCardDropTarget(event.clientY) : null;
     this.finishCardDrag();
 
@@ -3130,6 +3363,34 @@ class GLUniverseInitiativeOverlay {
     const drag = this.cardDrag;
     if (!drag) return;
 
+    // Card mode rebinds by the per-slot rail key (a multi-turn boss has several
+    // cards sharing one combatant id, so the id alone is ambiguous) and refreshes
+    // the slot index in case the deal shifted under us.
+    if (drag.cardMode) {
+      const newCard = drag.dragKey
+        ? this.root?.querySelector(`.gluni-rail .gluni-card[data-gluni-key="${CSS.escape(drag.dragKey)}"]`)
+        : null;
+      if (!newCard || newCard.classList.contains("gluni-card--active")) {
+        this.finishCardDrag();
+        return;
+      }
+      const fromSlot = Number(newCard.dataset.cardSlot);
+      if (!Number.isInteger(fromSlot)) {
+        this.finishCardDrag();
+        return;
+      }
+      drag.card = newCard;
+      drag.fromSlot = fromSlot;
+      this.root.classList.add("gluni-initiative--card-dragging");
+      newCard.classList.add("gluni-card--dragging");
+      newCard.setPointerCapture?.(drag.pointerId);
+      if (drag.moved) {
+        newCard.style.setProperty("--gluni-card-drag-y", `${Math.round(drag.lastClientY - drag.startY)}px`);
+        this.updateCardReorder(drag.lastClientY);
+      }
+      return;
+    }
+
     const railCards = Array.from(this.root?.querySelectorAll(".gluni-rail .gluni-card[data-combatant-id]") ?? []);
     const newCard = railCards.find(el => el.dataset.combatantId === drag.combatantId) ?? null;
     if (!newCard) {
@@ -3158,6 +3419,18 @@ class GLUniverseInitiativeOverlay {
   // and draw the drop line at that boundary.
   updateCardReorder(clientY) {
     this.clearCardDropMarkers();
+
+    // Card mode: overlapping, variable-height cards make a slot-height gap shift
+    // unreliable, so just draw the insertion line; the FLIP reflow animates the
+    // cards into their new order on drop.
+    if (this.cardDrag?.cardMode) {
+      const target = this.getCardDropTargetCard(clientY);
+      if (target?.marker) {
+        target.marker.classList.add(target.position === "before" ? "gluni-card--drop-before" : "gluni-card--drop-after");
+      }
+      return;
+    }
+
     const target = this.getCardDropTarget(clientY);
     if (!target) return;
 
@@ -3210,6 +3483,57 @@ class GLUniverseInitiativeOverlay {
       marker,
       position
     };
+  }
+
+  // Card-mode drop target: find where, among the upcoming rail cards, the cursor
+  // wants to land and return the absolute deal-sequence slot to insert before.
+  getCardDropTargetCard(clientY) {
+    const drag = this.cardDrag;
+    if (!drag) return null;
+
+    const cards = Array.from(this.root?.querySelectorAll(".gluni-rail .gluni-card[data-card-slot]") ?? [])
+      .map(el => {
+        const rect = el.getBoundingClientRect();
+        return {
+          el,
+          slot: Number(el.dataset.cardSlot),
+          mid: rect.top + rect.height / 2,
+          active: el.classList.contains("gluni-card--active")
+        };
+      })
+      .filter(card => Number.isInteger(card.slot) && !card.active);
+    if (!cards.length) return null;
+
+    const others = cards.filter(card => card.slot !== drag.fromSlot);
+    if (!others.length) return null;
+
+    const before = others.find(card => clientY < card.mid);
+    if (before) {
+      return { toSlot: before.slot, marker: before.el, position: "before" };
+    }
+    const last = others[others.length - 1];
+    return { toSlot: last.slot + 1, marker: last.el, position: "after" };
+  }
+
+  // Reorder the upcoming portion of the live deal. GM authority only (drag is
+  // gated to the GM); active and already-spent slots are left untouched, and the
+  // new order holds until the next round's reshuffle re-deals.
+  async moveCardSlot(fromSlot, toSlot, combat = this.combat) {
+    if (!game.user.isGM) return;
+    const deal = this.getCardDeal(combat);
+    if (!deal) return;
+    const { pointer, sequence } = deal;
+    if (!Number.isInteger(fromSlot) || fromSlot <= pointer || fromSlot >= sequence.length) return;
+    if (!Number.isInteger(toSlot) || toSlot <= pointer || toSlot > sequence.length) return;
+
+    const next = sequence.slice();
+    const [moved] = next.splice(fromSlot, 1);
+    const insertAt = toSlot > fromSlot ? toSlot - 1 : toSlot;
+    if (insertAt === fromSlot) return;
+    next.splice(insertAt, 0, moved);
+
+    await combat.setFlag(MODULE_ID, FLAGS.cardDeal, { round: deal.round, pointer, sequence: next });
+    this.broadcastRefresh();
   }
 
   async moveCombatantBetween(combatant, beforeId, afterId) {
@@ -3754,6 +4078,11 @@ function renderCombatantStyle(card) {
   if (card.portraitFrame) styleParts.push(renderPortraitFrameStyle(card.portraitFrame));
   if (Number.isFinite(card.portraitScaleCap)) {
     styleParts.push(`--gluni-portrait-quality-cap: ${card.portraitScaleCap.toFixed(3)};`);
+  }
+  // Card-mode deck stacking: earlier draws paint above later ones so each card's
+  // lower band (name + badge + status) stays clear of the card tucked beneath it.
+  if (Number.isInteger(card.cardOrder)) {
+    styleParts.push(`--gluni-deck-z: ${40 - card.cardOrder};`);
   }
   return styleParts.length ? ` style="${escapeAttr(styleParts.join(" "))}"` : "";
 }
