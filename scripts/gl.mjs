@@ -18,10 +18,13 @@ float gluVNoise(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
 float gluFbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ s+=a*gluVNoise(p); p*=2.02; a*=0.5; } return s; }
 `;
 
-// Glass fracture. Deliberately sparse — a few bold shards radiating from the
-// impact, thin crisp lines, low alpha and tight coverage so the small card /
-// token art stays readable underneath. uClipCircle masks to a disc for round
-// token overlays (0 for rectangular card portraits).
+// Glass fracture. A dense web of shards radiating from the impact with a soft
+// amber bloom (halo) around the cracks, a white-hot core and a looping energy
+// flow that keeps the fracture alive — the full cinematic break look. The
+// optimizations that DON'T change the look are kept: an analytic-AA floor
+// (uThick/uTexel) so the dense shards de-alias on the supersampled render, and
+// uClipCircle to mask the field to a disc for round token overlays (0 for
+// rectangular card portraits).
 export const FX_FRAG_BREAK = `
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
@@ -41,35 +44,39 @@ void main(void){
   vec2 uv=vTextureCoord;
   vec2 d=(uv-uImpact); d.x*=uAspect; float dist=length(d);
   float ang=atan(d.y,d.x);
-  float warp=0.16*gluFbm(vec2(ang*1.2+3.0,1.7))+0.08*gluFbm(vec2(ang*3.3,5.0))-0.12;
+  float warp=0.17*gluFbm(vec2(ang*1.3+3.0,1.7))+0.09*gluFbm(vec2(ang*3.7,5.0))-0.13;
   float wdist=dist+warp;
-  float scale=mix(5.0,2.6,smoothstep(0.0,0.8,dist));   // large shards -> few cracks
+  float scale=mix(15.0,6.0,smoothstep(0.0,0.8,dist));  // many fine shards near impact -> fewer outward
   float ce=gluVoroEdge(vec2(uv.x*uAspect,uv.y)*scale+7.0);
-  // Analytic AA: the Voronoi edge field changes by ~scale per uv unit, so one
-  // screen pixel spans ~scale*uTexel of field. Widen the smoothstep band to at
-  // least ~1.5px there so steep cracks stop aliasing, but keep uThick's weight
-  // where the field is shallow. (uTexel = 1/render-height; 0 => original look.)
+  // Analytic AA floor: the Voronoi edge field changes by ~scale per uv unit, so
+  // one screen pixel spans ~scale*uTexel of field. Keep the smoothstep band at
+  // least that wide so the dense shards stop aliasing on the supersampled render,
+  // but never thinner than uThick's line weight. (uTexel = 1/render-height.)
   float aaWidth=max(uThick, 1.5*scale*uTexel);
-  float edge=1.0-smoothstep(0.0,aaWidth,ce);           // crisp lines; uThick tunes weight
+  float edge=1.0-smoothstep(0.0,aaWidth,ce);
   float shatterT=clamp(uTime*1.4,0.0,1.0);
   float front=smoothstep(0.05,-0.06, wdist-(0.05+1.2*shatterT));
-  float coverage=smoothstep(1.18,0.1,wdist)*front;     // reaches further across the art
+  float coverage=smoothstep(1.15,0.10,wdist)*front;    // spreads across the art behind the front
   float crack=edge*coverage;
   float settled=smoothstep(0.55,1.0,shatterT);
-  float flow=pow(0.5+0.5*sin(dist*18.0-uTime*3.0),8.0); // sharp, sparse pulses
+  float flow=pow(0.5+0.5*sin(dist*26.0-uTime*3.2),6.0); // flowing energy along the cracks
   float glowFlow=crack*flow*settled;
-  float pulse=0.6+0.4*sin(uTime*2.2);
-  float core=smoothstep(0.10,0.0,dist)*smoothstep(0.0,0.12,shatterT);
+  float pulse=0.62+0.38*sin(uTime*2.2);
+  float halo=(1.0-smoothstep(0.0,0.13,ce))*coverage*0.30*pulse;   // soft amber bloom around the shards
+  float core=smoothstep(0.12,0.0,dist)*smoothstep(0.0,0.12,shatterT);
   vec3 amber=vec3(1.0,0.69,0.18), hot=vec3(1.0,0.88,0.44), white=vec3(1.0);
   vec3 col=mix(amber,hot,clamp(crack*pulse,0.0,1.0));
   col=mix(col,white,clamp(core+glowFlow,0.0,1.0));
-  float a=clamp(crack*0.86 + core*0.7 + glowFlow*0.7, 0.0, 1.0) * 0.94;
+  float a=clamp(crack*0.95 + halo + core*0.7 + glowFlow*0.8, 0.0, 1.0);
   if(uClipCircle>0.5){ vec2 cc=uv-vec2(0.5); cc.x*=uAspect; a*=smoothstep(0.5,0.47,length(cc)); }
   gl_FragColor=vec4(col*a, a);
 }`;
 
-// Corruption veins. Cheap 3-octave noise, concentrated hard at the edges so the
-// face stays clear and the per-frame cost stays low.
+// Corruption veins. A domain-warped ridged-noise web of glowing violet veins
+// that creep across the whole face and concentrate toward the edges, with a soft
+// bloom (halo) around the strongest ridges — the full dying look. Kept cheap with
+// a 3-octave noise (vs the 5-octave shared fbm) so the live per-frame token shader
+// stays light; uClipCircle masks the field to a disc for round token overlays.
 export const FX_FRAG_DYING = `
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
@@ -81,18 +88,17 @@ float gluVNoiseD(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
 float gluFbmD(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<3;i++){ s+=a*gluVNoiseD(p); p*=2.03; a*=0.5; } return s; }
 void main(void){
   vec2 uv=vTextureCoord;
-  // edge weight first; bail cheap where the face is so we skip the costly noise.
-  float eb=max(smoothstep(0.46,0.04,uv.x),smoothstep(0.54,0.96,uv.x));
-  eb=max(eb,smoothstep(0.4,0.0,uv.y));
-  if(eb<0.02){ gl_FragColor=vec4(0.0); return; }
-  float warp=gluFbmD(uv*2.2+vec2(0.0,uTime*0.05));
-  float n=gluFbmD(uv*3.4+vec2(warp*1.4,uTime*0.04));
+  vec2 q=vec2(gluFbmD(uv*3.0+vec2(0.0,uTime*0.05)), gluFbmD(uv*3.0+vec2(5.2,-uTime*0.04)));
+  float n=gluFbmD(uv*4.5+q*1.8);                        // domain-warped for organic, wandering veins
   float ridge=1.0-abs(n*2.0-1.0);
-  float veins=smoothstep(0.9,1.0,ridge);               // sparse, only strongest ridges
-  veins*=eb;                                            // hard edge concentration
+  float veins=smoothstep(0.80,0.99,ridge);
+  float eb=max(smoothstep(0.55,0.0,uv.x),smoothstep(0.45,1.0,uv.x));
+  eb=max(eb,smoothstep(0.5,0.0,uv.y));
+  veins*=mix(0.25,1.0,eb);                              // present across the face, densest at the edges
+  float halo=smoothstep(0.6,0.99,ridge)*0.16*eb;        // soft bloom around the strongest veins
   vec3 violet=vec3(0.71,0.59,1.0), vhot=vec3(0.94,0.84,1.0);
   vec3 col=mix(violet,vhot,veins);
-  float a=clamp(veins*0.62,0.0,1.0);
+  float a=clamp(veins*0.9+halo,0.0,1.0);
   if(uClipCircle>0.5){ vec2 cc=uv-vec2(0.5); cc.x*=uAspect; a*=smoothstep(0.5,0.47,length(cc)); }
   gl_FragColor=vec4(col*a, a);
 }`;
