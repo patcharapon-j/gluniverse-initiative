@@ -109,6 +109,16 @@ function registerSettings() {
     onChange: () => { overlay?.onInitiativeModeChanged(); }
   });
 
+  game.settings.register(MODULE_ID, SETTINGS.cardFaceDown, {
+    name: localize("GLUNI.Settings.CardFaceDown.Name"),
+    hint: localize("GLUNI.Settings.CardFaceDown.Hint"),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    onChange: rerender
+  });
+
   game.settings.register(MODULE_ID, SETTINGS.edge, {
     name: localize("GLUNI.Settings.Edge.Name"),
     hint: localize("GLUNI.Settings.Edge.Hint"),
@@ -1297,6 +1307,12 @@ class GLUniverseInitiativeOverlay {
     if (cardSnapshot) {
       this.playCardModeMotion(cardSnapshot, { isReshuffle, edge: settings.edge });
     }
+    // Face-down reveal: on a normal advance the newly-active card flips face-up.
+    // (A reshuffle deals a fresh hand, so the active card arrives face-up via the
+    // staggered deal-in instead — no double animation.)
+    if (isCardView && settings.cardFaceDown && shouldAnimateTurnChange && !isReshuffle) {
+      this.playCardRevealFlip();
+    }
     this.lastDealRound = isCardView ? view.dealRound : null;
     this.playPendingGuardBreakImpact();
     this.playPendingSlideIns();
@@ -1358,6 +1374,7 @@ class GLUniverseInitiativeOverlay {
       uiScale,
       mode: getInitiativeMode(),
       showDefeated: Boolean(game.settings.get(MODULE_ID, SETTINGS.showDefeated)),
+      cardFaceDown: Boolean(game.settings.get(MODULE_ID, SETTINGS.cardFaceDown)),
       isGM: Boolean(game.user.isGM)
     };
   }
@@ -1524,6 +1541,9 @@ class GLUniverseInitiativeOverlay {
       card.cardSlot = index;
       card.cardOrder = index - pointer + 1;
       card.cardCompressed = !isActive;
+      // Face-down mode: every upcoming card hides its identity behind the deck
+      // back (disposition colour only) and flips face-up when it becomes active.
+      card.faceDown = Boolean(settings.cardFaceDown) && !isActive;
       // Critical states keep an always-on status edge even when compressed; the
       // first few also force-expand out of the stack for triage.
       card.cardAlert = !isActive && (card.guardBroken || Boolean(card.dying && !card.dying.stable));
@@ -1718,6 +1738,7 @@ class GLUniverseInitiativeOverlay {
       card.defeated ? "gluni-card--defeated" : "",
       card.cardMode ? "gluni-card--card-mode" : "",
       card.cardCompressed ? "gluni-card--card-compressed" : "",
+      card.faceDown ? "gluni-card--face-down" : "",
       card.cardAlert ? "gluni-card--card-alert" : "",
       card.cardAlertExpand ? "gluni-card--card-alert-expand" : "",
       card.canReorder ? "gluni-card--card-reorderable" : "",
@@ -1952,6 +1973,9 @@ class GLUniverseInitiativeOverlay {
     const roundDelta = Number(options.roundDelta) || 0;
     const flipItems = [];
     let newActive = null;
+    // Card-mode deals stagger per-card (see flashReshuffle), so the entering
+    // tag must linger long enough to cover the last card's delayed deal-in.
+    const enterCleanupMs = this.root.classList.contains("gluni-initiative--card-mode") ? 1200 : 680;
 
     for (const item of items) {
       const isActive = item.classList.contains("gluni-card--active");
@@ -1962,7 +1986,7 @@ class GLUniverseInitiativeOverlay {
         item.classList.add("gluni-item--entering");
         if (!isActive) item.classList.add("gluni-item--entering-bottom");
         if (isActive && item.dataset.gluniKey !== previousActiveKey) item.classList.add("gluni-card--active-entering");
-        window.setTimeout(() => item.classList.remove("gluni-item--entering", "gluni-item--entering-bottom", "gluni-card--active-entering"), 680);
+        window.setTimeout(() => item.classList.remove("gluni-item--entering", "gluni-item--entering-bottom", "gluni-card--active-entering"), enterCleanupMs);
         continue;
       }
 
@@ -2054,10 +2078,25 @@ class GLUniverseInitiativeOverlay {
   flashReshuffle() {
     if (!this.root) return;
     this.root.classList.add("gluni-initiative--reshuffling");
+    // Stamp a running index on each freshly-dealt rail card so the deal-in plays
+    // in sequence — cards fan out one after another like a hand being dealt.
+    const cards = this.root.querySelectorAll(".gluni-rail .gluni-card[data-gluni-key]");
+    cards.forEach((card, index) => card.style.setProperty("--gluni-deal-index", String(index)));
     window.clearTimeout(this._reshuffleTimer);
     this._reshuffleTimer = window.setTimeout(() => {
       this.root?.classList.remove("gluni-initiative--reshuffling");
-    }, 900);
+    }, 1200);
+  }
+
+  // Face-down -> face-up flip for the card that just became active on a normal
+  // advance. The CSS keyframe rotates the surface 180deg->0 and crossfades the
+  // deck back into the portrait at the edge-on midpoint.
+  playCardRevealFlip() {
+    if (!this.root) return;
+    const active = this.root.querySelector(".gluni-rail .gluni-card--active");
+    if (!active) return;
+    active.classList.add("gluni-card--revealing");
+    window.setTimeout(() => active.classList.remove("gluni-card--revealing"), 620);
   }
 
   spawnCollectGhosts(items, stubRect, { stagger = false, edge = "right" } = {}) {
