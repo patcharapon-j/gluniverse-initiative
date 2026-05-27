@@ -5,8 +5,6 @@
   "GLUNI.Settings.InitiativeMode.Hint": "Standard uses each combatant's rolled initiative. Card draws a fresh, shuffled turn order each round, ignoring initiative scores.",
   "GLUNI.Settings.InitiativeMode.Standard": "Standard (initiative scores)",
   "GLUNI.Settings.InitiativeMode.Card": "Card (shuffle & deal each round)",
-  "GLUNI.Settings.CardFaceDown.Name": "Deal upcoming cards face-down",
-  "GLUNI.Settings.CardFaceDown.Hint": "Card mode only. Upcoming combatants show a face-down card (disposition colour only) and flip to reveal when their turn comes. Hover a card to peek.",
   "GLUNI.Settings.Edge.Name": "Tracker edge",
   "GLUNI.Settings.Edge.Hint": "Choose which screen edge the initiative rail anchors to.",
   "GLUNI.Settings.Edge.Left": "Left",

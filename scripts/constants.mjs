@@ -4,7 +4,6 @@ export const SOCKET_NAME = `module.${MODULE_ID}`;
 export const SETTINGS = {
   enabled: "enabled",
   initiativeMode: "initiativeMode",
-  cardFaceDown: "cardFaceDown",
   edge: "edge",
   visibleCount: "visibleCount",
   showDefeated: "showDefeated",
@@ -230,8 +229,6 @@ export const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.InitiativeMode.Hint": "Standard uses each combatant's rolled initiative. Card draws a fresh, shuffled turn order each round, ignoring initiative scores.",
   "GLUNI.Settings.InitiativeMode.Standard": "Standard (initiative scores)",
   "GLUNI.Settings.InitiativeMode.Card": "Card (shuffle &amp; deal each round)",
-  "GLUNI.Settings.CardFaceDown.Name": "Deal upcoming cards face-down",
-  "GLUNI.Settings.CardFaceDown.Hint": "Card mode only. Upcoming combatants show a face-down card (disposition colour only) and flip to reveal when their turn comes. Hover a card to peek.",
   "GLUNI.Card.Order": "Draw order {order}",
   "GLUNI.Card.Swap": "Swap turn with another combatant",
   "GLUNI.Card.SwapCancel": "Cancel swap",
