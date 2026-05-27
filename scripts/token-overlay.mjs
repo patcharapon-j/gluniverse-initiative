@@ -226,7 +226,8 @@ export class TokenOverlayManager {
     layer.eventMode = "none";
     layer.interactiveChildren = false;
     layer.sortableChildren = false;
-    const tokenSort = globalThis.PrimaryCanvasGroup?.SORT_LAYERS?.TOKENS ?? 700;
+    const PrimaryCanvasGroup = foundry.canvas?.groups?.PrimaryCanvasGroup ?? globalThis.PrimaryCanvasGroup;
+    const tokenSort = PrimaryCanvasGroup?.SORT_LAYERS?.TOKENS ?? 700;
     layer.elevation = 0;
     layer.sortLayer = tokenSort - 1;   // beneath tokens, above tiles/drawings
     layer.sort = 0;

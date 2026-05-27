@@ -1,7 +1,7 @@
 {
   "id": "gluniverse-initiative",
   "title": "GLUniverse Initiative",
-  "description": "A cinematic portrait-first initiative overlay for Foundry VTT v13.",
+  "description": "A cinematic portrait-first initiative overlay for Foundry VTT v13 and v14.",
   "version": "0.10.3",
   "url": "https://github.com/patcharapon-j/gluniverse-initiative",
   "manifest": "https://github.com/patcharapon-j/gluniverse-initiative/releases/latest/download/module.json",
@@ -13,7 +13,7 @@
   ],
   "compatibility": {
     "minimum": "13",
-    "verified": "13"
+    "verified": "14"
   },
   "socket": true,
   "esmodules": [
