@@ -124,6 +124,34 @@ void main(void){
   gl_FragColor=vec4(col*a, a);
 }`;
 
+// Mystery scramble (initiative card only): a glitchy scanline + datamosh wash in
+// violet/cyan that sits over the "?" mark on a hidden/mystery card so the slot
+// reads as deliberately obscured rather than empty. Cheap — a few hash lookups,
+// no fbm — and stepped in time (floor(uTime*12)) for a choppy digital feel.
+export const FX_FRAG_SCRAMBLE = `
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform float uTime, uSeed, uAspect;
+float gluH(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7))+uSeed)*43758.5453); }
+void main(void){
+  vec2 uv=vTextureCoord;
+  float rows=14.0;
+  float row=floor(uv.y*rows);
+  float t=floor(uTime*12.0);
+  // occasional horizontal glitch shift per scanline row
+  float g=gluH(vec2(row,t));
+  float glitch=step(0.82,g)*(gluH(vec2(row,t+1.0))-0.5)*0.3;
+  vec2 suv=uv; suv.x+=glitch;
+  float blocks=gluH(floor(suv*vec2(34.0,rows))+t*0.5);
+  float scan=0.5+0.5*sin(uv.y*rows*6.2831);
+  float noise=gluH(floor(suv*120.0)+t);
+  float intensity=mix(0.25,0.6,blocks)*mix(0.6,1.0,scan);
+  vec3 violet=vec3(0.71,0.59,1.0), cyan=vec3(0.37,0.92,1.0);
+  vec3 col=mix(violet, cyan, step(0.7,noise));
+  float a=intensity*0.5 + step(0.93,noise)*0.4 + step(0.82,g)*0.15;
+  gl_FragColor=vec4(col*clamp(a,0.0,1.0), clamp(a,0.0,1.0));
+}`;
+
 // Ground turn-indicator. A cinematic energy disc drawn BENEATH the token, larger
 // than the token footprint so it reads as a glowing pedestal rather than a status
 // frame on the art. Procedural and disposition-coloured (uColor / uColorHi):

@@ -10,7 +10,7 @@ import {
   PORTRAIT_FRAME_LIMITS
 } from "./constants.mjs";
 import { normalizeInitiativeNumber, getDisposition, formatRound, formatInitiative, localize, formatLocalized, modulo, clamp, wait, escapeHTML, escapeAttr, escapeCSSIdentifier } from "./util.mjs";
-import { FX_SUPERSAMPLE, FX_GLSL_NOISE, FX_FRAG_BREAK, FX_FRAG_DYING, FX_FRAG_DELAY, FX_FRAG_TURN, FX_FRAG_TURN_BAKE, FX_FRAG_TURN_PLAY, FX_FRAG_DOWNSAMPLE, rgbFloat, FX_VERT_MESH, makeFxMesh, setFxMeshQuad, destroyFxMesh } from "./gl.mjs";
+import { FX_SUPERSAMPLE, FX_GLSL_NOISE, FX_FRAG_BREAK, FX_FRAG_DYING, FX_FRAG_DELAY, FX_FRAG_SCRAMBLE, FX_FRAG_TURN, FX_FRAG_TURN_BAKE, FX_FRAG_TURN_PLAY, FX_FRAG_DOWNSAMPLE, rgbFloat, FX_VERT_MESH, makeFxMesh, setFxMeshQuad, destroyFxMesh } from "./gl.mjs";
 import { TokenOverlayManager, getMarkerSheets } from "./token-overlay.mjs";
 import { getPF2eDyingState, getDnd5eDeathState, getDyingState, getActorAttributeValue, getConditionValue, hasActorItem, COVERED_CONDITION_SLUGS, isPrimaryCondition, getConditionBadgeValue, getHiddenConditionKeys, getPrimaryConditionItems, getPF2eConditionTags, renderConditionRepeatText, getConditionTone, renderConditionLabels, findPF2eGuardBreakEffects, getActorItems, getItemSlug, renderDyingRepeatText, renderGuardBreakRepeatText, getGuardBreakState, getBreakGaugeState, renderBreakGaugeBar, renderDyingPips, renderDeathSavePips, renderDeathSaveRepeatText } from "./conditions.mjs";
 
@@ -1728,14 +1728,18 @@ class GLUniverseInitiativeOverlay {
     ].filter(Boolean).join(" ");
     const style = renderCombatantStyle(card);
 
-    // WebGL portrait FX layer (replaces the CSS crack/vein bg). Limited to
-    // break + dying (the persistent states) to keep the GPU cost low. Falls
-    // back to the CSS background when WebGL is unsupported.
-    const fxReady = !card.adhoc && !card.mystery && Boolean(card.portrait)
-      && cardFX?.supported;
-    const fxMode = fxReady
-      ? (card.guardBroken ? "break" : card.dying && !card.dying.stable ? "dying" : null)
-      : null;
+    // WebGL portrait FX layer (replaces the CSS crack/vein bg). Mystery cards get
+    // a glitch scramble over the "?"; portrait cards get break/dying (the
+    // persistent states). Falls back to the CSS background when WebGL is
+    // unsupported.
+    const fxReady = !card.adhoc && cardFX?.supported;
+    const fxMode = !fxReady
+      ? null
+      : card.mystery
+        ? "scramble"
+        : card.portrait
+          ? (card.guardBroken ? "break" : card.dying && !card.dying.stable ? "dying" : null)
+          : null;
 
     const slotAttr = Number.isInteger(card.cardSlot) ? ` data-card-slot="${card.cardSlot}"` : "";
 
@@ -1769,7 +1773,7 @@ class GLUniverseInitiativeOverlay {
           : ""}
         ${card.dying
           ? `
-            ${fxMode === "dying" ? "" : `<div class="gluni-card-dying-bg" aria-hidden="true"></div>`}
+            ${fxMode === "dying" || fxMode === "scramble" ? "" : `<div class="gluni-card-dying-bg" aria-hidden="true"></div>`}
             <div class="gluni-card-dying-repeat" aria-hidden="true">
               ${card.dying.kind === "deathsaves" ? renderDeathSaveRepeatText(card.dying) : renderDyingRepeatText(card.dying)}
             </div>
@@ -1777,7 +1781,7 @@ class GLUniverseInitiativeOverlay {
           : ""}
         ${card.guardBroken
           ? `
-            ${fxMode === "break" ? "" : `<div class="gluni-card-guard-break-bg" aria-hidden="true"></div>`}
+            ${fxMode === "break" || fxMode === "scramble" ? "" : `<div class="gluni-card-guard-break-bg" aria-hidden="true"></div>`}
             <div class="gluni-card-guard-break-repeat" aria-hidden="true">
               ${renderGuardBreakRepeatText()}
             </div>
@@ -5164,7 +5168,8 @@ class CardFXManager {
       };
       this.filters = {
         break: mk(FX_FRAG_BREAK),
-        dying: mk(FX_FRAG_DYING)
+        dying: mk(FX_FRAG_DYING),
+        scramble: mk(FX_FRAG_SCRAMBLE)
       };
       this.supported = true;
     } catch (err) {
