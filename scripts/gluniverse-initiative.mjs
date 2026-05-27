@@ -109,6 +109,16 @@ function registerSettings() {
     onChange: () => { overlay?.onInitiativeModeChanged(); }
   });
 
+  game.settings.register(MODULE_ID, SETTINGS.cardFaceDown, {
+    name: localize("GLUNI.Settings.CardFaceDown.Name"),
+    hint: localize("GLUNI.Settings.CardFaceDown.Hint"),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    onChange: rerender
+  });
+
   game.settings.register(MODULE_ID, SETTINGS.edge, {
     name: localize("GLUNI.Settings.Edge.Name"),
     hint: localize("GLUNI.Settings.Edge.Hint"),
@@ -1297,6 +1307,12 @@ class GLUniverseInitiativeOverlay {
     if (cardSnapshot) {
       this.playCardModeMotion(cardSnapshot, { isReshuffle, edge: settings.edge });
     }
+    // Face-down reveal: on a normal advance the newly-active card flips face-up.
+    // (A reshuffle deals a fresh hand, so the active card arrives face-up via the
+    // staggered deal-in instead — no double animation.)
+    if (isCardView && settings.cardFaceDown && shouldAnimateTurnChange && !isReshuffle) {
+      this.playCardRevealFlip();
+    }
     this.lastDealRound = isCardView ? view.dealRound : null;
     this.playPendingGuardBreakImpact();
     this.playPendingSlideIns();
@@ -1358,6 +1374,7 @@ class GLUniverseInitiativeOverlay {
       uiScale,
       mode: getInitiativeMode(),
       showDefeated: Boolean(game.settings.get(MODULE_ID, SETTINGS.showDefeated)),
+      cardFaceDown: Boolean(game.settings.get(MODULE_ID, SETTINGS.cardFaceDown)),
       isGM: Boolean(game.user.isGM)
     };
   }
@@ -1524,6 +1541,9 @@ class GLUniverseInitiativeOverlay {
       card.cardSlot = index;
       card.cardOrder = index - pointer + 1;
       card.cardCompressed = !isActive;
+      // Face-down mode: every upcoming card hides its identity behind the deck
+      // back (disposition colour only) and flips face-up when it becomes active.
+      card.faceDown = Boolean(settings.cardFaceDown) && !isActive;
       // Critical states keep an always-on status edge even when compressed; the
       // first few also force-expand out of the stack for triage.
       card.cardAlert = !isActive && (card.guardBroken || Boolean(card.dying && !card.dying.stable));
@@ -1718,6 +1738,7 @@ class GLUniverseInitiativeOverlay {
       card.defeated ? "gluni-card--defeated" : "",
       card.cardMode ? "gluni-card--card-mode" : "",
       card.cardCompressed ? "gluni-card--card-compressed" : "",
+      card.faceDown ? "gluni-card--face-down" : "",
       card.cardAlert ? "gluni-card--card-alert" : "",
       card.cardAlertExpand ? "gluni-card--card-alert-expand" : "",
       card.canReorder ? "gluni-card--card-reorderable" : "",
@@ -1861,6 +1882,9 @@ class GLUniverseInitiativeOverlay {
   }
 
   positionFloatingControls() {
+    // Card mode flows its controls as a static horizontal bar under the hand, so
+    // there's no active-card-relative offset to compute.
+    if (this.isCardMode()) return;
     const shell = this.root?.querySelector(".gluni-shell");
     const activeCard = this.root?.querySelector(".gluni-card--active");
     const controls = this.root?.querySelector(".gluni-floating-turn-controls");
@@ -1952,6 +1976,9 @@ class GLUniverseInitiativeOverlay {
     const roundDelta = Number(options.roundDelta) || 0;
     const flipItems = [];
     let newActive = null;
+    // Card-mode deals stagger per-card (see flashReshuffle), so the entering
+    // tag must linger long enough to cover the last card's delayed deal-in.
+    const enterCleanupMs = this.root.classList.contains("gluni-initiative--card-mode") ? 1200 : 680;
 
     for (const item of items) {
       const isActive = item.classList.contains("gluni-card--active");
@@ -1962,7 +1989,7 @@ class GLUniverseInitiativeOverlay {
         item.classList.add("gluni-item--entering");
         if (!isActive) item.classList.add("gluni-item--entering-bottom");
         if (isActive && item.dataset.gluniKey !== previousActiveKey) item.classList.add("gluni-card--active-entering");
-        window.setTimeout(() => item.classList.remove("gluni-item--entering", "gluni-item--entering-bottom", "gluni-card--active-entering"), 680);
+        window.setTimeout(() => item.classList.remove("gluni-item--entering", "gluni-item--entering-bottom", "gluni-card--active-entering"), enterCleanupMs);
         continue;
       }
 
@@ -2054,10 +2081,25 @@ class GLUniverseInitiativeOverlay {
   flashReshuffle() {
     if (!this.root) return;
     this.root.classList.add("gluni-initiative--reshuffling");
+    // Stamp a running index on each freshly-dealt rail card so the deal-in plays
+    // in sequence — cards fan out one after another like a hand being dealt.
+    const cards = this.root.querySelectorAll(".gluni-rail .gluni-card[data-gluni-key]");
+    cards.forEach((card, index) => card.style.setProperty("--gluni-deal-index", String(index)));
     window.clearTimeout(this._reshuffleTimer);
     this._reshuffleTimer = window.setTimeout(() => {
       this.root?.classList.remove("gluni-initiative--reshuffling");
-    }, 900);
+    }, 1200);
+  }
+
+  // Face-down -> face-up flip for the card that just became active on a normal
+  // advance. The CSS keyframe rotates the surface 180deg->0 and crossfades the
+  // deck back into the portrait at the edge-on midpoint.
+  playCardRevealFlip() {
+    if (!this.root) return;
+    const active = this.root.querySelector(".gluni-rail .gluni-card--active");
+    if (!active) return;
+    active.classList.add("gluni-card--revealing");
+    window.setTimeout(() => active.classList.remove("gluni-card--revealing"), 620);
   }
 
   spawnCollectGhosts(items, stubRect, { stagger = false, edge = "right" } = {}) {
@@ -3230,6 +3272,7 @@ class GLUniverseInitiativeOverlay {
         pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
+        lastClientX: event.clientX,
         lastClientY: event.clientY,
         moved: false,
         card
@@ -3305,10 +3348,20 @@ class GLUniverseInitiativeOverlay {
   onCardPointerMove = event => {
     if (!this.cardDrag) return;
 
+    this.cardDrag.lastClientX = event.clientX;
     this.cardDrag.lastClientY = event.clientY;
     const distance = Math.hypot(event.clientX - this.cardDrag.startX, event.clientY - this.cardDrag.startY);
     if (distance > 4) this.cardDrag.moved = true;
     if (!this.cardDrag.moved) return;
+
+    // Card mode is a horizontal hand, so the drag + drop axis is X; standard mode
+    // is a vertical rail and stays on Y.
+    if (this.cardDrag.cardMode) {
+      this.cardDrag.card.style.setProperty("--gluni-card-drag-x", `${Math.round(event.clientX - this.cardDrag.startX)}px`);
+      this.cardDrag.card.style.setProperty("--gluni-card-drag-y", `${Math.round(event.clientY - this.cardDrag.startY)}px`);
+      this.updateCardReorder(event.clientX);
+      return;
+    }
 
     this.cardDrag.card.style.setProperty("--gluni-card-drag-y", `${Math.round(event.clientY - this.cardDrag.startY)}px`);
     this.updateCardReorder(event.clientY);
@@ -3319,7 +3372,7 @@ class GLUniverseInitiativeOverlay {
     if (!drag) return;
 
     if (drag.cardMode) {
-      const target = drag.moved ? this.getCardDropTargetCard(event.clientY) : null;
+      const target = drag.moved ? this.getCardDropTargetCard(event.clientX) : null;
       this.finishCardDrag();
       if (!target || target.toSlot === drag.fromSlot) return;
       await this.moveCardSlot(drag.fromSlot, target.toSlot);
@@ -3351,6 +3404,7 @@ class GLUniverseInitiativeOverlay {
       entry.el?.style.removeProperty("--gluni-reorder-shift-y");
     }
     this.cardDrag.card.classList.remove("gluni-card--dragging");
+    this.cardDrag.card.style.removeProperty("--gluni-card-drag-x");
     this.cardDrag.card.style.removeProperty("--gluni-card-drag-y");
     this.root.classList.remove("gluni-initiative--card-dragging");
     this.cardDrag = null;
@@ -3385,8 +3439,9 @@ class GLUniverseInitiativeOverlay {
       newCard.classList.add("gluni-card--dragging");
       newCard.setPointerCapture?.(drag.pointerId);
       if (drag.moved) {
+        newCard.style.setProperty("--gluni-card-drag-x", `${Math.round((drag.lastClientX ?? drag.startX) - drag.startX)}px`);
         newCard.style.setProperty("--gluni-card-drag-y", `${Math.round(drag.lastClientY - drag.startY)}px`);
-        this.updateCardReorder(drag.lastClientY);
+        this.updateCardReorder(drag.lastClientX ?? drag.startX);
       }
       return;
     }
@@ -3417,21 +3472,23 @@ class GLUniverseInitiativeOverlay {
 
   // Shift the surrounding cards to open a gap where the dragged card will land,
   // and draw the drop line at that boundary.
-  updateCardReorder(clientY) {
+  // `coord` is the cursor position along the rail's main axis: clientX for the
+  // horizontal card-mode hand, clientY for the vertical standard rail.
+  updateCardReorder(coord) {
     this.clearCardDropMarkers();
 
-    // Card mode: overlapping, variable-height cards make a slot-height gap shift
-    // unreliable, so just draw the insertion line; the FLIP reflow animates the
-    // cards into their new order on drop.
+    // Card mode: overlapping, fanned cards make a slot gap-shift unreliable, so
+    // just draw the insertion line; the FLIP reflow animates the cards into
+    // their new order on drop.
     if (this.cardDrag?.cardMode) {
-      const target = this.getCardDropTargetCard(clientY);
+      const target = this.getCardDropTargetCard(coord);
       if (target?.marker) {
         target.marker.classList.add(target.position === "before" ? "gluni-card--drop-before" : "gluni-card--drop-after");
       }
       return;
     }
 
-    const target = this.getCardDropTarget(clientY);
+    const target = this.getCardDropTarget(coord);
     if (!target) return;
 
     const fromIndex = target.fromIndex;
@@ -3487,7 +3544,8 @@ class GLUniverseInitiativeOverlay {
 
   // Card-mode drop target: find where, among the upcoming rail cards, the cursor
   // wants to land and return the absolute deal-sequence slot to insert before.
-  getCardDropTargetCard(clientY) {
+  // The hand is horizontal, so targeting is on the X axis.
+  getCardDropTargetCard(clientX) {
     const drag = this.cardDrag;
     if (!drag) return null;
 
@@ -3497,7 +3555,7 @@ class GLUniverseInitiativeOverlay {
         return {
           el,
           slot: Number(el.dataset.cardSlot),
-          mid: rect.top + rect.height / 2,
+          mid: rect.left + rect.width / 2,
           active: el.classList.contains("gluni-card--active")
         };
       })
@@ -3507,7 +3565,7 @@ class GLUniverseInitiativeOverlay {
     const others = cards.filter(card => card.slot !== drag.fromSlot);
     if (!others.length) return null;
 
-    const before = others.find(card => clientY < card.mid);
+    const before = others.find(card => clientX < card.mid);
     if (before) {
       return { toSlot: before.slot, marker: before.el, position: "before" };
     }
