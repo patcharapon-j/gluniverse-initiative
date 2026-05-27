@@ -2788,9 +2788,13 @@ class GLUniverseInitiativeOverlay {
   getCardDeal(combat = this.combat) {
     const raw = combat?.getFlag?.(MODULE_ID, FLAGS.cardDeal);
     if (!raw || !Array.isArray(raw.sequence) || !raw.sequence.length) return null;
+    // Defeated combatants are treated as no longer live (consistent with
+    // dealCards), so a mid-round defeat drops that creature's remaining slots
+    // from the order rather than letting the turn advance onto a dead creature.
     const liveIds = new Set(Array.from(combat.combatants ?? [])
-      .map(entry => (Array.isArray(entry) ? entry[1] : entry)?.id)
-      .filter(Boolean));
+      .map(entry => (Array.isArray(entry) ? entry[1] : entry))
+      .filter(combatant => combatant && !combatant.defeated)
+      .map(combatant => combatant.id));
     // Track the active slot by object identity so removing an earlier combatant
     // keeps the same combatant active rather than shifting the pointer.
     const rawPointer = clamp(Number(raw.pointer) || 0, 0, raw.sequence.length - 1);
