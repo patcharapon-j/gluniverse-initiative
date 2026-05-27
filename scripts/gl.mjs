@@ -3,7 +3,12 @@
 // markers (TokenOverlayManager). Pure module-level data + helpers; PIXI is
 // referenced as a runtime global inside the helpers.
 
-export const FX_SUPERSAMPLE = 1.5;
+// Supersample factor for the card portrait FX (renders the procedural field at
+// SS× the card size, then box-downsamples on blit to de-alias the shader cracks).
+// 1.25 keeps the cracks visibly clean while cutting fragment-shader work to ~1.56×
+// the card area (vs 2.25× at 1.5) — a real win on mid-tier GPUs when several cards
+// are broken/dying at once, with only a marginal softening of the FX edges.
+export const FX_SUPERSAMPLE = 1.25;
 
 export const FX_GLSL_NOISE = `
 float gluHash1(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7))+uSeed)*43758.5453); }

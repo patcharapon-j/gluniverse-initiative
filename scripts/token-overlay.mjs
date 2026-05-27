@@ -44,9 +44,11 @@ export function getMarkerSheets() {
   }
   try {
     if (markerSheets) destroyMarkerSheets(markerSheets);
+    // Single fidelity tier: only the high active + next sheets are ever used, so
+    // we no longer bake the (formerly "balanced") third sheet — saves a third of
+    // the startup bake time and ~24MB of GPU texture memory.
     markerSheets = {
       activeHigh: bakeMarkerSheet(renderer, 1, 1),
-      activeBalanced: bakeMarkerSheet(renderer, 1, 0),
       next: bakeMarkerSheet(renderer, 0, 1)
     };
     return markerSheets;
@@ -512,7 +514,7 @@ export class TokenOverlayManager {
       }
 
       if (wantBaked) {
-        const sheet = !isActive ? sheets.next : (high ? sheets.activeHigh : sheets.activeBalanced);
+        const sheet = isActive ? sheets.activeHigh : sheets.next;
         marker.fxSheet = sheet;
         if (!marker.fxMesh || marker.fxMesh.destroyed) {
           const mesh = makeFxMesh(FX_FRAG_TURN_PLAY, {

@@ -465,14 +465,15 @@ uniform sampler2D u_src;
 void main() { gl_FragColor = texture2D(u_src, v_uv); }`;
 
 // Bake resolution / step count for the pre-rendered fracture. The splash is a
-// full-screen burst, so it needs a high baked resolution or it looks blurry and
-// aliased once cover-fit to the viewport; 1280² is sharp to ~1440p (near 1:1) and
-// holds up at 4K, and it's rendered at SS× then averaged down so the cracks don't
-// alias. Frames are cross-faded at playback (see frame()), so a modest count stays
-// smooth. Memory is ~18 * 1280² * 4 ≈ 118MB of GPU textures (the SS scratch is
-// transient).
-const SPLASH_BAKE_SIZE = 1280;
-const SPLASH_BAKE_FRAMES = 18;
+// full-screen burst, so it needs a decent baked resolution or it looks blurry and
+// aliased once cover-fit to the viewport; 1024² is sharp at 1080p and crisp to
+// ~1440p, and it's rendered at SS× then averaged down so the cracks don't alias.
+// Frames are cross-faded at playback (see frame()), so a modest count stays smooth.
+// Memory is ~16 * 1024² * 4 ≈ 67MB of GPU textures (down from ~118MB) — a meaningful
+// VRAM saving on mid-tier GPUs, and the SS scratch (transient) drops from 2560² to
+// 2048², which also shortens the one-time startup bake.
+const SPLASH_BAKE_SIZE = 1024;
+const SPLASH_BAKE_FRAMES = 16;
 const SPLASH_BAKE_SS = 2;
 
 // One persistent renderer is reused across every guard break. The (fairly heavy)
