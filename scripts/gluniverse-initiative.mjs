@@ -6,12 +6,10 @@ const SETTINGS = {
   initiativeMode: "initiativeMode",
   edge: "edge",
   visibleCount: "visibleCount",
-  animationIntensity: "animationIntensity",
   showDefeated: "showDefeated",
   position: "position",
   uiScale: "uiScale",
   tokenOverlayShape: "tokenOverlayShape",
-  visualFidelity: "visualFidelity",
   turnMarkerEnabled: "turnMarkerEnabled",
   startMarkerEnabled: "startMarkerEnabled",
   startConnectorEnabled: "startConnectorEnabled",
@@ -111,11 +109,6 @@ const PF2E_GUARD_BREAK_EFFECT_SLUG = "gluni-guard-break";
 const PF2E_GUARD_BREAK_PENALTY = 2;
 
 const LOCALIZATION_FALLBACKS = Object.freeze({
-  "GLUNI.Settings.AnimationIntensity.Default": "Default",
-  "GLUNI.Settings.AnimationIntensity.Cinematic": "Cinematic",
-  "GLUNI.Settings.AnimationIntensity.Hint": "Controls how dramatic turn and round animations feel.",
-  "GLUNI.Settings.AnimationIntensity.Name": "Animation intensity",
-  "GLUNI.Settings.AnimationIntensity.Reduced": "Reduced",
   "GLUNI.Settings.Edge.Hint": "Choose which screen edge the initiative rail anchors to.",
   "GLUNI.Settings.Edge.Left": "Left",
   "GLUNI.Settings.Edge.Name": "Tracker edge",
@@ -130,10 +123,6 @@ const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.TokenOverlayShape.Square": "Square",
   "GLUNI.Settings.UIScale.Hint": "Scale the initiative tracker for only this user.",
   "GLUNI.Settings.UIScale.Name": "UI scale",
-  "GLUNI.Settings.VisualFidelity.Name": "Visual fidelity",
-  "GLUNI.Settings.VisualFidelity.Hint": "Higher fidelity uses real frosted glass and motion blur for the most premium look. Step down to Balanced for lighter GPU load while staying premium.",
-  "GLUNI.Settings.VisualFidelity.High": "High (best looking)",
-  "GLUNI.Settings.VisualFidelity.Balanced": "Balanced (lighter)",
   "GLUNI.Settings.TurnMarker.Name": "Turn marker on tokens",
   "GLUNI.Settings.TurnMarker.Hint": "Draw a cinematic ground ring beneath the current and next combatant's tokens, coloured by disposition.",
   "GLUNI.Settings.StartMarker.Name": "Starting-location marker",
@@ -489,21 +478,6 @@ function registerSettings() {
     onChange: rerender
   });
 
-  game.settings.register(MODULE_ID, SETTINGS.animationIntensity, {
-    name: localize("GLUNI.Settings.AnimationIntensity.Name"),
-    hint: localize("GLUNI.Settings.AnimationIntensity.Hint"),
-    scope: "world",
-    config: true,
-    type: String,
-    choices: {
-      reduced: localize("GLUNI.Settings.AnimationIntensity.Reduced"),
-      default: localize("GLUNI.Settings.AnimationIntensity.Default"),
-      cinematic: localize("GLUNI.Settings.AnimationIntensity.Cinematic")
-    },
-    default: "cinematic",
-    onChange: rerender
-  });
-
   game.settings.register(MODULE_ID, SETTINGS.showDefeated, {
     name: localize("GLUNI.Settings.ShowDefeated.Name"),
     hint: localize("GLUNI.Settings.ShowDefeated.Hint"),
@@ -541,23 +515,6 @@ function registerSettings() {
     },
     default: "circle",
     onChange: () => tokenOverlays?.forceRedraw()
-  });
-
-  game.settings.register(MODULE_ID, SETTINGS.visualFidelity, {
-    name: localize("GLUNI.Settings.VisualFidelity.Name"),
-    hint: localize("GLUNI.Settings.VisualFidelity.Hint"),
-    scope: "client",
-    config: true,
-    type: String,
-    choices: {
-      high: localize("GLUNI.Settings.VisualFidelity.High"),
-      balanced: localize("GLUNI.Settings.VisualFidelity.Balanced")
-    },
-    default: "high",
-    onChange: () => {
-      overlay?.renderSoon();
-      tokenOverlays?.forceRedraw();
-    }
   });
 
   game.settings.register(MODULE_ID, SETTINGS.turnMarkerEnabled, {
@@ -644,14 +601,6 @@ function registerSettings() {
     },
     onChange: rerender
   });
-}
-
-function getVisualFidelity() {
-  try {
-    return game.settings.get(MODULE_ID, SETTINGS.visualFidelity) || "high";
-  } catch {
-    return "high";
-  }
 }
 
 function getConditionBadgesEnabled() {
@@ -1634,19 +1583,16 @@ class GLUniverseInitiativeOverlay {
     const previousActiveKey = this.lastActiveKey;
     const previousActiveInitiative = this.lastActiveInitiative ?? null;
     const isDelayReturn = Boolean(this.pendingDelayReturnId && view.activeId === this.pendingDelayReturnId);
-    const fidelity = getVisualFidelity();
     const rootClassName = [
       "gluni-initiative",
       `gluni-initiative--${settings.edge}`,
-      `gluni-initiative--${settings.intensity}`,
-      `gluni-fidelity--${getVisualFidelity()}`,
       settings.isGM ? "gluni-initiative--gm" : "gluni-initiative--player",
       isTurnChange ? "gluni-initiative--turn-change" : "",
       isDelayReturn ? "gluni-initiative--delay-return" : ""
     ].filter(Boolean).join(" ");
     const markup = this.renderMarkup(combat, view, settings);
     const markupChanged = markup !== this.lastMarkup;
-    const shouldAnimateTurnChange = isTurnChange && markupChanged && settings.intensity !== "reduced";
+    const shouldAnimateTurnChange = isTurnChange && markupChanged && !prefersReducedMotion();
     const oldRects = shouldAnimateTurnChange ? this.captureItemRects() : new Map();
     this.lastTurnKey = turnKey;
 
@@ -1671,9 +1617,7 @@ class GLUniverseInitiativeOverlay {
         previousActiveKey,
         isDelayReturn,
         roundDelta,
-        intensity: settings.intensity,
         edge: settings.edge,
-        fidelity,
         previousActiveInitiative
       });
     }
@@ -1733,7 +1677,6 @@ class GLUniverseInitiativeOverlay {
 
     return {
       edge: game.settings.get(MODULE_ID, SETTINGS.edge) || "right",
-      intensity: game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default",
       visibleCount,
       uiScale,
       mode: getInitiativeMode(),
@@ -2031,11 +1974,11 @@ class GLUniverseInitiativeOverlay {
     ].filter(Boolean).join(" ");
     const style = renderCombatantStyle(card);
 
-    // High-fidelity WebGL portrait FX layer (replaces the CSS crack/vein bg).
-    // Limited to break + dying (the persistent states) to keep the GPU cost
-    // low. Falls back to the CSS background when unsupported or balanced.
+    // WebGL portrait FX layer (replaces the CSS crack/vein bg). Limited to
+    // break + dying (the persistent states) to keep the GPU cost low. Falls
+    // back to the CSS background when WebGL is unsupported.
     const fxReady = !card.adhoc && !card.mystery && Boolean(card.portrait)
-      && cardFX?.supported && getVisualFidelity() === "high";
+      && cardFX?.supported;
     const fxMode = fxReady
       ? (card.guardBroken ? "break" : card.dying && !card.dying.stable ? "dying" : null)
       : null;
@@ -2249,7 +2192,6 @@ class GLUniverseInitiativeOverlay {
     const items = Array.from(this.root.querySelectorAll("[data-gluni-key]"));
     const previousActiveKey = options.previousActiveKey ?? null;
     const roundDelta = Number(options.roundDelta) || 0;
-    const intensity = options.intensity ?? "default";
     const flipItems = [];
     let newActive = null;
 
@@ -2326,72 +2268,6 @@ class GLUniverseInitiativeOverlay {
     return null;
   }
 
-  createOutgoingGhost(edge, fidelity = "high") {
-    const activeCard = this.root?.querySelector(".gluni-card--active");
-    if (!activeCard) return null;
-
-    const rect = activeCard.getBoundingClientRect();
-    const makeClone = () => {
-      const clone = activeCard.cloneNode(true);
-      clone.querySelector(".gluni-card-controls")?.remove();
-      clone.querySelector(".gluni-card-sheen")?.remove();
-      clone.querySelector(".gluni-card-shockwave")?.remove();
-      clone.classList.remove("gluni-card--impact", "gluni-card--impact-settle");
-      clone.classList.add("gluni-card-ghost", `gluni-card-ghost--${edge}`);
-      clone.style.left = `${Math.round(rect.left)}px`;
-      clone.style.top = `${Math.round(rect.top)}px`;
-      clone.style.width = `${Math.round(rect.width)}px`;
-      clone.style.height = `${Math.round(rect.height)}px`;
-      clone.style.clipPath = "polygon(0 -42px, calc(100% - 14px) -42px, 100% calc(-42px + 14px), 100% 100%, 0 100%)";
-      document.body.appendChild(clone);
-      return clone;
-    };
-
-    const ghost = makeClone();
-    let trail = null;
-    // On BALANCED fidelity, real motion-blur is disabled; use a lagged trail clone to fake the streak.
-    if (fidelity === "balanced") {
-      trail = makeClone();
-      trail.classList.add("gluni-card-ghost--trail");
-    }
-
-    return { ghost, trail, edge };
-  }
-
-  playOutgoingGhost(payload, options = {}) {
-    if (!payload) return;
-    const ghost = payload.ghost ?? payload;
-    const trail = payload.trail ?? null;
-    const edge = payload.edge ?? (ghost.classList.contains("gluni-card-ghost--left") ? "left" : "right");
-    const intensity = options.intensity ?? "default";
-    const reduced = intensity === "reduced";
-    const removeAt = intensity === "cinematic" ? 900 : (reduced ? 360 : 560);
-
-    const startStrike = el => {
-      if (!el) return;
-      el.classList.remove("gluni-card-ghost--anticipate");
-      el.classList.add("gluni-card-ghost--leave");
-    };
-
-    if (reduced) {
-      startStrike(ghost);
-    } else {
-      // anticipation: pull back toward the rail, then strike off.
-      ghost.classList.add("gluni-card-ghost--anticipate");
-      window.requestAnimationFrame(() => {
-        window.setTimeout(() => startStrike(ghost), 80);
-      });
-    }
-
-    if (trail) {
-      // trailing clone lags ~70ms behind to fake the motion streak on balanced fidelity.
-      window.setTimeout(() => startStrike(trail), reduced ? 0 : 150);
-      window.setTimeout(() => trail.remove(), removeAt + 80);
-    }
-
-    window.setTimeout(() => ghost.remove(), removeAt);
-  }
-
   getActiveInitiative(view) {
     try {
       const active = view?.normal?.find(item => item.type === "combatant" && item.active);
@@ -2399,92 +2275,6 @@ class GLUniverseInitiativeOverlay {
     } catch (_e) {
       return null;
     }
-  }
-
-  // Orchestrates the gap -> impact -> settle beats on the NEW active card only.
-  playActiveHandoff(activeEl, options = {}) {
-    if (!activeEl) return;
-    const intensity = options.intensity ?? "default";
-    const cinematic = intensity === "cinematic";
-    const gap = cinematic ? 60 : 30;
-    const badge = activeEl.querySelector(".gluni-initiative-badge");
-    const fromInit = options.previousActiveInitiative ?? null;
-    const toInit = badge ? badge.textContent : null;
-
-    // Hold badge at the previous value until the reveal, then count up.
-    if (badge && fromInit != null && fromInit !== toInit) {
-      badge.textContent = fromInit;
-    }
-
-    // GAP, then IMPACT slam.
-    window.setTimeout(() => {
-      if (!activeEl.isConnected) return;
-      activeEl.classList.add("gluni-card--impact");
-      window.setTimeout(() => activeEl.classList.remove("gluni-card--impact"), 240);
-
-      // SETTLE: shake + shockwave + flare + badge count-up, fired at impact landing.
-      const settleAt = 140; // shortly into the slam, as it lands
-      window.setTimeout(() => {
-        if (!activeEl.isConnected) return;
-        activeEl.classList.add("gluni-card--impact-settle");
-        window.setTimeout(() => activeEl.classList.remove("gluni-card--impact-settle"), 340);
-        if (cinematic) this.createShockwave(activeEl);
-        if (badge) {
-          this.animateBadgeCountUp(badge, fromInit, toInit, intensity === "reduced");
-        }
-      }, settleAt);
-    }, gap);
-  }
-
-  createShockwave(activeEl) {
-    if (!activeEl || !activeEl.isConnected) return;
-    try {
-      const ring = document.createElement("div");
-      ring.className = "gluni-card-shockwave";
-      ring.setAttribute("aria-hidden", "true");
-      // Size to the visible card body (exclude the -42px notch overhang).
-      ring.style.left = "0";
-      ring.style.right = "0";
-      ring.style.top = "0";
-      ring.style.bottom = "0";
-      activeEl.appendChild(ring);
-      window.setTimeout(() => ring.remove(), 520);
-    } catch (_e) {
-      // never throw from a cosmetic beat
-    }
-  }
-
-  // rAF tween of an integer-ish badge from `from` to `to`. `instant` jumps immediately.
-  animateBadgeCountUp(badge, from, to, instant = false) {
-    if (!badge) return;
-    const target = String(to ?? badge.textContent ?? "");
-    const startNum = Number(from);
-    const endNum = Number(target);
-
-    if (instant || !Number.isFinite(startNum) || !Number.isFinite(endNum) || startNum === endNum) {
-      badge.textContent = target;
-      return;
-    }
-
-    // Preserve formatting (decimals) by tracking whether target had a fractional part.
-    const decimals = target.includes(".") ? 1 : 0;
-    const duration = 360;
-    const startTime = (typeof performance !== "undefined" ? performance.now() : Date.now());
-
-    const step = now => {
-      if (!badge.isConnected) return;
-      const t = Math.min(1, (now - startTime) / duration);
-      const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
-      const value = startNum + (endNum - startNum) * eased;
-      badge.textContent = decimals ? value.toFixed(1) : String(Math.round(value));
-      if (t < 1) {
-        window.requestAnimationFrame(step);
-      } else {
-        badge.textContent = target; // snap to exact final string
-      }
-    };
-
-    window.requestAnimationFrame(step);
   }
 
   resolveVisibility(combatant) {
@@ -3414,15 +3204,13 @@ class GLUniverseInitiativeOverlay {
   showBreakSplash(name) {
     if (!this.enabled || !name) return;
 
-    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default";
-    const fidelity = getVisualFidelity();
     const breakText = localize("GLUNI.GuardBreak").toUpperCase();
     const letterSpans = Array.from(breakText).map(letter =>
       letter === " " ? `<span class="d"> </span>` : `<span class="d">${escapeHTML(letter)}</span>`
     ).join("");
 
     const splash = document.createElement("div");
-    splash.className = `gluni-break-splash gluni-break-splash--${intensity} gluni-fidelity--${fidelity}`;
+    splash.className = "gluni-break-splash gluni-break-splash--cinematic";
     splash.innerHTML = `
       <div class="gluni-break-splash-burst" aria-hidden="true"></div>
       <div class="gluni-break-splash-rule" aria-hidden="true"></div>
@@ -3439,22 +3227,22 @@ class GLUniverseInitiativeOverlay {
     document.body.appendChild(splash);
 
     // WebGL glass-crack + shockwave layer. Decorative and additive over the CSS
-    // deck — skipped on the reduced tier or when the user prefers reduced motion.
-    // Uses the shared pre-compiled renderer, so no per-break shader compilation.
+    // deck — skipped only when the user's OS prefers reduced motion. Uses the
+    // shared pre-compiled renderer, so no per-break shader compilation.
     let breakGL = null;
-    if (intensity !== "reduced" && !prefersReducedMotion()) {
+    if (!prefersReducedMotion()) {
       const renderer = getBreakSplashRenderer();
-      if (renderer?.play(splash, { intensity, lifeMs: this.getBreakGLLife() })) {
+      if (renderer?.play(splash, { lifeMs: this.getBreakGLLife() })) {
         breakGL = renderer;
       }
     }
 
     window.requestAnimationFrame(() => splash.classList.add("gluni-break-splash--show"));
-    // Short screen-shake on impact (skipped on reduced tier via the class gate in CSS).
-    if (intensity !== "reduced") {
+    // Short screen-shake on impact.
+    if (!prefersReducedMotion()) {
       window.requestAnimationFrame(() => {
         splash.classList.add("gluni-break-splash--shake");
-        window.setTimeout(() => splash.classList.remove("gluni-break-splash--shake"), intensity === "cinematic" ? 520 : 420);
+        window.setTimeout(() => splash.classList.remove("gluni-break-splash--shake"), 520);
       });
     }
     window.setTimeout(() => splash.classList.add("gluni-break-splash--leave"), this.getBreakSplashHold());
@@ -3465,25 +3253,18 @@ class GLUniverseInitiativeOverlay {
   }
 
   getBreakSplashHold() {
-    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
-    if (intensity === "reduced") return 420;
-    if (intensity === "cinematic") return 1080;
-    return 820;
+    return 1080;
   }
 
   getBreakSplashDuration() {
-    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
-    if (intensity === "reduced") return 900;
-    if (intensity === "cinematic") return 1680;
-    return 1320;
+    return 1680;
   }
 
   // The WebGL fracture is the impact: it hits hard and fades out fast, well
   // before the deck/text leaves, so the screen never sits frozen on a static
   // crack. Kept shorter than the splash hold on purpose.
   getBreakGLLife() {
-    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
-    return intensity === "cinematic" ? 1300 : 1050;
+    return 1300;
   }
 
   broadcastBreakSplash(name) {
@@ -3963,14 +3744,12 @@ class GLUniverseInitiativeOverlay {
     if (this.lastSplashRound === round) return;
     this.lastSplashRound = round;
 
-    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default";
-    const fidelity = getVisualFidelity();
     const formatted = formatRound(round);
     const digitSpans = Array.from(formatted).map(digit => `<span class="d">${digit}</span>`).join("");
     const subString = formatLocalized("GLUNI.Splash.Cycle", { round: formatted });
 
     const splash = document.createElement("div");
-    splash.className = `gluni-round-splash gluni-round-splash--${intensity} gluni-fidelity--${fidelity}`;
+    splash.className = "gluni-round-splash gluni-round-splash--cinematic";
     splash.innerHTML = `
       <div class="gluni-round-rule" aria-hidden="true"></div>
       <div class="gluni-round-splash-inner">
@@ -3991,17 +3770,11 @@ class GLUniverseInitiativeOverlay {
   }
 
   getRoundSplashHold() {
-    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
-    if (intensity === "reduced") return 300;
-    if (intensity === "cinematic") return 940;
-    return 760;
+    return 940;
   }
 
   getRoundSplashDuration() {
-    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity);
-    if (intensity === "reduced") return 820;
-    if (intensity === "cinematic") return 1500;
-    return 1240;
+    return 1500;
   }
 
   broadcastRefresh() {
@@ -4074,9 +3847,7 @@ class GLUniverseInitiativeOverlay {
     ghost.querySelector(".gluni-card-controls")?.remove();
     ghost.querySelector(".gluni-card-sheen")?.remove();
     ghost.querySelector(".gluni-status-flash")?.remove();
-    ghost.classList.add("gluni-status-slide-ghost");
-    const intensity = game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default";
-    if (intensity !== "default") ghost.classList.add(`gluni-status-slide-ghost--${intensity}`);
+    ghost.classList.add("gluni-status-slide-ghost", "gluni-status-slide-ghost--cinematic");
     ghost.style.position = "fixed";
     ghost.style.left = `${Math.round(rect.left)}px`;
     ghost.style.top = `${Math.round(rect.top)}px`;
@@ -4090,8 +3861,8 @@ class GLUniverseInitiativeOverlay {
     ghost.appendChild(flash);
     document.body.appendChild(ghost);
     window.requestAnimationFrame(() => flash.classList.add("gluni-status-flash--go"));
-    const flashDuration = intensity === "cinematic" ? 680 : intensity === "reduced" ? 420 : 560;
-    const slideDuration = intensity === "cinematic" ? 420 : intensity === "reduced" ? 240 : 320;
+    const flashDuration = 680;
+    const slideDuration = 420;
     window.setTimeout(() => {
       flash.remove();
       ghost.classList.add(edge === "left" ? "gluni-status-slide-ghost--go-left" : "gluni-status-slide-ghost--go-right");
@@ -6308,7 +6079,6 @@ class TokenOverlayManager {
     // status overlays in `_entries`.
     this._markers = new Map();     // tokenId -> ground marker entry
     this._groundLayer = null;
-    this._markerIntensity = "default";
     this._markerConnector = true;
   }
 
@@ -6392,17 +6162,12 @@ class TokenOverlayManager {
 
   // ---- ground turn-markers ----------------------------------------------
 
-  _getIntensity() {
-    try { return game.settings.get(MODULE_ID, SETTINGS.animationIntensity) || "default"; }
-    catch { return "default"; }
-  }
-
   // Whether ground markers should animate. When false the marker is fully static
-  // (reduced intensity or OS reduced-motion), so we skip the per-frame WebGL
-  // plasma shader entirely and draw the cheap hand-drawn rings instead — the
-  // shader output would be frozen anyway, so running it every frame is wasted GPU.
+  // (OS reduced-motion), so we skip the per-frame WebGL plasma shader entirely and
+  // draw the cheap hand-drawn rings instead — the shader output would be frozen
+  // anyway, so running it every frame is wasted GPU.
   _markerMotion() {
-    return this._markerIntensity !== "reduced" && !prefersReducedMotion();
+    return !prefersReducedMotion();
   }
 
   _markerSettings() {
@@ -6443,7 +6208,6 @@ class TokenOverlayManager {
 
   _refreshMarkers(combat) {
     const settings = this._markerSettings();
-    this._markerIntensity = this._getIntensity();
     this._markerConnector = settings.connector;
     if (!settings.turn && !settings.start) { this._clearMarkers(); return; }
 
@@ -6605,7 +6369,7 @@ class TokenOverlayManager {
     const colors = getDispositionColors(marker.disposition);
     const accent = colors.base;
     const hi = colors.hi;
-    const high = marker.fidelity !== "balanced";
+    const high = true;   // single "best" performance tier
     const isActive = role === "active";
     const base = Math.max(w, h);
     // Active disc is a tight pedestal hugging the art; the next disc is sized a
@@ -6782,7 +6546,6 @@ class TokenOverlayManager {
     const cx = token.center.x, cy = token.center.y;
     marker.ringWrap.position.set(cx, cy);
 
-    const intensity = this._markerIntensity;
     const motion = this._markerMotion();
     const t = this._time;
     const isActive = marker.role === "active";
@@ -6790,7 +6553,7 @@ class TokenOverlayManager {
     // Drive the shader disc. Baked: pick + cross-fade the two loop frames for this
     // instant. Live: advance the procedural clock as before.
     if (marker.fxOn && marker.fxShader && marker.fxMesh?.visible) {
-      const speed = intensity === "cinematic" ? 1.5 : 1.0;
+      const speed = 1.5;
       if (marker.fxBaked && marker.fxSheet) {
         const frames = marker.fxSheet.frames;
         const n = frames.length;
@@ -6890,9 +6653,7 @@ class TokenOverlayManager {
   }
 
   _getFidelity() {
-    let fidelity = "high";
-    try { fidelity = game.settings.get(MODULE_ID, "visualFidelity") || "high"; } catch {}
-    return fidelity === "balanced" ? "balanced" : "high";
+    return "high";
   }
 
   _upsert(token, mode, gauge = null, dying = null) {
@@ -7233,7 +6994,7 @@ class TokenOverlayManager {
     const isDying = mode === "dying";
     const isDelay = mode === "delayed";
     const isCircle = shape === "circle";
-    const high = entry.fidelity !== "balanced";
+    const high = true;   // single "best" performance tier
     const cx = w / 2, cy = h / 2;
     const r = Math.min(w, h) / 2;
     const rng = this._seededRng(seed);
@@ -7992,7 +7753,7 @@ class TokenOverlayManager {
       // Gauge-only entries have no animated status frame to drive.
       if (entry.mode !== "broken" && entry.mode !== "delayed" && entry.mode !== "dying") continue;
       const isBreak = entry.mode === "broken";
-      const high = entry.fidelity !== "balanced";
+      const high = true;   // single "best" performance tier
 
       // Advance the shader interior clock (fracture / energy scan).
       if (entry.fxOn && entry.fxShader && entry.fxMesh?.visible) {
