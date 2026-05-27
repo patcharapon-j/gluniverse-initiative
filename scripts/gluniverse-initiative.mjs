@@ -15,7 +15,10 @@ import { TokenOverlayManager, getMarkerSheets } from "./token-overlay.mjs";
 import { getPF2eDyingState, getDnd5eDeathState, getDyingState, getActorAttributeValue, getConditionValue, hasActorItem, COVERED_CONDITION_SLUGS, isPrimaryCondition, getConditionBadgeValue, getHiddenConditionKeys, getPrimaryConditionItems, getPF2eConditionTags, renderConditionRepeatText, getConditionTone, renderConditionLabels, findPF2eGuardBreakEffects, getActorItems, getItemSlug, renderDyingRepeatText, renderGuardBreakRepeatText, getGuardBreakState, getBreakGaugeState, renderBreakGaugeBar, renderDyingPips, renderDeathSavePips, renderDeathSaveRepeatText } from "./conditions.mjs";
 
 
-let overlay;
+// Exported as a live binding: token-overlay.mjs reads `overlay` (enabled state,
+// isDelayed, resolveVisibility, getTurnMarkerTargets) and relies on this binding
+// updating when the `ready` hook assigns the instance below.
+export let overlay;
 let tokenOverlays;
 let cardFX;
 let breakGaugeEditor = null;

@@ -12,7 +12,7 @@ localize, formatLocalized, modulo, clamp, wait, escapeHTML, escapeAttr, escapeCS
 import { FX_SUPERSAMPLE, FX_GLSL_NOISE, FX_FRAG_BREAK, FX_FRAG_DYING, FX_FRAG_DELAY, 
 FX_FRAG_TURN, FX_FRAG_TURN_BAKE, FX_FRAG_TURN_PLAY, FX_FRAG_DOWNSAMPLE, rgbFloat, 
 FX_VERT_MESH, makeFxMesh, setFxMeshQuad, destroyFxMesh } from "./gl.mjs";
-import { prefersReducedMotion, getCombatantTokenObject } from "./gluniverse-initiative.mjs";
+import { overlay, prefersReducedMotion, getCombatantTokenObject } from "./gluniverse-initiative.mjs";
 import { getGuardBreakState, getDyingState, getBreakGaugeState } from "./conditions.mjs";
 
 // Ground turn-markers + above-token status overlays drawn with PIXI/WebGL.
