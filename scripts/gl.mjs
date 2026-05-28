@@ -30,6 +30,7 @@ varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
 uniform float uTime, uSeed, uAspect, uClipCircle, uThick, uTexel;
 uniform vec2 uImpact;
+uniform vec3 uBreakAmber, uBreakHot;
 vec2 gluHash2(vec2 p){ p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))); return fract(sin(p+uSeed)*43758.5453); }
 float gluVoroEdge(vec2 x){
   vec2 n=floor(x), f=fract(x); float f1=9.0,f2=9.0;
@@ -64,7 +65,7 @@ void main(void){
   float pulse=0.62+0.38*sin(uTime*2.2);
   float halo=(1.0-smoothstep(0.0,0.13,ce))*coverage*0.30*pulse;   // soft amber bloom around the shards
   float core=smoothstep(0.12,0.0,dist)*smoothstep(0.0,0.12,shatterT);
-  vec3 amber=vec3(1.0,0.69,0.18), hot=vec3(1.0,0.88,0.44), white=vec3(1.0);
+  vec3 amber=uBreakAmber, hot=uBreakHot, white=vec3(1.0);
   vec3 col=mix(amber,hot,clamp(crack*pulse,0.0,1.0));
   col=mix(col,white,clamp(core+glowFlow,0.0,1.0));
   float a=clamp(crack*0.95 + halo + core*0.7 + glowFlow*0.8, 0.0, 1.0);
@@ -81,6 +82,7 @@ export const FX_FRAG_DYING = `
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
 uniform float uTime, uSeed, uAspect, uClipCircle;
+uniform vec3 uVeinBase, uVeinHot;
 float gluHashD(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7))+uSeed)*43758.5453); }
 float gluVNoiseD(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
   return mix(mix(gluHashD(i),gluHashD(i+vec2(1.0,0.0)),f.x),
@@ -96,7 +98,7 @@ void main(void){
   eb=max(eb,smoothstep(0.5,0.0,uv.y));
   veins*=mix(0.25,1.0,eb);                              // present across the face, densest at the edges
   float halo=smoothstep(0.6,0.99,ridge)*0.16*eb;        // soft bloom around the strongest veins
-  vec3 violet=vec3(0.71,0.59,1.0), vhot=vec3(0.94,0.84,1.0);
+  vec3 violet=uVeinBase, vhot=uVeinHot;
   vec3 col=mix(violet,vhot,veins);
   float a=clamp(veins*0.9+halo,0.0,1.0);
   if(uClipCircle>0.5){ vec2 cc=uv-vec2(0.5); cc.x*=uAspect; a*=smoothstep(0.5,0.47,length(cc)); }
@@ -109,6 +111,7 @@ export const FX_FRAG_DELAY = `
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
 uniform float uTime, uSeed, uAspect, uClipCircle;
+uniform vec3 uDelayBase, uDelayHot;
 ${FX_GLSL_NOISE}
 void main(void){
   vec2 uv=vTextureCoord;
@@ -117,7 +120,7 @@ void main(void){
   float lines=smoothstep(0.74,1.0,bands);
   float edge=smoothstep(0.28,0.5,length(uv-vec2(0.5)));
   float v=lines*mix(0.18,0.7,edge);
-  vec3 blue=vec3(0.29,0.64,1.0), ice=vec3(0.60,0.85,1.0);
+  vec3 blue=uDelayBase, ice=uDelayHot;
   vec3 col=mix(blue,ice,lines);
   float a=v*0.55;
   if(uClipCircle>0.5){ vec2 cc=uv-vec2(0.5); cc.x*=uAspect; a*=smoothstep(0.5,0.47,length(cc)); }
@@ -132,6 +135,7 @@ export const FX_FRAG_SCRAMBLE = `
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
 uniform float uTime, uSeed, uAspect;
+uniform vec3 uMysteryA, uMysteryB;
 float gluH(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7))+uSeed)*43758.5453); }
 void main(void){
   vec2 uv=vTextureCoord;
@@ -146,7 +150,7 @@ void main(void){
   float scan=0.5+0.5*sin(uv.y*rows*6.2831);
   float noise=gluH(floor(suv*120.0)+t);
   float intensity=mix(0.25,0.6,blocks)*mix(0.6,1.0,scan);
-  vec3 violet=vec3(0.71,0.59,1.0), cyan=vec3(0.37,0.92,1.0);
+  vec3 violet=uMysteryA, cyan=uMysteryB;
   vec3 col=mix(violet, cyan, step(0.7,noise));
   float a=intensity*0.5 + step(0.93,noise)*0.4 + step(0.82,g)*0.15;
   gl_FragColor=vec4(col*clamp(a,0.0,1.0), clamp(a,0.0,1.0));

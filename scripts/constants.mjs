@@ -16,40 +16,137 @@ export const SETTINGS = {
   conditionBadges: "conditionBadges",
   conditionBadgeLayout: "conditionBadgeLayout",
   guardBreakSound: "guardBreakSound",
-  guardBreakSoundVolume: "guardBreakSoundVolume"
+  guardBreakSoundVolume: "guardBreakSoundVolume",
+  theme: "theme"
 };
 
-export const TOKEN_OVERLAY_PALETTE = {
-  delayed: 0x4aa3ff,
-  delayedHi: 0x9ad8ff,
-  broken: 0xffb12d,
-  brokenHot: 0xffe070,
-  brokenDeep: 0xff6f1a,
-  dying: 0xb497ff,
-  dyingHot: 0xefd7ff,
-  dyingDeep: 0x6a3fb0,
-  saveSuccess: 0x57e08b,
-  saveSuccessHot: 0xb6ffd0,
-  saveFailure: 0xff5d6c,
-  saveFailureHot: 0xffc0c6,
-  stable: 0x4ad9c0,
-  stableHot: 0xb6fff2,
-  ink: 0x02070b,
-  white: 0xf3fbff,
-  violet: 0xb497ff,
-  magenta: 0xff66b3
-};
+export const THEMES = Object.freeze({ scifi: "scifi", core: "core", fantasy: "fantasy" });
+export const DEFAULT_THEME = THEMES.scifi;
 
-// Ground turn-marker disposition colours. `base` is synced to the initiative
-// card's per-disposition accent (--gluni-cyan / --gluni-white / --gluni-red /
-// --gluni-violet) so a token's ground ring reads as the same theme as its rail
-// card. `hi` is the brighter accent used for sweeps, glow and bright edges.
+// Per-theme master palettes. The exported live palettes (TOKEN_OVERLAY_PALETTE,
+// DISPOSITION_PALETTE) are mutated in place from one of these on theme change so
+// existing call sites that snapshot the palette (`const P = TOKEN_OVERLAY_PALETTE`)
+// continue to see live values. `shader` colours are vec3 floats consumed directly
+// by the WebGL filter uniforms in CardFXManager / TokenOverlayManager / BreakSplashGL.
+export const PALETTES = Object.freeze({
+  scifi: Object.freeze({
+    tokenOverlay: Object.freeze({
+      delayed: 0x4aa3ff, delayedHi: 0x9ad8ff,
+      broken: 0xffb12d, brokenHot: 0xffe070, brokenDeep: 0xff6f1a,
+      dying: 0xb497ff, dyingHot: 0xefd7ff, dyingDeep: 0x6a3fb0,
+      saveSuccess: 0x57e08b, saveSuccessHot: 0xb6ffd0,
+      saveFailure: 0xff5d6c, saveFailureHot: 0xffc0c6,
+      stable: 0x4ad9c0, stableHot: 0xb6fff2,
+      ink: 0x02070b, white: 0xf3fbff,
+      violet: 0xb497ff, magenta: 0xff66b3
+    }),
+    disposition: Object.freeze({
+      friendly: Object.freeze({ base: 0x5eeaff, hi: 0xb9f7ff }),
+      hostile:  Object.freeze({ base: 0xff335f, hi: 0xff8aa3 }),
+      neutral:  Object.freeze({ base: 0xf3fbff, hi: 0xffffff }),
+      secret:   Object.freeze({ base: 0xb497ff, hi: 0xe0d4ff })
+    }),
+    shader: Object.freeze({
+      veinBase:   Object.freeze([0.71, 0.59, 1.0]),   // FX_FRAG_DYING violet
+      veinHot:    Object.freeze([0.94, 0.84, 1.0]),
+      mysteryA:   Object.freeze([0.71, 0.59, 1.0]),   // FX_FRAG_SCRAMBLE violet
+      mysteryB:   Object.freeze([0.37, 0.92, 1.0]),   // FX_FRAG_SCRAMBLE cyan
+      delayBase:  Object.freeze([0.29, 0.64, 1.0]),   // FX_FRAG_DELAY blue
+      delayHot:   Object.freeze([0.60, 0.85, 1.0]),
+      breakAmber: Object.freeze([1.0, 0.694, 0.176]), // FX_FRAG_BREAK amber
+      breakHot:   Object.freeze([1.0, 0.878, 0.439]),
+      splashHot:  Object.freeze([1.0, 0.694, 0.176]), // BREAK_GL_FRAG full-screen
+      splashGlow: Object.freeze([1.0, 0.878, 0.439])
+    })
+  }),
+  core: Object.freeze({
+    tokenOverlay: Object.freeze({
+      delayed: 0x6fa3c8, delayedHi: 0xa9c8de,
+      broken: 0xe89a3a, brokenHot: 0xffd29a, brokenDeep: 0xb87024,
+      dying: 0x9a7cc4, dyingHot: 0xdccff0, dyingDeep: 0x6a4f9a,
+      saveSuccess: 0x5fb472, saveSuccessHot: 0xb1e0bd,
+      saveFailure: 0xd8484a, saveFailureHot: 0xf2a0a2,
+      stable: 0x4ad9c0, stableHot: 0xb6fff2,
+      ink: 0x1c1d20, white: 0xececec,
+      violet: 0xa48cc9, magenta: 0xc9789f
+    }),
+    disposition: Object.freeze({
+      friendly: Object.freeze({ base: 0x7ec4d4, hi: 0xc3e3eb }),
+      hostile:  Object.freeze({ base: 0xd8484a, hi: 0xf08a8c }),
+      neutral:  Object.freeze({ base: 0xe6e6e6, hi: 0xffffff }),
+      secret:   Object.freeze({ base: 0xa48cc9, hi: 0xd6c8ec })
+    }),
+    shader: Object.freeze({
+      veinBase:   Object.freeze([0.64, 0.55, 0.79]),   // muted lavender
+      veinHot:    Object.freeze([0.86, 0.81, 0.94]),
+      mysteryA:   Object.freeze([0.64, 0.55, 0.79]),   // muted lavender
+      mysteryB:   Object.freeze([0.49, 0.77, 0.83]),   // slate cyan
+      delayBase:  Object.freeze([0.44, 0.64, 0.78]),
+      delayHot:   Object.freeze([0.66, 0.78, 0.87]),
+      breakAmber: Object.freeze([0.91, 0.60, 0.23]),
+      breakHot:   Object.freeze([1.0, 0.82, 0.60]),
+      splashHot:  Object.freeze([0.91, 0.60, 0.23]),
+      splashGlow: Object.freeze([1.0, 0.82, 0.60])
+    })
+  }),
+  fantasy: Object.freeze({
+    tokenOverlay: Object.freeze({
+      delayed: 0x5a7fa3, delayedHi: 0x9ab0c8,
+      broken: 0xc47438, brokenHot: 0xf4d27a, brokenDeep: 0x8a4a1f,
+      dying: 0x7b5fb0, dyingHot: 0xc4b1e2, dyingDeep: 0x4a3470,
+      saveSuccess: 0x4f8a55, saveSuccessHot: 0x9fc8a6,
+      saveFailure: 0xb03a3a, saveFailureHot: 0xe48b8b,
+      stable: 0x4ad9c0, stableHot: 0xb6fff2,
+      ink: 0x181428, white: 0xefe6d2,
+      violet: 0x7b5fb0, magenta: 0xb04a78
+    }),
+    disposition: Object.freeze({
+      friendly: Object.freeze({ base: 0x3f7d8e, hi: 0x8cbac7 }),
+      hostile:  Object.freeze({ base: 0xb03a3a, hi: 0xe48b8b }),
+      neutral:  Object.freeze({ base: 0xefe6d2, hi: 0xfff5e2 }),
+      secret:   Object.freeze({ base: 0x7b5fb0, hi: 0xc4b1e2 })
+    }),
+    shader: Object.freeze({
+      veinBase:   Object.freeze([0.69, 0.23, 0.23]),   // crimson cracking
+      veinHot:    Object.freeze([0.96, 0.82, 0.48]),   // gold heat
+      mysteryA:   Object.freeze([0.48, 0.37, 0.69]),   // arcane purple
+      mysteryB:   Object.freeze([0.83, 0.66, 0.29]),   // aged gold
+      delayBase:  Object.freeze([0.35, 0.49, 0.64]),
+      delayHot:   Object.freeze([0.60, 0.69, 0.78]),
+      breakAmber: Object.freeze([0.77, 0.45, 0.22]),   // ember orange
+      breakHot:   Object.freeze([0.96, 0.82, 0.48]),
+      splashHot:  Object.freeze([0.77, 0.45, 0.22]),
+      splashGlow: Object.freeze([0.96, 0.82, 0.48])
+    })
+  })
+});
+
+// Active live palettes. Initialised from PALETTES[DEFAULT_THEME]; mutated in
+// place by applyThemePalette() on theme change so snapshot consumers
+// (`const P = TOKEN_OVERLAY_PALETTE`) automatically see the new values.
+export const TOKEN_OVERLAY_PALETTE = { ...PALETTES[DEFAULT_THEME].tokenOverlay };
 export const DISPOSITION_PALETTE = {
-  friendly: { base: 0x5eeaff, hi: 0xb9f7ff },   // --gluni-cyan
-  hostile: { base: 0xff335f, hi: 0xff8aa3 },    // --gluni-red
-  neutral: { base: 0xf3fbff, hi: 0xffffff },    // --gluni-white
-  secret: { base: 0xb497ff, hi: 0xe0d4ff }      // --gluni-violet
+  friendly: { ...PALETTES[DEFAULT_THEME].disposition.friendly },
+  hostile:  { ...PALETTES[DEFAULT_THEME].disposition.hostile },
+  neutral:  { ...PALETTES[DEFAULT_THEME].disposition.neutral },
+  secret:   { ...PALETTES[DEFAULT_THEME].disposition.secret }
 };
+export const ACTIVE_SHADER_PALETTE = { ...PALETTES[DEFAULT_THEME].shader };
+// Tracks the active theme name so consumers can branch on it without re-reading
+// game settings on hot paths. Updated by applyThemePalette().
+export let ACTIVE_THEME = DEFAULT_THEME;
+
+export function applyThemePalette(themeName) {
+  const theme = PALETTES[themeName] ? themeName : DEFAULT_THEME;
+  const src = PALETTES[theme];
+  Object.assign(TOKEN_OVERLAY_PALETTE, src.tokenOverlay);
+  for (const key of Object.keys(DISPOSITION_PALETTE)) {
+    Object.assign(DISPOSITION_PALETTE[key], src.disposition[key]);
+  }
+  Object.assign(ACTIVE_SHADER_PALETTE, src.shader);
+  ACTIVE_THEME = theme;
+  return theme;
+}
 
 export function getDispositionColors(disposition) {
   return DISPOSITION_PALETTE[disposition] ?? DISPOSITION_PALETTE.neutral;
@@ -139,6 +236,11 @@ export const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.GuardBreakSound.Hint": "Audio file played for everyone when a combatant's guard is broken. Leave empty for no sound.",
   "GLUNI.Settings.GuardBreakSoundVolume.Name": "Guard break sound volume",
   "GLUNI.Settings.GuardBreakSoundVolume.Hint": "Playback volume of the guard break sound for this user.",
+  "GLUNI.Settings.Theme.Name": "Theme",
+  "GLUNI.Settings.Theme.Hint": "Overall visual style of the initiative rail, token markers, and effects. Sci-Fi is the default cinematic holographic look; Core matches Foundry's modern UI; Fantasy is a polished tome aesthetic.",
+  "GLUNI.Settings.Theme.SciFi": "Sci-Fi (Holographic)",
+  "GLUNI.Settings.Theme.Core": "Core (Modern Foundry)",
+  "GLUNI.Settings.Theme.Fantasy": "Fantasy (Polished Tome)",
   "GLUNI.TurnMarker.Next": "Next",
   "GLUNI.Settings.VisibleCount.Hint": "Number of normal initiative combatants to show from the current turn forward.",
   "GLUNI.Settings.VisibleCount.Name": "Visible combatants",
