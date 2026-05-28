@@ -98,6 +98,40 @@ function destroyMarkerSheets(sheets) {
   }
 }
 
+// Force the GLSL compile + link of the three above-token status FX programs
+// (break / dying / delay) up front by rendering each mesh once into a throwaway
+// RenderTexture. PIXI caches the compiled program by shader source, so the first
+// real break/dying/delay overlay then reuses it instead of stalling the main
+// thread on a synchronous shader compile mid-encounter — which is what made the
+// first state change of each kind hitch. One-time, idempotent.
+let statusShadersWarmed = false;
+export function prewarmStatusShaders() {
+  if (statusShadersWarmed) return;
+  const renderer = canvas?.app?.renderer;
+  if (!renderer || !globalThis.PIXI?.RenderTexture || !globalThis.PIXI?.Mesh || !globalThis.PIXI?.Geometry) return;
+  const S = ACTIVE_SHADER_PALETTE;
+  const variants = [
+    [FX_FRAG_BREAK, { uBreakAmber: [...S.breakAmber], uBreakHot: [...S.breakHot] }],
+    [FX_FRAG_DYING, { uVeinBase: [...S.veinBase], uVeinHot: [...S.veinHot] }],
+    [FX_FRAG_DELAY, { uDelayBase: [...S.delayBase], uDelayHot: [...S.delayHot] }]
+  ];
+  let rt = null;
+  try {
+    rt = PIXI.RenderTexture.create({ width: 4, height: 4 });
+    for (const [frag, themeUniforms] of variants) {
+      const mesh = makeFxMesh(frag, { uTime: 0, uSeed: 0, uAspect: 1, uClipCircle: 0, uThick: 0.08, uTexel: 0, uImpact: [0.5, 0.5], ...themeUniforms });
+      setFxMeshQuad(mesh, 4, 4, false);
+      renderer.render(mesh, { renderTexture: rt, clear: true });
+      destroyFxMesh(mesh);
+    }
+    statusShadersWarmed = true;
+  } catch (err) {
+    console.warn(`${MODULE_ID} | Status FX shader prewarm failed, compiling on demand`, err);
+  } finally {
+    try { rt?.destroy(true); } catch {}
+  }
+}
+
 
 export class TokenOverlayManager {
   constructor() {

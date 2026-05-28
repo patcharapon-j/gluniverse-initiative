@@ -11,7 +11,7 @@ import {
 } from "./constants.mjs";
 import { normalizeInitiativeNumber, getDisposition, formatRound, formatInitiative, localize, formatLocalized, modulo, clamp, wait, escapeHTML, escapeAttr, escapeCSSIdentifier } from "./util.mjs";
 import { FX_SUPERSAMPLE, FX_GLSL_NOISE, FX_FRAG_BREAK, FX_FRAG_DYING, FX_FRAG_DELAY, FX_FRAG_SCRAMBLE, FX_FRAG_TURN, FX_FRAG_TURN_BAKE, FX_FRAG_TURN_PLAY, FX_FRAG_DOWNSAMPLE, rgbFloat, FX_VERT_MESH, makeFxMesh, setFxMeshQuad, destroyFxMesh } from "./gl.mjs";
-import { TokenOverlayManager, getMarkerSheets } from "./token-overlay.mjs";
+import { TokenOverlayManager, getMarkerSheets, prewarmStatusShaders } from "./token-overlay.mjs";
 import { getPF2eDyingState, getDnd5eDeathState, getDyingState, getActorAttributeValue, getConditionValue, hasActorItem, COVERED_CONDITION_SLUGS, isPrimaryCondition, getConditionBadgeValue, getHiddenConditionKeys, getPrimaryConditionItems, getPF2eConditionTags, renderConditionRepeatText, getConditionTone, renderConditionLabels, findPF2eGuardBreakEffects, getActorItems, getItemSlug, renderDyingRepeatText, renderGuardBreakRepeatText, getGuardBreakState, getBreakGaugeState, renderBreakGaugeBar, renderDyingPips, renderDeathSavePips, renderDeathSaveRepeatText } from "./conditions.mjs";
 
 
@@ -107,6 +107,9 @@ Hooks.on("canvasReady", () => {
   // Pre-bake the turn-marker loop sheets now that the renderer exists, so the
   // first combat doesn't pay the bake cost mid-encounter.
   try { getMarkerSheets(); } catch { /* falls back to the live shader on demand */ }
+  // Compile the break/dying/delay status shaders now too, so the first time one of
+  // those states appears on a token it doesn't stall on a synchronous GLSL compile.
+  try { prewarmStatusShaders(); } catch { /* compiles on demand if this fails */ }
 });
 Hooks.on("refreshToken", token => hideNativeTurnMarker(token));
 
@@ -1987,19 +1990,19 @@ class GLUniverseInitiativeOverlay {
     const items = Array.from(this.root.querySelectorAll("[data-gluni-key]"));
     const previousActiveKey = options.previousActiveKey ?? null;
     const roundDelta = Number(options.roundDelta) || 0;
-    const flipItems = [];
-    let newActive = null;
+    const enterItems = [];   // no continuity rect -> CSS enter animation
+    const flipItems = [];     // { item, dx, dy, scaleX, scaleY }
 
+    // Read pass: measure every moved item's new rect up front. Interleaving these
+    // getBoundingClientRect() reads with the preflip class/style writes below
+    // forces a synchronous reflow per item (layout thrash) right as the turn
+    // animation starts — the classic FLIP stutter on initiative move. Batching all
+    // reads before any mutation collapses it to a single layout.
     for (const item of items) {
       const isActive = item.classList.contains("gluni-card--active");
-      if (isActive) newActive = item;
-
       const oldRect = this.getContinuityRect(oldRects, item.dataset.gluniKey, roundDelta);
       if (!oldRect) {
-        item.classList.add("gluni-item--entering");
-        if (!isActive) item.classList.add("gluni-item--entering-bottom");
-        if (isActive && item.dataset.gluniKey !== previousActiveKey) item.classList.add("gluni-card--active-entering");
-        window.setTimeout(() => item.classList.remove("gluni-item--entering", "gluni-item--entering-bottom", "gluni-card--active-entering"), 680);
+        enterItems.push({ item, isActive });
         continue;
       }
 
@@ -2011,20 +2014,30 @@ class GLUniverseInitiativeOverlay {
       const moved = Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5;
       const resized = Math.abs(scaleX - 1) >= 0.01 || Math.abs(scaleY - 1) >= 0.01;
 
-      if (!moved && !resized) continue;
+      if (moved || resized) flipItems.push({ item, dx, dy, scaleX, scaleY });
+    }
 
+    // Write pass: apply enter classes + preflip transforms only (no reads here, so
+    // nothing forces a reflow mid-loop).
+    for (const { item, isActive } of enterItems) {
+      item.classList.add("gluni-item--entering");
+      if (!isActive) item.classList.add("gluni-item--entering-bottom");
+      if (isActive && item.dataset.gluniKey !== previousActiveKey) item.classList.add("gluni-card--active-entering");
+      window.setTimeout(() => item.classList.remove("gluni-item--entering", "gluni-item--entering-bottom", "gluni-card--active-entering"), 680);
+    }
+
+    for (const { item, dx, dy, scaleX, scaleY } of flipItems) {
       item.classList.add("gluni-item--preflip");
       item.style.setProperty("--gluni-flip-x", `${Math.round(dx)}px`);
       item.style.setProperty("--gluni-flip-y", `${Math.round(dy)}px`);
       item.style.setProperty("--gluni-flip-scale-x", scaleX.toFixed(4));
       item.style.setProperty("--gluni-flip-scale-y", scaleY.toFixed(4));
-      flipItems.push(item);
     }
 
     if (flipItems.length) {
-      this.root.getBoundingClientRect();
+      this.root.getBoundingClientRect();   // single reflow to commit the preflip offsets
 
-      for (const item of flipItems) {
+      for (const { item } of flipItems) {
         item.classList.remove("gluni-item--preflip");
         item.classList.add("gluni-item--flipping");
 
@@ -5219,6 +5232,18 @@ class CardFXManager {
         dying:    mk(FX_FRAG_DYING,    { uVeinBase:   [...S.veinBase],   uVeinHot:  [...S.veinHot]  }),
         scramble: mk(FX_FRAG_SCRAMBLE, { uMysteryA:   [...S.mysteryA],   uMysteryB: [...S.mysteryB] })
       };
+      // Force each filter's GLSL program to compile now. Otherwise the program
+      // compiles lazily on the first frame a card is broken/dying/mystery, stalling
+      // the main thread exactly when the break/dying transition should be smooth.
+      try {
+        this.sprite.width = 4;
+        this.sprite.height = 4;
+        for (const f of Object.values(this.filters)) {
+          this.sprite.filters = [f];
+          this.renderer.render(this.sprite);
+        }
+        this.sprite.filters = null;
+      } catch { /* compiles on demand if the warm-up render fails */ }
       this.supported = true;
     } catch (err) {
       console.warn(`${MODULE_ID} | Card portrait FX unavailable, falling back to CSS`, err);
