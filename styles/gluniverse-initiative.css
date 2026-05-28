@@ -24,6 +24,8 @@
   --gluni-line-strong: rgba(244, 252, 255, 0.55);
   --gluni-text-dim:    rgba(243, 251, 255, 0.62);
 
+  --gluni-font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+
   --gluni-ease:        cubic-bezier(0.16, 1, 0.3, 1);
   --gluni-snap:        cubic-bezier(0.22, 1, 0.36, 1);
   --gluni-exit:        cubic-bezier(0.55, 0, 0.84, 0);
@@ -57,7 +59,7 @@
   z-index: 70;
   width: min(188px, calc(100vw - 20px));
   color: var(--gluni-white);
-  font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-family: var(--gluni-font-family);
   letter-spacing: 0;
   pointer-events: none;
   contain: layout style;
@@ -504,7 +506,7 @@
   background:
     radial-gradient(circle at 50% 48%, color-mix(in srgb, var(--gluni-violet) 24%, transparent), transparent 46%),
     var(--gluni-ink);
-  font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-family: var(--gluni-font-family);
   font-size: 56px;
   font-weight: 950;
   line-height: 1;
@@ -2038,7 +2040,7 @@
     inset 0 0 0 1px color-mix(in srgb, var(--gluni-cyan) 34%, var(--gluni-line) 66%),
     0 10px 28px rgba(0, 0, 0, 0.42),
     0 0 20px color-mix(in srgb, var(--gluni-cyan) 16%, transparent);
-  font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-family: var(--gluni-font-family);
   clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
 }
 
@@ -2198,7 +2200,7 @@
     inset 0 0 0 1px color-mix(in srgb, var(--gluni-break) 40%, var(--gluni-line) 60%),
     0 10px 28px rgba(0, 0, 0, 0.42),
     0 0 20px color-mix(in srgb, var(--gluni-break) 16%, transparent);
-  font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-family: var(--gluni-font-family);
   clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
 }
 
@@ -2936,7 +2938,7 @@
   display: grid;
   place-items: center;
   pointer-events: none;
-  font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-family: var(--gluni-font-family);
   opacity: 0;
   transform: translateZ(0);
 }
@@ -3383,7 +3385,7 @@
   display: grid;
   place-items: center;
   pointer-events: none;
-  font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-family: var(--gluni-font-family);
   opacity: 0;
   transform: translateZ(0);
 }
@@ -3831,7 +3833,7 @@
   background:
     linear-gradient(135deg, rgba(5, 9, 13, 0.96), rgba(12, 22, 30, 0.94)),
     radial-gradient(circle at 78% 12%, rgba(94, 234, 255, 0.12), transparent 34%);
-  font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-family: var(--gluni-font-family);
 }
 
 .gluni-adhoc-form {
@@ -6564,3 +6566,164 @@
   .gluni-card--swap-source { animation: none !important; }
   .gluni-card-swap-pick { animation: none !important; opacity: 1; }
 }
+
+/* ============================================================================
+ * THEME: CORE — Clean modern Foundry-panel feel.
+ * Calm amber accent, charcoal slate panels, no prismatic shimmer or backdrop
+ * blur. Same structural skeleton as sci-fi; only the paint differs.
+ * ==========================================================================*/
+html.gluni-theme--core {
+  --gluni-cyan:        #e8a44c;            /* amber accent (sits where cyan does) */
+  --gluni-white:       #ececec;
+  --gluni-red:         #d8484a;
+  --gluni-delay:       #6fa3c8;
+  --gluni-delay-hot:   #a9c8de;
+  --gluni-break:       #e89a3a;
+  --gluni-break-hot:   #ffd29a;
+  --gluni-break-deep:  #b87024;
+  --gluni-dying:       #9a7cc4;
+  --gluni-dying-hot:   #dccff0;
+  --gluni-condition:     #5fb472;
+  --gluni-condition-hot: #b1e0bd;
+  --gluni-save-success:     #5fb472;
+  --gluni-save-success-hot: #b1e0bd;
+  --gluni-save-failure:     #d8484a;
+  --gluni-save-failure-hot: #f2a0a2;
+  --gluni-stable:           #4ad9c0;
+  --gluni-stable-hot:       #b6fff2;
+  --gluni-violet:      #a48cc9;
+  --gluni-magenta:     #c9789f;
+  --gluni-ink:         #1c1d20;            /* Foundry sheet chrome */
+  --gluni-line:        rgba(255, 255, 255, 0.08);
+  --gluni-line-strong: rgba(255, 255, 255, 0.45);
+  --gluni-text-dim:    rgba(236, 236, 236, 0.62);
+
+  /* Holo triplet collapses to a single quiet amber sheen — no prism. */
+  --gluni-holo-a: #e8a44c;
+  --gluni-holo-b: #e8a44c;
+  --gluni-holo-c: #ffd29a;
+
+  --gluni-font-family: "Signika", "Signika Negative", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+html.gluni-theme--core .gluni-card-surface {
+  background: #1c1d20;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px var(--gluni-line),
+    inset 0 0 16px rgba(0, 0, 0, 0.3);
+}
+
+html.gluni-theme--core .gluni-card--active .gluni-card-surface {
+  background: linear-gradient(180deg, #25272c 0%, #15161a 100%);
+}
+
+/* Drop the backdrop blur — Foundry panels are opaque. */
+html.gluni-theme--core .gluni-shell,
+html.gluni-theme--core .gluni-card-surface,
+html.gluni-theme--core .gluni-break-splash-deck,
+html.gluni-theme--core .gluni-cycle-splash-deck {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* ============================================================================
+ * THEME: FANTASY — Polished tome aesthetic.
+ * Midnight cobalt with gold accents, ivory text, serif typography, a subtle
+ * candlelight vignette on cards. Same structural skeleton as sci-fi.
+ * ==========================================================================*/
+@font-face {
+  font-family: "Cormorant Garamond";
+  src: url("../fonts/cormorant-garamond/CormorantGaramond.woff2") format("woff2-variations"),
+       url("../fonts/cormorant-garamond/CormorantGaramond.woff2") format("woff2");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cormorant Garamond";
+  src: url("../fonts/cormorant-garamond/CormorantGaramond-Italic.woff2") format("woff2-variations"),
+       url("../fonts/cormorant-garamond/CormorantGaramond-Italic.woff2") format("woff2");
+  font-weight: 300 700;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "EB Garamond";
+  src: url("../fonts/eb-garamond/EBGaramond-Regular.woff2") format("woff2-variations"),
+       url("../fonts/eb-garamond/EBGaramond-Regular.woff2") format("woff2");
+  font-weight: 400 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "EB Garamond";
+  src: url("../fonts/eb-garamond/EBGaramond-Italic.woff2") format("woff2-variations"),
+       url("../fonts/eb-garamond/EBGaramond-Italic.woff2") format("woff2");
+  font-weight: 400 800;
+  font-style: italic;
+  font-display: swap;
+}
+
+html.gluni-theme--fantasy {
+  --gluni-cyan:        #d4a84a;            /* aged gold (active accent slot) */
+  --gluni-white:       #efe6d2;            /* ivory parchment text */
+  --gluni-red:         #b03a3a;
+  --gluni-delay:       #5a7fa3;
+  --gluni-delay-hot:   #9ab0c8;
+  --gluni-break:       #c47438;
+  --gluni-break-hot:   #f4d27a;
+  --gluni-break-deep:  #8a4a1f;
+  --gluni-dying:       #7b5fb0;
+  --gluni-dying-hot:   #c4b1e2;
+  --gluni-condition:     #4f8a55;
+  --gluni-condition-hot: #9fc8a6;
+  --gluni-save-success:     #4f8a55;
+  --gluni-save-success-hot: #9fc8a6;
+  --gluni-save-failure:     #b03a3a;
+  --gluni-save-failure-hot: #e48b8b;
+  --gluni-stable:           #4ad9c0;
+  --gluni-stable-hot:       #b6fff2;
+  --gluni-violet:      #7b5fb0;
+  --gluni-magenta:     #b04a78;
+  --gluni-ink:         #181428;            /* midnight cobalt with purple undertone */
+  --gluni-line:        rgba(212, 168, 74, 0.18);
+  --gluni-line-strong: rgba(239, 230, 210, 0.55);
+  --gluni-text-dim:    rgba(239, 230, 210, 0.65);
+
+  /* Gold two-stop sweep — no prism. */
+  --gluni-holo-a: #d4a84a;
+  --gluni-holo-b: #f4d27a;
+  --gluni-holo-c: #d4a84a;
+
+  --gluni-font-family: "Cormorant Garamond", "EB Garamond", Georgia, "Times New Roman", serif;
+}
+
+html.gluni-theme--fantasy .gluni-card-surface {
+  /* Tome page at night: deep cobalt with a subtle candlelight catch in the
+     upper-left, no parchment texture — keeps it modern and polished. */
+  background:
+    radial-gradient(ellipse at 28% 18%, rgba(244, 210, 122, 0.05), transparent 60%),
+    linear-gradient(180deg, #1d1730 0%, #100b1c 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(244, 210, 122, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px var(--gluni-line),
+    inset 0 0 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Active card gains a thin gold hairline along the full edge in addition to
+   the inset accent bar — reads as gilded trim. The background gets a slightly
+   warmer cobalt with stronger candlelight catch. */
+html.gluni-theme--fantasy .gluni-card--active .gluni-card-surface {
+  background:
+    radial-gradient(ellipse at 30% 16%, rgba(244, 210, 122, 0.08), transparent 65%),
+    linear-gradient(180deg, #221b38 0%, #120c20 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(212, 168, 74, 0.45),
+    inset 0 1px 0 rgba(244, 210, 122, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    inset 0 0 36px rgba(0, 0, 0, 0.45);
+}
+

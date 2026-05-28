@@ -1,10 +1,10 @@
-import { MODULE_ID, SOCKET_NAME, SETTINGS, TOKEN_OVERLAY_PALETTE, DISPOSITION_PALETTE, 
-getDispositionColors, FLAGS, INITIATIVE_MODE, CARD_CONFIG_DEFAULTS, CARD_CONFIG_LIMITS, 
-BREAK_GAUGE_DEFAULT_MAX, BREAK_GAUGE_MODES, BREAK_GAUGE_FLASH_SEC, BREAK_GAUGE_SHEEN_SEC, 
-VISIBILITY, PF2E_GUARD_BREAK_EFFECT_SLUG, PF2E_GUARD_BREAK_PENALTY, LOCALIZATION_FALLBACKS, 
-ADHOC_DEFAULT_TYPE, ADHOC_TYPES, ADHOC_VISIBILITY_MODES, ADHOC_LIFECYCLE, 
-ADHOC_LIFECYCLE_MODES, STATUS_ANIMATION, ADHOC_ICON_CHOICES, COMBATANT_RENDER_UPDATE_KEYS, 
-ACTOR_RENDER_UPDATE_KEYS, FALLBACK_PORTRAIT, PORTRAIT_MIN_PIXELS, CONFIGURABLE_ACTOR_TYPES, 
+import { MODULE_ID, SOCKET_NAME, SETTINGS, TOKEN_OVERLAY_PALETTE, DISPOSITION_PALETTE,
+ACTIVE_SHADER_PALETTE, getDispositionColors, FLAGS, INITIATIVE_MODE, CARD_CONFIG_DEFAULTS, CARD_CONFIG_LIMITS,
+BREAK_GAUGE_DEFAULT_MAX, BREAK_GAUGE_MODES, BREAK_GAUGE_FLASH_SEC, BREAK_GAUGE_SHEEN_SEC,
+VISIBILITY, PF2E_GUARD_BREAK_EFFECT_SLUG, PF2E_GUARD_BREAK_PENALTY, LOCALIZATION_FALLBACKS,
+ADHOC_DEFAULT_TYPE, ADHOC_TYPES, ADHOC_VISIBILITY_MODES, ADHOC_LIFECYCLE,
+ADHOC_LIFECYCLE_MODES, STATUS_ANIMATION, ADHOC_ICON_CHOICES, COMBATANT_RENDER_UPDATE_KEYS,
+ACTOR_RENDER_UPDATE_KEYS, FALLBACK_PORTRAIT, PORTRAIT_MIN_PIXELS, CONFIGURABLE_ACTOR_TYPES,
 PORTRAIT_FRAME_DEFAULTS, PORTRAIT_FRAME_LIMITS } from "./constants.mjs";
 import { normalizeInitiativeNumber, getDisposition, formatRound, formatInitiative, 
 localize, formatLocalized, modulo, clamp, wait, escapeHTML, escapeAttr, escapeCSSIdentifier 
@@ -189,6 +189,23 @@ export class TokenOverlayManager {
     }
     for (const marker of this._markers.values()) marker.key = null;
     this.refresh();
+  }
+
+  // Refresh colour-dependent state after the active theme has changed. Mutated
+  // palette objects (TOKEN_OVERLAY_PALETTE / DISPOSITION_PALETTE) already serve
+  // new values to redraws and per-frame marker tints; this pushes the new shader
+  // uniforms into live fx meshes whose mode hasn't changed (so forceRedraw
+  // wouldn't otherwise recreate them), then triggers a full redraw.
+  notifyThemeChange() {
+    const S = ACTIVE_SHADER_PALETTE;
+    for (const entry of this._entries.values()) {
+      const u = entry.fxShader?.uniforms;
+      if (!u) continue;
+      if (entry.fxFilterMode === "broken") { u.uBreakAmber = [...S.breakAmber]; u.uBreakHot = [...S.breakHot]; }
+      else if (entry.fxFilterMode === "dying") { u.uVeinBase = [...S.veinBase]; u.uVeinHot = [...S.veinHot]; }
+      else if (entry.fxFilterMode === "delayed") { u.uDelayBase = [...S.delayBase]; u.uDelayHot = [...S.delayHot]; }
+    }
+    this.forceRedraw();
   }
 
   // ---- ground turn-markers ----------------------------------------------
@@ -980,7 +997,13 @@ export class TokenOverlayManager {
       if (!entry.fxMesh || entry.fxMesh.destroyed || entry.fxFilterMode !== mode) {
         destroyFxMesh(entry.fxMesh);
         const frag = mode === "broken" ? FX_FRAG_BREAK : mode === "dying" ? FX_FRAG_DYING : FX_FRAG_DELAY;
-        const mesh = makeFxMesh(frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uThick: 0.08, uTexel: 0, uImpact: [0.5, 0.5] });
+        const S = ACTIVE_SHADER_PALETTE;
+        const themeUniforms = mode === "broken"
+          ? { uBreakAmber: [...S.breakAmber], uBreakHot: [...S.breakHot] }
+          : mode === "dying"
+            ? { uVeinBase: [...S.veinBase], uVeinHot: [...S.veinHot] }
+            : { uDelayBase: [...S.delayBase], uDelayHot: [...S.delayHot] };
+        const mesh = makeFxMesh(frag, { uTime: 0, uSeed: Math.random() * 100, uAspect: 1, uClipCircle: 0, uThick: 0.08, uTexel: 0, uImpact: [0.5, 0.5], ...themeUniforms });
         entry.fxMesh = mesh;
         entry.fxShader = mesh.shader;
         entry.fxFilterMode = mode;

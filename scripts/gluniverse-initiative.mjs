@@ -1,13 +1,13 @@
 import {
-    MODULE_ID, SOCKET_NAME, SETTINGS, TOKEN_OVERLAY_PALETTE, DISPOSITION_PALETTE, 
-  getDispositionColors, FLAGS, INITIATIVE_MODE, CARD_CONFIG_DEFAULTS, CARD_CONFIG_LIMITS, 
-  BREAK_GAUGE_DEFAULT_MAX, BREAK_GAUGE_MODES, BREAK_GAUGE_FLASH_SEC, BREAK_GAUGE_SHEEN_SEC, 
-  VISIBILITY, PF2E_GUARD_BREAK_EFFECT_SLUG, PF2E_GUARD_BREAK_PENALTY, 
-  LOCALIZATION_FALLBACKS, ADHOC_DEFAULT_TYPE, ADHOC_TYPES, ADHOC_VISIBILITY_MODES, 
-  ADHOC_LIFECYCLE, ADHOC_LIFECYCLE_MODES, STATUS_ANIMATION, ADHOC_ICON_CHOICES, 
-  COMBATANT_RENDER_UPDATE_KEYS, ACTOR_RENDER_UPDATE_KEYS, FALLBACK_PORTRAIT, 
-  PORTRAIT_MIN_PIXELS, CONFIGURABLE_ACTOR_TYPES, PORTRAIT_FRAME_DEFAULTS, 
-  PORTRAIT_FRAME_LIMITS
+    MODULE_ID, SOCKET_NAME, SETTINGS, TOKEN_OVERLAY_PALETTE, DISPOSITION_PALETTE,
+  ACTIVE_SHADER_PALETTE, getDispositionColors, FLAGS, INITIATIVE_MODE, CARD_CONFIG_DEFAULTS, CARD_CONFIG_LIMITS,
+  BREAK_GAUGE_DEFAULT_MAX, BREAK_GAUGE_MODES, BREAK_GAUGE_FLASH_SEC, BREAK_GAUGE_SHEEN_SEC,
+  VISIBILITY, PF2E_GUARD_BREAK_EFFECT_SLUG, PF2E_GUARD_BREAK_PENALTY,
+  LOCALIZATION_FALLBACKS, ADHOC_DEFAULT_TYPE, ADHOC_TYPES, ADHOC_VISIBILITY_MODES,
+  ADHOC_LIFECYCLE, ADHOC_LIFECYCLE_MODES, STATUS_ANIMATION, ADHOC_ICON_CHOICES,
+  COMBATANT_RENDER_UPDATE_KEYS, ACTOR_RENDER_UPDATE_KEYS, FALLBACK_PORTRAIT,
+  PORTRAIT_MIN_PIXELS, CONFIGURABLE_ACTOR_TYPES, PORTRAIT_FRAME_DEFAULTS,
+  PORTRAIT_FRAME_LIMITS, THEMES, DEFAULT_THEME, PALETTES, applyThemePalette
 } from "./constants.mjs";
 import { normalizeInitiativeNumber, getDisposition, formatRound, formatInitiative, localize, formatLocalized, modulo, clamp, wait, escapeHTML, escapeAttr, escapeCSSIdentifier } from "./util.mjs";
 import { FX_SUPERSAMPLE, FX_GLSL_NOISE, FX_FRAG_BREAK, FX_FRAG_DYING, FX_FRAG_DELAY, FX_FRAG_SCRAMBLE, FX_FRAG_TURN, FX_FRAG_TURN_BAKE, FX_FRAG_TURN_PLAY, FX_FRAG_DOWNSAMPLE, rgbFloat, FX_VERT_MESH, makeFxMesh, setFxMeshQuad, destroyFxMesh } from "./gl.mjs";
@@ -29,6 +29,10 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
+  // Mutate live palettes from the world theme setting BEFORE constructing the
+  // overlay / card FX / token overlays, so their initial paint uses the active
+  // palette directly (no first-frame in default theme then swap).
+  applyTheme({ skipRedraw: true });
   overlay = new GLUniverseInitiativeOverlay();
   cardFX = new CardFXManager();
   cardFX.ensureRenderer();
@@ -41,6 +45,27 @@ Hooks.once("ready", () => {
   // doesn't stall the main thread on synchronous shader compilation.
   getBreakSplashRenderer();
 });
+
+// Reads the theme world setting, mutates the live palettes, toggles the theme
+// class on <html>, and refreshes every consumer (overlay HTML, card FX shader
+// uniforms, token overlay graphics, baked break-splash frames). Safe to call
+// before the singletons exist (ready); guards every consumer touch.
+function applyTheme({ skipRedraw = false } = {}) {
+  let themeName = DEFAULT_THEME;
+  try { themeName = game.settings.get(MODULE_ID, SETTINGS.theme) || DEFAULT_THEME; } catch {}
+  const resolved = applyThemePalette(themeName);
+  try {
+    const cls = document.documentElement.classList;
+    for (const t of Object.values(THEMES)) cls.remove(`gluni-theme--${t}`);
+    cls.add(`gluni-theme--${resolved}`);
+  } catch {}
+  if (skipRedraw) return resolved;
+  try { cardFX?.notifyThemeChange?.(); } catch {}
+  try { tokenOverlays?.notifyThemeChange?.(); } catch {}
+  try { breakSplashRenderer?.rebake?.(); } catch {}
+  try { overlay?.render?.(); } catch {}
+  return resolved;
+}
 
 Hooks.on("createCombat", () => { overlay?.renderSoon(); overlay?.maybeRedealCards(); });
 Hooks.on("preDeleteCombat", combat => overlay?.removeAllPF2eGuardBreakEffects(combat));
@@ -254,6 +279,21 @@ function registerSettings() {
     default: 0.8
   });
 
+  game.settings.register(MODULE_ID, SETTINGS.theme, {
+    name: localize("GLUNI.Settings.Theme.Name"),
+    hint: localize("GLUNI.Settings.Theme.Hint"),
+    scope: "world",
+    config: true,
+    type: String,
+    choices: {
+      [THEMES.scifi]:   localize("GLUNI.Settings.Theme.SciFi"),
+      [THEMES.core]:    localize("GLUNI.Settings.Theme.Core"),
+      [THEMES.fantasy]: localize("GLUNI.Settings.Theme.Fantasy")
+    },
+    default: DEFAULT_THEME,
+    onChange: () => applyTheme()
+  });
+
   game.settings.register(MODULE_ID, SETTINGS.position, {
     scope: "client",
     config: false,
@@ -288,32 +328,6 @@ export function prefersReducedMotion() {
   } catch {
     return false;
   }
-}
-
-// Reads a CSS custom property off the document root and parses it to a [r,g,b]
-// triple in 0..1 space. Falls back to the supplied default when the variable is
-// missing or unparseable (e.g. a non-hex color() value).
-function readCSSColorVar(name, fallback) {
-  let raw = "";
-  try {
-    raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  } catch {
-    raw = "";
-  }
-  const parsed = parseHexColor(raw);
-  return parsed || fallback;
-}
-
-function parseHexColor(value) {
-  if (typeof value !== "string") return null;
-  let hex = value.trim();
-  if (hex[0] !== "#") return null;
-  hex = hex.slice(1);
-  if (hex.length === 3) hex = hex.split("").map(c => c + c).join("");
-  if (hex.length !== 6) return null;
-  const num = Number.parseInt(hex, 16);
-  if (!Number.isFinite(num)) return null;
-  return [((num >> 16) & 255) / 255, ((num >> 8) & 255) / 255, (num & 255) / 255];
 }
 
 // WebGL renderer for the guard-break splash: a procedural glass-crack + shatter
@@ -503,11 +517,26 @@ class BreakSplashGL {
     this.onResize = () => this.resize();
 
     this.colors = {
-      break: readCSSColorVar("--gluni-break", [1.0, 0.694, 0.176]),
-      hot: readCSSColorVar("--gluni-break-hot", [1.0, 0.878, 0.439])
+      break: [...ACTIVE_SHADER_PALETTE.splashHot],
+      hot:   [...ACTIVE_SHADER_PALETTE.splashGlow]
     };
+    this._bakeBuffer = null;
 
     this.init();
+  }
+
+  // Re-render the baked fracture frames using the current ACTIVE_SHADER_PALETTE.
+  // Cheap — costs the one-time bake (~tens of ms) per theme switch.
+  rebake() {
+    const gl = this.gl;
+    if (!gl || !this._bakeBuffer) return false;
+    for (const t of this.frames) { try { gl.deleteTexture(t); } catch {} }
+    this.frames = [];
+    this.colors = {
+      break: [...ACTIVE_SHADER_PALETTE.splashHot],
+      hot:   [...ACTIVE_SHADER_PALETTE.splashGlow]
+    };
+    return this.bake(gl, this._bakeBuffer);
   }
 
   init() {
@@ -519,6 +548,7 @@ class BreakSplashGL {
     const buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    this._bakeBuffer = buffer;
 
     // Pay the heavy shader's full cost once, here at load: render every animation
     // step into its own texture. After this the fracture shader is never run again.
@@ -5177,15 +5207,17 @@ class CardFXManager {
       if (!globalThis.PIXI?.Renderer || !globalThis.PIXI?.Filter || !globalThis.PIXI?.Sprite) return false;
       this.renderer = new PIXI.Renderer({ width: 256, height: 160, backgroundAlpha: 0, antialias: true });
       this.sprite = new PIXI.Sprite(PIXI.Texture.WHITE);
-      const mk = frag => {
-        const f = new PIXI.Filter(undefined, frag, { uTime: 0, uSeed: 0, uAspect: 1, uClipCircle: 0, uThick: 0.09, uTexel: 0, uImpact: [0.65, 0.34] });
+      const S = ACTIVE_SHADER_PALETTE;
+      const mk = (frag, extra) => {
+        const uniforms = { uTime: 0, uSeed: 0, uAspect: 1, uClipCircle: 0, uThick: 0.09, uTexel: 0, uImpact: [0.65, 0.34], ...extra };
+        const f = new PIXI.Filter(undefined, frag, uniforms);
         f.padding = 0;
         return f;
       };
       this.filters = {
-        break: mk(FX_FRAG_BREAK),
-        dying: mk(FX_FRAG_DYING),
-        scramble: mk(FX_FRAG_SCRAMBLE)
+        break:    mk(FX_FRAG_BREAK,    { uBreakAmber: [...S.breakAmber], uBreakHot: [...S.breakHot] }),
+        dying:    mk(FX_FRAG_DYING,    { uVeinBase:   [...S.veinBase],   uVeinHot:  [...S.veinHot]  }),
+        scramble: mk(FX_FRAG_SCRAMBLE, { uMysteryA:   [...S.mysteryA],   uMysteryB: [...S.mysteryB] })
       };
       this.supported = true;
     } catch (err) {
@@ -5298,6 +5330,20 @@ class CardFXManager {
       } catch { /* leave the canvas transparent; the portrait shows through */ }
     }
     if (this.ticking) requestAnimationFrame(this.tickFn);
+  }
+
+  // Updates the live filter colour uniforms from the active shader palette so
+  // existing break/dying/scramble cards repaint in the new theme on the next tick.
+  notifyThemeChange() {
+    if (!this.supported) return;
+    const S = ACTIVE_SHADER_PALETTE;
+    const set = (filter, key, value) => { if (filter?.uniforms) filter.uniforms[key] = [...value]; };
+    set(this.filters.break,    "uBreakAmber", S.breakAmber);
+    set(this.filters.break,    "uBreakHot",   S.breakHot);
+    set(this.filters.dying,    "uVeinBase",   S.veinBase);
+    set(this.filters.dying,    "uVeinHot",    S.veinHot);
+    set(this.filters.scramble, "uMysteryA",   S.mysteryA);
+    set(this.filters.scramble, "uMysteryB",   S.mysteryB);
   }
 
   destroy() {
