@@ -2667,7 +2667,7 @@
 
 /* HIGH fidelity: keep the glass a crisp plate — NO blur over the portrait (the actor
    must read sharp). A faint saturate gives the glassy pop without softening the image. */
-.gluni-fidelity--high .gluni-card-glass {
+.gluni-card-glass {
   backdrop-filter: saturate(1.1);
   -webkit-backdrop-filter: saturate(1.1);
 }
@@ -3082,8 +3082,8 @@
   mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
 }
 
-/* Real frosted glass on HIGH fidelity. */
-.gluni-round-splash.gluni-fidelity--high .gluni-round-deck {
+/* Real frosted glass on the round-splash deck (single best tier). */
+.gluni-round-splash .gluni-round-deck {
   backdrop-filter: blur(14px) saturate(1.4);
   -webkit-backdrop-filter: blur(14px) saturate(1.4);
 }
@@ -3599,7 +3599,7 @@
   mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
 }
 
-.gluni-break-splash.gluni-fidelity--high .gluni-break-deck {
+.gluni-break-splash .gluni-break-deck {
   backdrop-filter: blur(15px) saturate(1.55);
   -webkit-backdrop-filter: blur(15px) saturate(1.55);
 }
@@ -5626,8 +5626,8 @@
 
 /* HIGH-fidelity deck gets a faint moving spec highlight on the bevel for "real glass" sheen.
    Balanced fidelity skips it (transform/opacity only elsewhere). */
-.gluni-round-splash.gluni-fidelity--high .gluni-round-deck::after,
-.gluni-break-splash.gluni-fidelity--high .gluni-break-deck::after {
+.gluni-round-splash .gluni-round-deck::after,
+.gluni-break-splash .gluni-break-deck::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -5642,8 +5642,8 @@
   opacity: 0;
 }
 
-.gluni-round-splash.gluni-fidelity--high.gluni-round-splash--show .gluni-round-deck::after,
-.gluni-break-splash.gluni-fidelity--high.gluni-break-splash--show .gluni-break-deck::after {
+.gluni-round-splash--show .gluni-round-deck::after,
+.gluni-break-splash--show .gluni-break-deck::after {
   animation: gluni-splash-glass-spec 720ms var(--gluni-ease) 180ms forwards;
 }
 
