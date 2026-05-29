@@ -20,7 +20,7 @@ export const SETTINGS = {
   theme: "theme"
 };
 
-export const THEMES = Object.freeze({ scifi: "scifi", core: "core", fantasy: "fantasy" });
+export const THEMES = Object.freeze({ scifi: "scifi", core: "core", fantasy: "fantasy", chronicle: "chronicle" });
 export const DEFAULT_THEME = THEMES.scifi;
 
 // Per-theme master palettes. The exported live palettes (TOKEN_OVERLAY_PALETTE,
@@ -117,6 +117,39 @@ export const PALETTES = Object.freeze({
       breakHot:   Object.freeze([0.96, 0.82, 0.48]),
       splashHot:  Object.freeze([0.77, 0.45, 0.22]),
       splashGlow: Object.freeze([0.96, 0.82, 0.48])
+    })
+  }),
+  // Mirrors the look of the companion "GLUniverse Clocks & Tracker" module: a
+  // glassy midnight-navy HUD with cornflower-blue accents, a warm gold highlight
+  // (its event/clock fill colour) and a coral danger red. Cool, polished, tactile.
+  chronicle: Object.freeze({
+    tokenOverlay: Object.freeze({
+      delayed: 0x5a78c8, delayedHi: 0x9fb2e6,
+      broken: 0xffc454, brokenHot: 0xffe6b5, brokenDeep: 0xe0964a,
+      dying: 0x9a8ce0, dyingHot: 0xd6cdf5, dyingDeep: 0x5f4fa0,
+      saveSuccess: 0x67d39b, saveSuccessHot: 0xa8ecc8,
+      saveFailure: 0xe0584f, saveFailureHot: 0xff9a8f,
+      stable: 0x4ad9c0, stableHot: 0xb6fff2,
+      ink: 0x0a0e15, white: 0xeef1f7,
+      violet: 0x9a8ce0, magenta: 0xb07acb
+    }),
+    disposition: Object.freeze({
+      friendly: Object.freeze({ base: 0x6b86d6, hi: 0xa9bdf0 }),
+      hostile:  Object.freeze({ base: 0xe0584f, hi: 0xff9a8f }),
+      neutral:  Object.freeze({ base: 0xeef1f7, hi: 0xffffff }),
+      secret:   Object.freeze({ base: 0x9a8ce0, hi: 0xd6cdf5 })
+    }),
+    shader: Object.freeze({
+      veinBase:   Object.freeze([0.604, 0.549, 0.878]),  // indigo dying veins
+      veinHot:    Object.freeze([0.839, 0.804, 0.961]),
+      mysteryA:   Object.freeze([0.420, 0.525, 0.839]),  // cornflower blue
+      mysteryB:   Object.freeze([1.0, 0.769, 0.329]),    // gold scramble counterpoint
+      delayBase:  Object.freeze([0.353, 0.471, 0.784]),  // steel blue
+      delayHot:   Object.freeze([0.624, 0.698, 0.902]),
+      breakAmber: Object.freeze([1.0, 0.769, 0.329]),    // companion gold
+      breakHot:   Object.freeze([1.0, 0.902, 0.710]),
+      splashHot:  Object.freeze([1.0, 0.769, 0.329]),
+      splashGlow: Object.freeze([1.0, 0.902, 0.710])
     })
   })
 });
@@ -237,10 +270,11 @@ export const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.Settings.GuardBreakSoundVolume.Name": "Guard break sound volume",
   "GLUNI.Settings.GuardBreakSoundVolume.Hint": "Playback volume of the guard break sound for this user.",
   "GLUNI.Settings.Theme.Name": "Theme",
-  "GLUNI.Settings.Theme.Hint": "Overall visual style of the initiative rail, token markers, and effects. Sci-Fi is the default cinematic holographic look; Core matches Foundry's modern UI; Fantasy is a polished tome aesthetic.",
+  "GLUNI.Settings.Theme.Hint": "Overall visual style of the initiative rail, token markers, and effects. Sci-Fi is the default cinematic holographic look; Core matches Foundry's modern UI; Fantasy is a polished tome aesthetic; Chronicle matches the GLUniverse Clocks & Tracker companion module's midnight-HUD look.",
   "GLUNI.Settings.Theme.SciFi": "Sci-Fi (Holographic)",
   "GLUNI.Settings.Theme.Core": "Core (Modern Foundry)",
   "GLUNI.Settings.Theme.Fantasy": "Fantasy (Polished Tome)",
+  "GLUNI.Settings.Theme.Chronicle": "Chronicle (Clocks & Tracker)",
   "GLUNI.TurnMarker.Next": "Next",
   "GLUNI.Settings.VisibleCount.Hint": "Number of normal initiative combatants to show from the current turn forward.",
   "GLUNI.Settings.VisibleCount.Name": "Visible combatants",
