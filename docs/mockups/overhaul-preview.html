@@ -18,6 +18,14 @@
     B — Forged Obsidian: beveled liquid-metal frames, bronze/gold heat, tactile dark-fantasy
     C — Neon Cyber-noir+: the APPROVED Endfield notched direction, pushed (sheen + chroma + scan)
     D — Cinematic Minimal: editorial type, negative space, letterbox, film grain, single accent
+
+  VERDICT (2026-05-29): user picked C — Neon Cyber-noir+. First pass shipped into the real
+  module (styles/gluniverse-initiative.css + scripts/gluniverse-initiative.mjs):
+    1. sheen bright-head + trailing flare promoted to always-on (was dead --cinematic code),
+       sweep slowed 360->520ms;
+    2. live vertical energy-flow on the active accent edge;
+    3. brief chromatic-split shimmer on the active name as it draws in (settles clean).
+  Variant C above mirrors that tuning. Needs visual confirmation in a Foundry v13 world.
 -->
 <style>
   :root{
@@ -170,15 +178,20 @@
     mix-blend-mode:screen;opacity:.5;animation:cScan 6s linear infinite}
   @keyframes cScan{to{background-position:0 -120px}}
   body.v-C .accent{box-shadow:0 0 16px var(--acc),0 0 32px color-mix(in srgb,var(--acc) 40%,transparent)}
+  /* C+ live energy flow on the active accent edge */
+  body.v-C .card.is-active .accent{background:linear-gradient(180deg,var(--acc),#fff 25%,var(--acc) 50%,#fff 75%,var(--acc));background-size:100% 220%;animation:cFlow 2.8s linear infinite}
+  @keyframes cFlow{to{background-position:0 -220%}}
+  /* C+ brighter sheen head */
+  body.v-C .sheen{height:1px;background:linear-gradient(90deg,transparent,#fff,var(--acc),transparent);box-shadow:0 0 16px var(--acc),0 0 6px #fff}
   body.v-C .card.is-active{clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%);
     background:linear-gradient(180deg,#0d1822 0%,#04080c 100%);
     box-shadow:inset 0 1px 0 color-mix(in srgb,var(--acc) 20%,transparent),inset 0 0 0 1px color-mix(in srgb,var(--acc) 70%,var(--line) 30%),
                inset 0 0 32px rgba(0,0,0,.4),0 18px 36px rgba(0,0,0,.7),0 0 34px color-mix(in srgb,var(--acc) 34%,transparent)}
   /* chromatic split on active name */
   body.v-C .card.is-active h3{position:relative}
-  body.v-C .card.is-active h3::before,body.v-C .card.is-active h3::after{content:attr(data-name);position:absolute;inset:0;opacity:.5;mix-blend-mode:screen}
-  body.v-C .card.is-active h3::before{color:#ff2b6b;transform:translateX(-.8px)}
-  body.v-C .card.is-active h3::after{color:#2bf0ff;transform:translateX(.8px)}
+  body.v-C .card.is-active h3::before,body.v-C .card.is-active h3::after{content:attr(data-name);position:absolute;inset:0;opacity:.3;mix-blend-mode:screen;pointer-events:none}
+  body.v-C .card.is-active h3::before{color:#ff2b6b;transform:translateX(-.7px)}
+  body.v-C .card.is-active h3::after{color:#2bf0ff;transform:translateX(.7px)}
 
   /* ============================================================== */
   /*  D — CINEMATIC MINIMAL                                          */

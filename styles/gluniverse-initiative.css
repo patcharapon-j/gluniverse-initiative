@@ -1442,12 +1442,22 @@
   background: linear-gradient(
     180deg,
     var(--gluni-holo-a),
-    var(--gluni-holo-b) 50%,
-    var(--gluni-holo-c)
+    var(--gluni-holo-b) 25%,
+    var(--gluni-holo-c) 50%,
+    var(--gluni-holo-b) 75%,
+    var(--gluni-holo-a)
   );
   box-shadow:
     0 0 24px var(--gluni-holo-a),
     0 0 24px var(--gluni-holo-b);
+  /* C+ premium: the leading energy edge now flows with a slow vertical pan. */
+  background-size: 100% 220%;
+  animation: gluni-active-accent-flow 2.8s linear infinite;
+}
+
+@keyframes gluni-active-accent-flow {
+  0%   { background-position: 0 0%; }
+  100% { background-position: 0 -220%; }
 }
 
 .gluni-card--active .gluni-card-bracket {
@@ -1618,6 +1628,54 @@
 .gluni-card--active h3 {
   font-size: 16px;
   letter-spacing: 0.08em;
+  position: relative;
+}
+
+/* C+ premium: a brief chromatic-split shimmer fires as the active card draws in,
+   then settles clean. Excludes adhoc (multi-line) names. */
+.gluni-card--active-entering:not(.gluni-card--adhoc) h3::before,
+.gluni-card--active-entering:not(.gluni-card--adhoc) h3::after {
+  content: attr(data-name);
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-shadow: none;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  opacity: 0;
+}
+
+.gluni-card--active-entering:not(.gluni-card--adhoc) h3::before {
+  color: #ff2b6b;
+  animation: gluni-name-chroma-r 520ms var(--gluni-ease) 200ms both;
+}
+
+.gluni-card--active-entering:not(.gluni-card--adhoc) h3::after {
+  color: #2bf0ff;
+  animation: gluni-name-chroma-c 520ms var(--gluni-ease) 200ms both;
+}
+
+@keyframes gluni-name-chroma-r {
+  0%   { opacity: 0;   transform: translateX(0); }
+  25%  { opacity: 0.5; transform: translateX(-1.4px); }
+  100% { opacity: 0;   transform: translateX(0); }
+}
+
+@keyframes gluni-name-chroma-c {
+  0%   { opacity: 0;   transform: translateX(0); }
+  25%  { opacity: 0.5; transform: translateX(1.4px); }
+  100% { opacity: 0;   transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gluni-card--active .gluni-card-accent { animation: none; }
+  .gluni-card--active-entering:not(.gluni-card--adhoc) h3::before,
+  .gluni-card--active-entering:not(.gluni-card--adhoc) h3::after { animation: none; opacity: 0; }
 }
 
 .gluni-card--active.gluni-card--adhoc h3 {
@@ -2520,7 +2578,7 @@
 }
 
 .gluni-card--active-entering .gluni-card-sheen {
-  animation: gluni-card-sheen-draw 360ms var(--gluni-ease) 140ms both;
+  animation: gluni-card-sheen-draw 520ms var(--gluni-ease) 140ms both;
 }
 
 .gluni-card.gluni-item--entering.gluni-card--active-entering {
@@ -3268,27 +3326,35 @@
   transition-duration: 780ms;
 }
 
-.gluni-initiative--cinematic .gluni-card--active-entering .gluni-card-sheen {
-  animation-duration: 520ms;
-  animation-timing-function: var(--gluni-ease);
-}
-
-.gluni-initiative--cinematic .gluni-card-sheen::after {
+/* C+ premium: the sheen's bright leading head + fading tail now renders on every
+   activate (it was previously gated to the never-applied --cinematic root class). */
+.gluni-card-sheen::after {
   content: "";
   position: absolute;
   top: 0;
   right: 100%;
-  width: 28px;
+  width: 32px;
   height: 1px;
   background: linear-gradient(
     90deg,
     transparent,
-    var(--gluni-accent, var(--gluni-cyan))
+    color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 60%, #ffffff)
   );
+  box-shadow: 0 0 16px color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 80%, #ffffff);
   opacity: 0;
 }
 
-.gluni-initiative--cinematic .gluni-card--active-entering .gluni-card-sheen::after {
+.gluni-initiative--left .gluni-card-sheen::after {
+  right: auto;
+  left: 100%;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 60%, #ffffff),
+    transparent
+  );
+}
+
+.gluni-card--active-entering .gluni-card-sheen::after {
   animation: gluni-card-sheen-flare 520ms var(--gluni-ease) 140ms both;
 }
 

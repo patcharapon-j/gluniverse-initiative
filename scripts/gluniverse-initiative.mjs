@@ -1843,7 +1843,7 @@ class GLUniverseInitiativeOverlay {
             ${card.adhoc?.oneShot ? `<span class="gluni-adhoc-tag gluni-adhoc-tag--oneshot">${localize("GLUNI.AdHoc.OneShot").toUpperCase()} ${formatRound(card.adhoc.round)}</span>` : ""}
             ${card.delayed ? `<span class="gluni-delayed-tag">${localize("GLUNI.Delayed").toUpperCase()}</span>` : ""}
           </div>
-          <h3>${escapeHTML(card.name)}</h3>
+          <h3 data-name="${escapeAttr(card.name)}">${escapeHTML(card.name)}</h3>
           ${card.dying ? (card.dying.kind === "deathsaves" ? renderDeathSavePips(card.dying) : renderDyingPips(card.dying)) : ""}
           ${card.breakGauge ? renderBreakGaugeBar(card.breakGauge) : ""}
         </div>
@@ -4732,7 +4732,7 @@ function renderPortraitConfigPanel(mode, label, values, portrait, actorName) {
         </div>
         <div class="gluni-card-content">
           <div class="gluni-card-kicker">${mode === "expanded" ? `<span class="gluni-active-tag">TURN</span>` : ""}</div>
-          <h3>${escapeHTML(actorName)}</h3>
+          <h3 data-name="${escapeAttr(actorName)}">${escapeHTML(actorName)}</h3>
         </div>
         <span class="gluni-initiative-badge">18</span>
         </div>
