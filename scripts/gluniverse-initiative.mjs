@@ -2870,7 +2870,7 @@ class GLUniverseInitiativeOverlay {
     const effectData = {
       type: "effect",
       name: localize("GLUNI.PF2e.BreakEffect.Name"),
-      img: "icons/svg/downgrade.svg",
+      img: `modules/${MODULE_ID}/assets/icons/guard-break.png`,
       system: {
         slug: PF2E_GUARD_BREAK_EFFECT_SLUG,
         description: { value: localize("GLUNI.PF2e.BreakEffect.Description") },
