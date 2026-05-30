@@ -6562,6 +6562,31 @@
   line-height: 1.3;
 }
 
+/* The module's pop-out dialogs follow the active theme font via
+   var(--gluni-font-family) (so Chronicle renders them in Oxanium). The
+   card-config dialog body was the one that never set it, and DialogV2 form
+   controls / footer buttons don't inherit font-family in any of the dialogs —
+   target them explicitly here. Font Awesome icons keep their own .fa* face, so
+   this only ever touches real text, never glyph icons. */
+.gluni-card-config-dialog .window-content,
+.gluni-card-config-dialog button,
+.gluni-card-config-dialog input,
+.gluni-card-config-dialog select,
+.gluni-card-config-dialog textarea,
+.gluni-adhoc-dialog button,
+.gluni-adhoc-dialog input,
+.gluni-adhoc-dialog select,
+.gluni-adhoc-dialog textarea,
+.gluni-portrait-dialog button,
+.gluni-portrait-dialog input,
+.gluni-portrait-dialog select,
+.gluni-portrait-dialog textarea,
+.gluni-break-gauge-editor button,
+.gluni-break-gauge-editor input,
+.gluni-break-gauge-editor select {
+  font-family: var(--gluni-font-family);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .gluni-card--swap-source { animation: none !important; }
   .gluni-card-swap-pick { animation: none !important; opacity: 1; }
