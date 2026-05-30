@@ -6562,6 +6562,31 @@
   line-height: 1.3;
 }
 
+/* The module's pop-out dialogs follow the active theme font via
+   var(--gluni-font-family) (so Chronicle renders them in Oxanium). The
+   card-config dialog body was the one that never set it, and DialogV2 form
+   controls / footer buttons don't inherit font-family in any of the dialogs —
+   target them explicitly here. Font Awesome icons keep their own .fa* face, so
+   this only ever touches real text, never glyph icons. */
+.gluni-card-config-dialog .window-content,
+.gluni-card-config-dialog button,
+.gluni-card-config-dialog input,
+.gluni-card-config-dialog select,
+.gluni-card-config-dialog textarea,
+.gluni-adhoc-dialog button,
+.gluni-adhoc-dialog input,
+.gluni-adhoc-dialog select,
+.gluni-adhoc-dialog textarea,
+.gluni-portrait-dialog button,
+.gluni-portrait-dialog input,
+.gluni-portrait-dialog select,
+.gluni-portrait-dialog textarea,
+.gluni-break-gauge-editor button,
+.gluni-break-gauge-editor input,
+.gluni-break-gauge-editor select {
+  font-family: var(--gluni-font-family);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .gluni-card--swap-source { animation: none !important; }
   .gluni-card-swap-pick { animation: none !important; opacity: 1; }
@@ -6725,5 +6750,319 @@ html.gluni-theme--fantasy .gluni-card--active .gluni-card-surface {
     inset 0 1px 0 rgba(244, 210, 122, 0.12),
     inset 0 -1px 0 rgba(0, 0, 0, 0.5),
     inset 0 0 36px rgba(0, 0, 0, 0.45);
+}
+
+/* ============================================================================
+ * THEME: CHRONICLE — Midnight-HUD aesthetic of the companion "GLUniverse
+ * Clocks & Tracker" module. Glassy midnight-navy surfaces, cornflower-blue
+ * accents with a soft halo glow, a warm gold highlight (its clock/event fill),
+ * coral danger red, and the Oxanium display face. Same structural skeleton and
+ * cinematic motion as sci-fi; only paint, glow, and typography shift.
+ * Oxanium is bundled (OFL) — the two subsets mirror what Google Fonts serves.
+ * ==========================================================================*/
+@font-face {
+  font-family: "Oxanium";
+  src: url("../fonts/oxanium/Oxanium-latin.woff2") format("woff2");
+  font-weight: 400 800;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Oxanium";
+  src: url("../fonts/oxanium/Oxanium-latin-ext.woff2") format("woff2");
+  font-weight: 400 800;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+html.gluni-theme--chronicle {
+  --gluni-cyan:        #6b86d6;            /* cornflower accent (active slot) */
+  --gluni-white:       #eef1f7;            /* cool ivory HUD text */
+  --gluni-red:         #e0584f;
+  --gluni-delay:       #5a78c8;
+  --gluni-delay-hot:   #9fb2e6;
+  --gluni-break:       #ffc454;            /* companion gold (clock/event fill) */
+  --gluni-break-hot:   #ffe6b5;
+  --gluni-break-deep:  #e0964a;
+  --gluni-dying:       #9a8ce0;
+  --gluni-dying-hot:   #d6cdf5;
+  --gluni-condition:     #67d39b;
+  --gluni-condition-hot: #a8ecc8;
+  --gluni-save-success:     #67d39b;
+  --gluni-save-success-hot: #a8ecc8;
+  --gluni-save-failure:     #e0584f;
+  --gluni-save-failure-hot: #ff9a8f;
+  --gluni-stable:           #4ad9c0;
+  --gluni-stable-hot:       #b6fff2;
+  --gluni-violet:      #9a8ce0;
+  --gluni-magenta:     #b07acb;
+  --gluni-ink:         #0a0e15;            /* midnight navy */
+  --gluni-line:        rgba(255, 255, 255, 0.08);
+  --gluni-line-strong: rgba(255, 255, 255, 0.45);
+  --gluni-text-dim:    rgba(238, 241, 247, 0.62);
+
+  /* Cool cornflower -> ice -> gold sweep echoing the companion's blue+gold duo. */
+  --gluni-holo-a: #6b86d6;
+  --gluni-holo-b: #9fb2e6;
+  --gluni-holo-c: #ffc454;
+
+  /* Companion glow tokens, reused by the badge / splash / active-card polish. */
+  --gluni-glow:     rgba(120, 150, 225, 0.50);
+  --gluni-glowsoft: rgba(120, 150, 225, 0.18);
+
+  --gluni-font-family: "Oxanium", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+}
+
+/* Glassy midnight panel with a faint top sheen and a soft cornflower halo —
+   the companion HUD's signature look. */
+html.gluni-theme--chronicle .gluni-card-surface {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 34%),
+    linear-gradient(98deg, #161d2c 0%, #080b11 64%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1px var(--gluni-line),
+    inset 0 0 22px rgba(0, 0, 0, 0.34),
+    0 0 30px rgba(120, 150, 225, 0.10);
+}
+
+/* Active card lifts the cornflower halo and brightens the rim, mirroring the
+   companion's glow-on-active treatment. */
+html.gluni-theme--chronicle .gluni-card--active .gluni-card-surface {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 30%),
+    linear-gradient(98deg, #1b2436 0%, #0a0e16 64%);
+  box-shadow:
+    inset 0 0 0 1px rgba(107, 134, 214, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    inset 0 0 30px rgba(0, 0, 0, 0.4),
+    0 18px 36px rgba(0, 0, 0, 0.62),
+    0 0 42px rgba(120, 150, 225, 0.28);
+}
+
+/* ----------------------------------------------------------------------------
+ * CHRONICLE — premium overhaul.
+ * The companion HUD's signature is restrained typography (Oxanium 600–800, not
+ * a blanket bold), softly-rounded glass plates, and cool cornflower glow with a
+ * warm gold counterpoint. The sections below carry that language into the round
+ * badge, the round/break splashes, the dividers, and the active turn card.
+ * (The ground turn-markers and token status overlays already retint through the
+ *  Chronicle palette in constants.mjs, so they match without extra CSS.)
+ * --------------------------------------------------------------------------*/
+
+/* 1) WEIGHT SCALE — the sci-fi field is a blanket font-weight:950, which in
+ *    Oxanium clamps to its heaviest 800 and reads blocky. Reset the whole
+ *    overlay/splash field to a clean 600, then re-emphasise only names, small
+ *    caps labels and hero numerals (the companion's 600 / 700 / 800 ladder). */
+html.gluni-theme--chronicle .gluni-initiative [class*="gluni-"],
+html.gluni-theme--chronicle .gluni-round-splash [class*="gluni-"],
+html.gluni-theme--chronicle .gluni-break-splash [class*="gluni-"] {
+  font-weight: 600;
+}
+html.gluni-theme--chronicle .gluni-card h3,
+html.gluni-theme--chronicle .gluni-initiative .gluni-round-chip-label,
+html.gluni-theme--chronicle .gluni-initiative .gluni-round-chip-num,
+html.gluni-theme--chronicle .gluni-initiative .gluni-round-separator,
+html.gluni-theme--chronicle .gluni-initiative .gluni-round-separator strong,
+html.gluni-theme--chronicle .gluni-initiative .gluni-card-mystery-mark,
+html.gluni-theme--chronicle .gluni-round-splash .gluni-round-label span:last-child,
+html.gluni-theme--chronicle .gluni-round-splash .gluni-round-sub span,
+html.gluni-theme--chronicle .gluni-break-splash .gluni-break-splash-label span:last-child,
+html.gluni-theme--chronicle .gluni-break-splash .gluni-break-splash-name span {
+  font-weight: 700;
+}
+html.gluni-theme--chronicle .gluni-initiative .gluni-initiative-badge,
+html.gluni-theme--chronicle .gluni-round-splash .gluni-round-num,
+html.gluni-theme--chronicle .gluni-round-splash .gluni-round-num .d,
+html.gluni-theme--chronicle .gluni-break-splash .gluni-break-splash-text {
+  font-weight: 800;
+}
+
+/* Combatant name borrows the companion's soft ivory bevel (top-lit gradient). */
+html.gluni-theme--chronicle .gluni-card h3 {
+  letter-spacing: 0.03em;
+  background: linear-gradient(180deg, #ffffff, #c7d2ea);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+html.gluni-theme--chronicle .gluni-card--gm-hidden h3,
+html.gluni-theme--chronicle .gluni-card--gm-mystery h3 {
+  /* keep hidden/mystery names from inheriting the bright bevel */
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: var(--gluni-text-dim);
+}
+
+/* 2) ROUND BADGE — a rounded glass pill instead of the sheared sci-fi tab. */
+html.gluni-theme--chronicle .gluni-round-chip,
+html.gluni-theme--chronicle .gluni-initiative--left .gluni-round-chip {
+  clip-path: none;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(98deg, #161d2c, #080b11 70%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 0 0 1px var(--gluni-line),
+    0 6px 18px rgba(0, 0, 0, 0.5),
+    0 0 22px var(--gluni-glowsoft);
+}
+html.gluni-theme--chronicle .gluni-round-chip-label {
+  font-size: 8px;
+  letter-spacing: 0.26em;
+  color: var(--gluni-text-dim);
+}
+html.gluni-theme--chronicle .gluni-round-chip-divider {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--gluni-cyan) 48%, transparent) 50%,
+    transparent
+  );
+}
+html.gluni-theme--chronicle .gluni-round-chip-num {
+  color: #ffffff;
+  font-size: 18px;
+  letter-spacing: 0.02em;
+  text-shadow:
+    0 0 14px var(--gluni-glow),
+    0 0 30px var(--gluni-glowsoft);
+}
+
+/* 3) ROUND DIVIDERS — the inter-round separator becomes a soft glass capsule. */
+html.gluni-theme--chronicle .gluni-round-separator {
+  border: 1px solid color-mix(in srgb, var(--gluni-cyan) 24%, transparent);
+  border-radius: 99px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--gluni-cyan) 13%, transparent),
+    transparent
+  );
+  color: var(--gluni-text-dim);
+  letter-spacing: 0.12em;
+}
+html.gluni-theme--chronicle .gluni-round-separator strong {
+  color: var(--gluni-cyan);
+  text-shadow: 0 0 10px var(--gluni-glowsoft);
+}
+
+/* 4) ACTIVE TURN CARD — keep the chamfered silhouette but light it like glass:
+ *    a brighter cornflower accent edge, a gilded accent bar (holo a->b->c already
+ *    sweeps cornflower->ice->gold via the themed vars), and a slow breath glow. */
+html.gluni-theme--chronicle .gluni-card--active .gluni-card-accent {
+  box-shadow:
+    0 0 22px rgba(120, 150, 225, 0.6),
+    0 0 12px rgba(255, 196, 84, 0.4);
+}
+html.gluni-theme--chronicle .gluni-card--active .gluni-card-bracket {
+  border-top-color: var(--gluni-cyan);
+  border-left-color: var(--gluni-cyan);
+  filter: drop-shadow(0 0 6px var(--gluni-glowsoft));
+}
+html.gluni-theme--chronicle .gluni-initiative--left .gluni-card--active .gluni-card-bracket {
+  border-right-color: var(--gluni-cyan);
+}
+@keyframes gluni-chronicle-breathe {
+  0%, 100% {
+    box-shadow:
+      inset 0 0 0 1px rgba(107, 134, 214, 0.40),
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+      inset 0 0 30px rgba(0, 0, 0, 0.4),
+      0 18px 36px rgba(0, 0, 0, 0.62),
+      0 0 34px rgba(120, 150, 225, 0.20);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 1px rgba(107, 134, 214, 0.52),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+      inset 0 0 30px rgba(0, 0, 0, 0.4),
+      0 18px 36px rgba(0, 0, 0, 0.62),
+      0 0 52px rgba(120, 150, 225, 0.36);
+  }
+}
+/* Only breathe on a "clean" active card — the dying / guard-broken / hidden /
+ * mystery states paint their own surface box-shadow, which the animation would
+ * otherwise clobber. */
+html.gluni-theme--chronicle .gluni-card--active:not(.gluni-card--dying):not(.gluni-card--guard-broken):not(.gluni-card--gm-hidden):not(.gluni-card--gm-mystery):not(.gluni-card--gm-visible) .gluni-card-surface {
+  animation: gluni-chronicle-breathe 3.6s ease-in-out infinite;
+}
+
+/* 5) ROUND SPLASH (the round-counter reveal) — solid rounded glass plate with a
+ *    cornflower horizon rule, a white hero numeral, and a warm gold caption. */
+html.gluni-theme--chronicle .gluni-round-splash--show {
+  background:
+    radial-gradient(ellipse at 50% 50%, color-mix(in srgb, var(--gluni-cyan) 8%, transparent) 0%, transparent 40%),
+    radial-gradient(ellipse at 50% 50%, transparent 24%, rgba(4, 7, 12, 0.22) 58%, rgba(4, 7, 12, 0.5) 100%);
+}
+html.gluni-theme--chronicle .gluni-round-deck {
+  inset: -6px -16px;
+  border-radius: 16px;
+  -webkit-mask-image: none;
+  mask-image: none;
+  background: linear-gradient(
+    180deg,
+    rgba(22, 27, 37, 0.80),
+    rgba(8, 11, 17, 0.88) 54%,
+    rgba(8, 11, 17, 0.82)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px var(--gluni-line),
+    inset 0 0 44px var(--gluni-glowsoft),
+    0 26px 70px rgba(0, 0, 0, 0.6),
+    0 0 46px var(--gluni-glowsoft);
+}
+html.gluni-theme--chronicle .gluni-round-rule {
+  box-shadow: 0 0 22px var(--gluni-glow);
+}
+html.gluni-theme--chronicle .gluni-round-num {
+  color: #ffffff;
+  letter-spacing: 0.02em;
+  text-shadow:
+    0 0 26px var(--gluni-glow),
+    0 14px 42px rgba(0, 0, 0, 0.86);
+}
+html.gluni-theme--chronicle .gluni-round-sub span {
+  color: color-mix(in srgb, var(--gluni-break) 86%, var(--gluni-white));
+  text-shadow: 0 0 12px color-mix(in srgb, var(--gluni-break) 40%, transparent);
+}
+
+/* 6) BREAK SPLASH — same rounded-glass plate, kept in the gold "break" palette
+ *    so it stays consistent with the gold guard-break ring on the token. */
+html.gluni-theme--chronicle .gluni-break-deck {
+  inset: -6px -16px;
+  border-radius: 16px;
+  -webkit-mask-image: none;
+  mask-image: none;
+  background: linear-gradient(
+    180deg,
+    rgba(30, 22, 10, 0.78),
+    rgba(12, 9, 5, 0.88) 54%,
+    rgba(12, 9, 5, 0.82)
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--gluni-break-hot) 30%, rgba(255, 255, 255, 0.22)),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.66),
+    inset 0 0 0 1px color-mix(in srgb, var(--gluni-break) 24%, var(--gluni-line)),
+    inset 0 0 48px color-mix(in srgb, var(--gluni-break) 14%, transparent),
+    0 26px 74px rgba(0, 0, 0, 0.64),
+    0 0 50px color-mix(in srgb, var(--gluni-break) 26%, transparent);
+}
+
+/* Honour the OS reduced-motion preference for the looping active-card breath. */
+@media (prefers-reduced-motion: reduce) {
+  html.gluni-theme--chronicle .gluni-card--active .gluni-card-surface {
+    animation: none !important;
+  }
 }
 

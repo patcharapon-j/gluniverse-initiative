@@ -289,9 +289,10 @@ function registerSettings() {
     config: true,
     type: String,
     choices: {
-      [THEMES.scifi]:   localize("GLUNI.Settings.Theme.SciFi"),
-      [THEMES.core]:    localize("GLUNI.Settings.Theme.Core"),
-      [THEMES.fantasy]: localize("GLUNI.Settings.Theme.Fantasy")
+      [THEMES.scifi]:     localize("GLUNI.Settings.Theme.SciFi"),
+      [THEMES.core]:      localize("GLUNI.Settings.Theme.Core"),
+      [THEMES.fantasy]:   localize("GLUNI.Settings.Theme.Fantasy"),
+      [THEMES.chronicle]: localize("GLUNI.Settings.Theme.Chronicle")
     },
     default: DEFAULT_THEME,
     onChange: () => applyTheme()
