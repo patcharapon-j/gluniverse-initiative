@@ -1029,8 +1029,21 @@ class GLUniverseInitiativeOverlay {
 
     this.root = document.createElement("aside");
     this.root.id = "gluni-initiative";
-    this.root.setAttribute("aria-live", "polite");
+    // The rail is a labelled landmark, not a live region: it is rebuilt wholesale
+    // on every render, so making the whole element aria-live would spam screen
+    // readers with the entire card list on each tick. Turn/round changes are
+    // announced through a dedicated, atomic status region instead (see below).
+    this.root.setAttribute("aria-label", localize("GLUNI.A11y.OverlayLabel"));
     document.body.appendChild(this.root);
+
+    this.announcer = document.createElement("div");
+    this.announcer.id = "gluni-initiative-announcer";
+    this.announcer.className = "gluni-sr-only";
+    this.announcer.setAttribute("role", "status");
+    this.announcer.setAttribute("aria-live", "polite");
+    this.announcer.setAttribute("aria-atomic", "true");
+    document.body.appendChild(this.announcer);
+    this.lastAnnouncement = "";
 
     this.root.addEventListener("click", event => this.onClick(event));
     this.root.addEventListener("contextmenu", event => this.onContextMenu(event));
@@ -1266,6 +1279,7 @@ class GLUniverseInitiativeOverlay {
         this.lastMarkup = "";
       }
       this.lastRootClassName = this.root.className;
+      this.clearAnnouncement();
       tokenOverlays?.refresh();
       cardFX?.clear();
       return;
@@ -1347,6 +1361,34 @@ class GLUniverseInitiativeOverlay {
     tokenOverlays?.refresh();
     cardFX?.sync(this.root);
     this.animateGaugeChanges();
+    this.updateAnnouncement(combat);
+  }
+
+  // Announce the current round + active combatant to assistive tech through the
+  // dedicated status region. The active name is read back from the just-rendered
+  // DOM, so it automatically inherits the viewer's visibility rules (a mystery
+  // card already reads "Unknown"; a card hidden from this user is simply absent,
+  // in which case only the round is announced). De-duplicated so an unchanged
+  // turn never re-speaks on incidental re-renders.
+  updateAnnouncement(combat) {
+    if (!this.announcer) return;
+    const round = combat?.round ?? null;
+    if (round == null) { this.clearAnnouncement(); return; }
+    const activeName = this.root?.querySelector(".gluni-card--active h3")?.textContent?.trim() || "";
+    const text = activeName
+      ? formatLocalized("GLUNI.A11y.TurnAnnouncement", { round, name: activeName })
+      : formatLocalized("GLUNI.A11y.RoundAnnouncement", { round });
+    if (text && text !== this.lastAnnouncement) {
+      this.announcer.textContent = text;
+      this.lastAnnouncement = text;
+    }
+  }
+
+  clearAnnouncement() {
+    if (this.announcer && this.lastAnnouncement) {
+      this.announcer.textContent = "";
+      this.lastAnnouncement = "";
+    }
   }
 
   // The gauge markup is rebuilt on every render, so a plain CSS width transition

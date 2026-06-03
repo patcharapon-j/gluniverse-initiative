@@ -1,3 +1,30 @@
+/* ============================================================================
+ * Bundled default-theme typeface. The Sci-Fi and Core themes prefer Bahnschrift
+ * (a Windows-only system face); on macOS/Linux the cascade would otherwise fall
+ * through to a generic platform monospace, losing the tactical-HUD identity.
+ * JetBrains Mono is OFL and already named in --gluni-font-family, so bundling it
+ * here gives every player the same designed face (Bahnschrift still wins where
+ * installed). Two subsets mirror what Google Fonts serves.
+ * ==========================================================================*/
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../fonts/jetbrains-mono/JetBrainsMono-latin.woff2") format("woff2-variations"),
+       url("../fonts/jetbrains-mono/JetBrainsMono-latin.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../fonts/jetbrains-mono/JetBrainsMono-latin-ext.woff2") format("woff2-variations"),
+       url("../fonts/jetbrains-mono/JetBrainsMono-latin-ext.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 :root {
   --gluni-cyan:        #5eeaff;
   --gluni-white:       #f3fbff;
@@ -7,8 +34,9 @@
   --gluni-break:       #ffb12d;
   --gluni-break-hot:   #ffe070;
   --gluni-break-deep:  #ff6f1a;
-  --gluni-dying:       #b497ff;
-  --gluni-dying-hot:   #efd7ff;
+  --gluni-dying:       #cf85e0;          /* orchid — kept distinct from secret violet */
+  --gluni-dying-hot:   #f6d9fb;
+  --gluni-neutral:     #ffce6a;          /* neutral disposition reads amber, not white */
   --gluni-condition:     #54d6a6;
   --gluni-condition-hot: #c2ffe8;
   /* D&D 5e death saves — success green, failure red, calm stable teal. */
@@ -68,6 +96,23 @@
 
 .gluni-initiative--hidden {
   display: none;
+}
+
+/* Visually-hidden but screen-reader-available. Used by the turn/round status
+   region so assistive tech hears "Round N: X's turn" without the live region
+   occupying any visual space or intercepting pointer events. */
+.gluni-sr-only {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .gluni-initiative--left {
@@ -1691,7 +1736,7 @@
 }
 
 .gluni-card--neutral {
-  --gluni-accent: var(--gluni-white);
+  --gluni-accent: var(--gluni-neutral, var(--gluni-white));
 }
 
 .gluni-card--hostile {
@@ -2607,21 +2652,6 @@
     radial-gradient(120% 60% at 20% 0%, rgba(255, 255, 255, 0.10), transparent 50%);
 }
 
-/* HIGH fidelity: keep the glass a crisp plate — NO blur over the portrait (the actor
-   must read sharp). A faint saturate gives the glassy pop without softening the image. */
-.gluni-fidelity--high .gluni-card-glass {
-  backdrop-filter: saturate(1.1);
-  -webkit-backdrop-filter: saturate(1.1);
-}
-
-/* BALANCED: faked depth via an extra dark inset gradient instead of backdrop-filter. */
-.gluni-fidelity--balanced .gluni-card-glass {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0) 36%, rgba(0, 0, 0, 0.22) 100%),
-    radial-gradient(120% 60% at 20% 0%, rgba(255, 255, 255, 0.12), transparent 50%),
-    radial-gradient(140% 80% at 80% 110%, rgba(0, 0, 0, 0.30), transparent 55%);
-}
-
 /* Holographic drift — mockup `.v4 .card.is-active::after`, but as its own element so it
    stacks correctly UNDER nothing important and ABOVE status overlays. Hue from holo tokens. */
 .gluni-card-holo {
@@ -2793,55 +2823,6 @@
 .gluni-card-ghost--anticipate.gluni-card-ghost--left {
   transform: translateX(-8px) scale(1);
   transition: transform var(--gluni-beat-anticipation) var(--gluni-ease);
-}
-
-/* HIGH fidelity strike adds a real blur streak baked into the exit keyframes (already
-   blur(8px) in gluni-active-exit-*). BALANCED drops blur and leans on a duplicated trail
-   ghost (created by createOutgoingGhost when balanced). Gate the blur: */
-.gluni-fidelity--balanced .gluni-card-ghost--leave.gluni-card-ghost--left,
-.gluni-fidelity--balanced .gluni-card-ghost--leave.gluni-card-ghost--right {
-  filter: none;
-}
-
-.gluni-fidelity--balanced .gluni-card-ghost--leave.gluni-card-ghost--left {
-  animation-name: gluni-active-exit-left-noblur;
-}
-
-.gluni-fidelity--balanced .gluni-card-ghost--leave.gluni-card-ghost--right {
-  animation-name: gluni-active-exit-right-noblur;
-}
-
-@keyframes gluni-active-exit-left-noblur {
-  0%   { opacity: 1; transform: translateX(0) scale(1); }
-  100% { opacity: 0; transform: translateX(-88px) scale(0.86); }
-}
-
-@keyframes gluni-active-exit-right-noblur {
-  0%   { opacity: 1; transform: translateX(0) scale(1); }
-  100% { opacity: 0; transform: translateX(88px) scale(0.86); }
-}
-
-/* Trailing ghost clone (balanced) — fainter, lagged. */
-.gluni-card-ghost--trail {
-  opacity: 0.4;
-}
-
-/* REDUCED: no slam/shake/shockwave/holo animation; quick crossfade only. */
-.gluni-initiative--reduced .gluni-card--impact,
-.gluni-initiative--reduced .gluni-card--impact-settle .gluni-card-content,
-.gluni-initiative--reduced .gluni-card--impact-settle .gluni-initiative-badge,
-.gluni-initiative--reduced .gluni-card--impact-settle .gluni-card-portrait-wrap,
-.gluni-initiative--reduced .gluni-card--impact-settle .gluni-card-accent {
-  animation: none !important;
-}
-
-.gluni-initiative--reduced .gluni-card-shockwave {
-  display: none !important;
-}
-
-.gluni-initiative--reduced .gluni-card--active .gluni-card-holo {
-  animation: none;
-  opacity: 0.4;
 }
 
 /* =========================================================================
@@ -3024,20 +3005,6 @@
   mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
 }
 
-/* Real frosted glass on HIGH fidelity. */
-.gluni-round-splash.gluni-fidelity--high .gluni-round-deck {
-  backdrop-filter: blur(14px) saturate(1.4);
-  -webkit-backdrop-filter: blur(14px) saturate(1.4);
-}
-
-/* Faked layered-gradient glass on BALANCED fidelity (no backdrop-filter). */
-.gluni-round-splash.gluni-fidelity--balanced .gluni-round-deck {
-  background:
-    linear-gradient(125deg, rgba(255, 255, 255, 0.05), transparent 38%),
-    repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.018) 0 2px, transparent 2px 5px),
-    linear-gradient(180deg, rgba(12, 26, 34, 0.86), rgba(2, 6, 10, 0.92) 54%, rgba(2, 6, 10, 0.86));
-}
-
 .gluni-round-label {
   position: relative;
   display: grid;
@@ -3181,78 +3148,6 @@
 
 .gluni-round-splash--leave .gluni-round-label span:last-child {
   animation: gluni-splash-label-out 260ms var(--gluni-exit) forwards;
-}
-
-/* ============================================================
-   Motion tier - REDUCED
-   ============================================================ */
-
-.gluni-initiative--reduced .gluni-card {
-  transition-duration: 240ms;
-}
-
-.gluni-initiative--reduced .gluni-card-portrait,
-.gluni-initiative--reduced .gluni-card-mystery-mark {
-  transition-duration: 240ms;
-}
-
-.gluni-initiative--reduced .gluni-card--active-entering .gluni-card-sheen {
-  animation: none;
-  opacity: 0;
-}
-
-.gluni-initiative--reduced .gluni-card-ghost--leave.gluni-card-ghost--left {
-  animation: gluni-active-exit-left-reduced 320ms var(--gluni-exit) forwards;
-}
-
-.gluni-initiative--reduced .gluni-card-ghost--leave.gluni-card-ghost--right {
-  animation: gluni-active-exit-right-reduced 320ms var(--gluni-exit) forwards;
-}
-
-.gluni-initiative--reduced .gluni-item--entering-bottom {
-  animation: gluni-card-enter-bottom-reduced 200ms var(--gluni-ease) both;
-}
-
-.gluni-initiative--reduced .gluni-card:not(.gluni-card--active) .gluni-card-surface::after {
-  display: none;
-}
-
-.gluni-initiative--reduced .gluni-active-tag {
-  animation: none;
-}
-
-.gluni-round-splash--reduced .gluni-round-rule {
-  display: none;
-}
-
-.gluni-round-splash--reduced.gluni-round-splash--show .gluni-round-splash-inner {
-  animation: gluni-splash-reduced-in 320ms var(--gluni-ease) forwards;
-}
-
-.gluni-round-splash--reduced.gluni-round-splash--show .gluni-round-num .d {
-  animation: none;
-  opacity: 1;
-  filter: brightness(1);
-}
-
-.gluni-round-splash--reduced.gluni-round-splash--show .gluni-round-label .tick {
-  width: 14px;
-  animation: none;
-}
-
-.gluni-round-splash--reduced.gluni-round-splash--show .gluni-round-label span:last-child,
-.gluni-round-splash--reduced.gluni-round-splash--show .gluni-round-sub span {
-  opacity: 0.4;
-  animation: none;
-}
-
-.gluni-round-splash--reduced.gluni-round-splash--leave .gluni-round-splash-inner {
-  animation: gluni-splash-deck-out 200ms var(--gluni-exit) forwards;
-}
-
-.gluni-round-splash--reduced.gluni-round-splash--leave .gluni-round-num .d,
-.gluni-round-splash--reduced.gluni-round-splash--leave .gluni-round-rule {
-  animation: none;
 }
 
 /* ============================================================
@@ -3533,18 +3428,6 @@
   mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
 }
 
-.gluni-break-splash.gluni-fidelity--high .gluni-break-deck {
-  backdrop-filter: blur(15px) saturate(1.55);
-  -webkit-backdrop-filter: blur(15px) saturate(1.55);
-}
-
-.gluni-break-splash.gluni-fidelity--balanced .gluni-break-deck {
-  background:
-    linear-gradient(125deg, rgba(255, 224, 160, 0.06), transparent 40%),
-    repeating-linear-gradient(115deg, rgba(255, 224, 160, 0.022) 0 2px, transparent 2px 5px),
-    linear-gradient(180deg, rgba(34, 20, 7, 0.86), rgba(8, 5, 2, 0.92) 54%, rgba(8, 5, 2, 0.86));
-}
-
 .gluni-break-splash-label {
   position: relative;
   display: grid;
@@ -3716,43 +3599,6 @@
 
 .gluni-break-splash--leave .gluni-break-splash-label span:last-child {
   animation: gluni-break-label-out 280ms var(--gluni-exit) forwards;
-}
-
-/* Reduced tier */
-
-.gluni-break-splash--reduced .gluni-break-splash-rule,
-.gluni-break-splash--reduced .gluni-break-splash-burst {
-  display: none;
-}
-
-.gluni-break-splash--reduced.gluni-break-splash--show .gluni-break-splash-inner {
-  animation: gluni-splash-reduced-in 280ms var(--gluni-ease) forwards;
-}
-
-.gluni-break-splash--reduced.gluni-break-splash--show .gluni-break-splash-text .d {
-  animation: none;
-  opacity: 1;
-  filter: brightness(1);
-  transform: none;
-}
-
-.gluni-break-splash--reduced.gluni-break-splash--show .gluni-break-splash-label .tick {
-  width: 16px;
-  animation: none;
-}
-
-.gluni-break-splash--reduced.gluni-break-splash--show .gluni-break-splash-label span:last-child,
-.gluni-break-splash--reduced.gluni-break-splash--show .gluni-break-splash-name span {
-  opacity: 0.48;
-  animation: none;
-}
-
-.gluni-break-splash--reduced.gluni-break-splash--leave .gluni-break-splash-inner {
-  animation: gluni-break-deck-out 220ms var(--gluni-exit) forwards;
-}
-
-.gluni-break-splash--reduced.gluni-break-splash--leave .gluni-break-splash-text .d {
-  animation: none;
 }
 
 /* Cinematic tier */
@@ -4293,18 +4139,6 @@
   transform: translateX(-100px);
   opacity: 0;
   filter: blur(5px);
-}
-
-.gluni-status-slide-ghost--reduced.gluni-status-slide-ghost--go-right {
-  transition-duration: 200ms;
-  transform: translateX(60px);
-  filter: blur(2px);
-}
-
-.gluni-status-slide-ghost--reduced.gluni-status-slide-ghost--go-left {
-  transition-duration: 200ms;
-  transform: translateX(-60px);
-  filter: blur(2px);
 }
 
 .gluni-status-slide-ghost--cinematic.gluni-status-slide-ghost--go-right {
@@ -4994,51 +4828,6 @@
   100% { opacity: 0; }
 }
 
-@keyframes gluni-active-exit-left-reduced {
-  0% { opacity: 1; transform: translateX(0) scale(1); filter: blur(0); }
-  100% { opacity: 0; transform: translateX(-56px) scale(0.92); filter: blur(2px); }
-}
-
-@keyframes gluni-active-exit-right-reduced {
-  0% { opacity: 1; transform: translateX(0) scale(1); filter: blur(0); }
-  100% { opacity: 0; transform: translateX(56px) scale(0.92); filter: blur(2px); }
-}
-
-@keyframes gluni-card-enter-bottom-reduced {
-  from {
-    opacity: 0;
-    transform:
-      translate(var(--gluni-flip-x), var(--gluni-flip-y))
-      translateY(6px)
-      translateX(var(--gluni-active-shift))
-      scaleX(var(--gluni-flip-scale-x))
-      scaleY(var(--gluni-flip-scale-y))
-      scale(0.99);
-  }
-  to {
-    opacity: 1;
-    transform:
-      translate(0, 0)
-      translateX(var(--gluni-active-shift))
-      scaleX(1)
-      scaleY(1)
-      scale(var(--gluni-card-scale));
-  }
-}
-
-@keyframes gluni-splash-reduced-in {
-  0% {
-    opacity: 0;
-    transform: scale(0.98);
-    filter: blur(6px);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-    filter: blur(0);
-  }
-}
-
 @keyframes gluni-card-sheen-flare {
   0% { opacity: 0; }
   18% { opacity: 1; }
@@ -5512,11 +5301,6 @@
   animation: gluni-splash-rule-glint 540ms var(--gluni-ease) 220ms forwards;
 }
 
-.gluni-round-splash--reduced .gluni-round-rule::before {
-  animation: none;
-  opacity: 0;
-}
-
 @keyframes gluni-splash-rule-glint {
   0% { opacity: 0; transform: translateX(-160%); }
   16% { opacity: 0.9; }
@@ -5556,35 +5340,6 @@
   64% { translate: 4px -2px; }
   82% { translate: -2px 1px; }
   100% { translate: 0 0; scale: 1; }
-}
-
-/* HIGH-fidelity deck gets a faint moving spec highlight on the bevel for "real glass" sheen.
-   Balanced fidelity skips it (transform/opacity only elsewhere). */
-.gluni-round-splash.gluni-fidelity--high .gluni-round-deck::after,
-.gluni-break-splash.gluni-fidelity--high .gluni-break-deck::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(
-    100deg,
-    transparent 30%,
-    rgba(255, 255, 255, 0.06) 48%,
-    transparent 60%
-  );
-  opacity: 0;
-}
-
-.gluni-round-splash.gluni-fidelity--high.gluni-round-splash--show .gluni-round-deck::after,
-.gluni-break-splash.gluni-fidelity--high.gluni-break-splash--show .gluni-break-deck::after {
-  animation: gluni-splash-glass-spec 720ms var(--gluni-ease) 180ms forwards;
-}
-
-@keyframes gluni-splash-glass-spec {
-  0% { opacity: 0; transform: translateX(-22%); }
-  30% { opacity: 1; }
-  100% { opacity: 0; transform: translateX(22%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -6606,8 +6361,9 @@ html.gluni-theme--core {
   --gluni-break:       #e89a3a;
   --gluni-break-hot:   #ffd29a;
   --gluni-break-deep:  #b87024;
-  --gluni-dying:       #9a7cc4;
-  --gluni-dying-hot:   #dccff0;
+  --gluni-dying:       #b074bf;
+  --gluni-dying-hot:   #ecd0f0;
+  --gluni-neutral:     var(--gluni-white);  /* amber slot already taken by accent */
   --gluni-condition:     #5fb472;
   --gluni-condition-hot: #b1e0bd;
   --gluni-save-success:     #5fb472;
@@ -6700,8 +6456,9 @@ html.gluni-theme--fantasy {
   --gluni-break:       #c47438;
   --gluni-break-hot:   #f4d27a;
   --gluni-break-deep:  #8a4a1f;
-  --gluni-dying:       #7b5fb0;
-  --gluni-dying-hot:   #c4b1e2;
+  --gluni-neutral:     var(--gluni-white);  /* gold accent owns amber; neutral stays ivory */
+  --gluni-dying:       #9a4f96;
+  --gluni-dying-hot:   #d8a8cf;
   --gluni-condition:     #4f8a55;
   --gluni-condition-hot: #9fc8a6;
   --gluni-save-success:     #4f8a55;
@@ -6786,8 +6543,9 @@ html.gluni-theme--chronicle {
   --gluni-break:       #ffc454;            /* companion gold (clock/event fill) */
   --gluni-break-hot:   #ffe6b5;
   --gluni-break-deep:  #e0964a;
-  --gluni-dying:       #9a8ce0;
-  --gluni-dying-hot:   #d6cdf5;
+  --gluni-dying:       #b57fd6;
+  --gluni-dying-hot:   #e6c8f0;
+  --gluni-neutral:     var(--gluni-white);  /* cool HUD; gold is the highlight, neutral stays ivory */
   --gluni-condition:     #67d39b;
   --gluni-condition-hot: #a8ecc8;
   --gluni-save-success:     #67d39b;
@@ -7063,6 +6821,33 @@ html.gluni-theme--chronicle .gluni-break-deck {
 @media (prefers-reduced-motion: reduce) {
   html.gluni-theme--chronicle .gluni-card--active .gluni-card-surface {
     animation: none !important;
+  }
+}
+
+/* ============================================================================
+ * Accessibility: high-contrast / reduced-transparency accommodation.
+ * The overlay leans on frosted glass and very low-alpha hairlines for its look;
+ * users who ask the OS for more contrast or less transparency get firmer borders,
+ * brighter secondary text, and the backdrop blur dropped so type sits on solid
+ * surfaces. !important is used deliberately so these win over per-theme paint.
+ * ==========================================================================*/
+@media (prefers-contrast: more), (prefers-reduced-transparency: reduce) {
+  :root {
+    --gluni-line:        rgba(244, 252, 255, 0.5) !important;
+    --gluni-line-strong: rgba(244, 252, 255, 0.8) !important;
+    --gluni-text-dim:    rgba(243, 251, 255, 0.86) !important;
+  }
+  /* Drop the glass blur so the big splash type and card chrome read on a solid
+     backdrop rather than a translucent, low-contrast one. */
+  .gluni-card-glass,
+  .gluni-round-deck,
+  .gluni-break-deck {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .gluni-round-deck,
+  .gluni-break-deck {
+    background-color: rgba(2, 7, 11, 0.92) !important;
   }
 }
 

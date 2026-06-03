@@ -33,7 +33,7 @@ export const PALETTES = Object.freeze({
     tokenOverlay: Object.freeze({
       delayed: 0x4aa3ff, delayedHi: 0x9ad8ff,
       broken: 0xffb12d, brokenHot: 0xffe070, brokenDeep: 0xff6f1a,
-      dying: 0xb497ff, dyingHot: 0xefd7ff, dyingDeep: 0x6a3fb0,
+      dying: 0xcf85e0, dyingHot: 0xf6d9fb, dyingDeep: 0x842f9e,
       saveSuccess: 0x57e08b, saveSuccessHot: 0xb6ffd0,
       saveFailure: 0xff5d6c, saveFailureHot: 0xffc0c6,
       stable: 0x4ad9c0, stableHot: 0xb6fff2,
@@ -43,12 +43,12 @@ export const PALETTES = Object.freeze({
     disposition: Object.freeze({
       friendly: Object.freeze({ base: 0x5eeaff, hi: 0xb9f7ff }),
       hostile:  Object.freeze({ base: 0xff335f, hi: 0xff8aa3 }),
-      neutral:  Object.freeze({ base: 0xf3fbff, hi: 0xffffff }),
+      neutral:  Object.freeze({ base: 0xffce6a, hi: 0xffe6b0 }),
       secret:   Object.freeze({ base: 0xb497ff, hi: 0xe0d4ff })
     }),
     shader: Object.freeze({
-      veinBase:   Object.freeze([0.71, 0.59, 1.0]),   // FX_FRAG_DYING violet
-      veinHot:    Object.freeze([0.94, 0.84, 1.0]),
+      veinBase:   Object.freeze([0.812, 0.522, 0.878]),   // FX_FRAG_DYING orchid (distinct from secret)
+      veinHot:    Object.freeze([0.965, 0.851, 0.984]),
       mysteryA:   Object.freeze([0.71, 0.59, 1.0]),   // FX_FRAG_SCRAMBLE violet
       mysteryB:   Object.freeze([0.37, 0.92, 1.0]),   // FX_FRAG_SCRAMBLE cyan
       delayBase:  Object.freeze([0.29, 0.64, 1.0]),   // FX_FRAG_DELAY blue
@@ -63,7 +63,7 @@ export const PALETTES = Object.freeze({
     tokenOverlay: Object.freeze({
       delayed: 0x6fa3c8, delayedHi: 0xa9c8de,
       broken: 0xe89a3a, brokenHot: 0xffd29a, brokenDeep: 0xb87024,
-      dying: 0x9a7cc4, dyingHot: 0xdccff0, dyingDeep: 0x6a4f9a,
+      dying: 0xb074bf, dyingHot: 0xecd0f0, dyingDeep: 0x7a4f8a,
       saveSuccess: 0x5fb472, saveSuccessHot: 0xb1e0bd,
       saveFailure: 0xd8484a, saveFailureHot: 0xf2a0a2,
       stable: 0x4ad9c0, stableHot: 0xb6fff2,
@@ -77,8 +77,8 @@ export const PALETTES = Object.freeze({
       secret:   Object.freeze({ base: 0xa48cc9, hi: 0xd6c8ec })
     }),
     shader: Object.freeze({
-      veinBase:   Object.freeze([0.64, 0.55, 0.79]),   // muted lavender
-      veinHot:    Object.freeze([0.86, 0.81, 0.94]),
+      veinBase:   Object.freeze([0.690, 0.455, 0.749]),   // muted orchid (distinct from secret)
+      veinHot:    Object.freeze([0.925, 0.816, 0.941]),
       mysteryA:   Object.freeze([0.64, 0.55, 0.79]),   // muted lavender
       mysteryB:   Object.freeze([0.49, 0.77, 0.83]),   // slate cyan
       delayBase:  Object.freeze([0.44, 0.64, 0.78]),
@@ -93,7 +93,7 @@ export const PALETTES = Object.freeze({
     tokenOverlay: Object.freeze({
       delayed: 0x5a7fa3, delayedHi: 0x9ab0c8,
       broken: 0xc47438, brokenHot: 0xf4d27a, brokenDeep: 0x8a4a1f,
-      dying: 0x7b5fb0, dyingHot: 0xc4b1e2, dyingDeep: 0x4a3470,
+      dying: 0x9a4f96, dyingHot: 0xd8a8cf, dyingDeep: 0x5a2f55,
       saveSuccess: 0x4f8a55, saveSuccessHot: 0x9fc8a6,
       saveFailure: 0xb03a3a, saveFailureHot: 0xe48b8b,
       stable: 0x4ad9c0, stableHot: 0xb6fff2,
@@ -126,7 +126,7 @@ export const PALETTES = Object.freeze({
     tokenOverlay: Object.freeze({
       delayed: 0x5a78c8, delayedHi: 0x9fb2e6,
       broken: 0xffc454, brokenHot: 0xffe6b5, brokenDeep: 0xe0964a,
-      dying: 0x9a8ce0, dyingHot: 0xd6cdf5, dyingDeep: 0x5f4fa0,
+      dying: 0xb57fd6, dyingHot: 0xe6c8f0, dyingDeep: 0x6f4f90,
       saveSuccess: 0x67d39b, saveSuccessHot: 0xa8ecc8,
       saveFailure: 0xe0584f, saveFailureHot: 0xff9a8f,
       stable: 0x4ad9c0, stableHot: 0xb6fff2,
@@ -140,8 +140,8 @@ export const PALETTES = Object.freeze({
       secret:   Object.freeze({ base: 0x9a8ce0, hi: 0xd6cdf5 })
     }),
     shader: Object.freeze({
-      veinBase:   Object.freeze([0.604, 0.549, 0.878]),  // indigo dying veins
-      veinHot:    Object.freeze([0.839, 0.804, 0.961]),
+      veinBase:   Object.freeze([0.710, 0.498, 0.839]),  // orchid dying veins (distinct from secret)
+      veinHot:    Object.freeze([0.902, 0.784, 0.941]),
       mysteryA:   Object.freeze([0.420, 0.525, 0.839]),  // cornflower blue
       mysteryB:   Object.freeze([1.0, 0.769, 0.329]),    // gold scramble counterpoint
       delayBase:  Object.freeze([0.353, 0.471, 0.784]),  // steel blue
@@ -239,6 +239,9 @@ export const PF2E_GUARD_BREAK_EFFECT_SLUG = "gluni-guard-break";
 export const PF2E_GUARD_BREAK_PENALTY = 2;
 
 export const LOCALIZATION_FALLBACKS = Object.freeze({
+  "GLUNI.A11y.OverlayLabel": "Initiative order",
+  "GLUNI.A11y.RoundAnnouncement": "Round {round}",
+  "GLUNI.A11y.TurnAnnouncement": "Round {round}: {name}'s turn",
   "GLUNI.Settings.Edge.Hint": "Choose which screen edge the initiative rail anchors to.",
   "GLUNI.Settings.Edge.Left": "Left",
   "GLUNI.Settings.Edge.Name": "Tracker edge",
