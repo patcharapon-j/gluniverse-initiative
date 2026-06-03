@@ -142,5 +142,8 @@
   "GLUNI.DeathSaves": "Death Saves",
   "GLUNI.DeathSaves.Stable": "Stable",
   "GLUNI.DeathSaves.Success.Aria": "Death save successes {value} of {max}",
-  "GLUNI.DeathSaves.Failure.Aria": "Death save failures {value} of {max}"
+  "GLUNI.DeathSaves.Failure.Aria": "Death save failures {value} of {max}",
+  "GLUNI.A11y.OverlayLabel": "Initiative order",
+  "GLUNI.A11y.TurnAnnouncement": "Round {round}: {name}'s turn",
+  "GLUNI.A11y.RoundAnnouncement": "Round {round}"
 }
