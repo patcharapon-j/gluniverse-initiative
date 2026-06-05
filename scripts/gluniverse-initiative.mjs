@@ -4518,7 +4518,7 @@ function addPortraitHeaderControl(app, controls) {
   controls.unshift({
     action: "gluni-portrait-frame",
     icon: "fa-solid fa-crop-simple",
-    label: "GLUNI.PortraitConfig.Button",
+    label: localize("GLUNI.PortraitConfig.Button"),
     onClick: event => {
       event?.preventDefault?.();
       openPortraitConfigDialog(actor);
@@ -4593,7 +4593,7 @@ function addCardConfigHeaderControl(app, controls) {
   controls.unshift({
     action: "gluni-card-config",
     icon: "fa-solid fa-clone",
-    label: "GLUNI.Card.Config.Button",
+    label: localize("GLUNI.Card.Config.Button"),
     onClick: event => {
       event?.preventDefault?.();
       openCardConfigDialog(actor);
