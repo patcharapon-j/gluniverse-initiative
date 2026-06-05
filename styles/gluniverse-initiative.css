@@ -2417,6 +2417,30 @@
   min-height: 70px;
 }
 
+/* Side placement — the delayed cards become a column anchored to the tracker's
+   screen-edge side (opposite the condition badges, which jut toward the screen
+   centre). Absolutely positioned out of the shell's grid so it sits beside the
+   rail instead of stacking beneath it; the rail keeps its natural height. The
+   classic below-the-rail layout stays available via the Delayed card placement
+   setting (no .gluni-initiative--delayed-side class). */
+.gluni-initiative--delayed-side .gluni-delayed-section {
+  position: absolute;
+  top: 32px;
+  width: 100%;
+  padding-top: 0;
+  z-index: 6;
+}
+
+.gluni-initiative--delayed-side.gluni-initiative--right .gluni-delayed-section {
+  left: calc(100% + 8px);
+  right: auto;
+}
+
+.gluni-initiative--delayed-side.gluni-initiative--left .gluni-delayed-section {
+  right: calc(100% + 8px);
+  left: auto;
+}
+
 .gluni-item--entering {
   animation: gluni-card-enter var(--gluni-d-card) var(--gluni-snap) both;
 }

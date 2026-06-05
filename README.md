@@ -16,8 +16,8 @@ https://github.com/patcharapon-j/gluniverse-initiative/releases/latest/download/
 - Smooth initiative transitions, round-wrap continuity, and a polished round splash.
 - Player-safe GM controls for visibility, mystery state, delay, return, and turn advancement.
 - GM ad hoc initiative cards for hazards, environmental effects, abstract NPC turns, and other initiative-count triggers, with persistent and one-shot round modes.
-- PF2e-friendly Delay handling with delayed combatants grouped below the main turn rail.
-- Per-user overlay settings for edge placement, visible combatant count, UI scale, and defeated combatant visibility. Animation and visual fidelity run at a single, fully cinematic best-quality tier (no quality toggles), while respecting the operating system's reduced-motion preference.
+- PF2e-friendly Delay handling with delayed combatants shown either beside the rail (a column on the tracker's screen-edge side, opposite the condition badges) or grouped below it.
+- Per-user overlay settings for edge placement, visible combatant count (or a "show all combatants" mode that always lists everyone, including ad hoc cards), delayed-card placement, UI scale, and defeated combatant visibility. Animation and visual fidelity run at a single, fully cinematic best-quality tier (no quality toggles), while respecting the operating system's reduced-motion preference.
 - Actor portrait framing controls for normal and active initiative cards.
 - Two initiative modes: **Standard** (rolled initiative) and **Card**, where each round the combatants' cards are shuffled and dealt to set the turn order, with FLIP turn animation, per-actor deck advantage (more cards = more likely to act early), multi-turn bosses, and an active-creature **swap** action that forces another combatant to act now.
 
