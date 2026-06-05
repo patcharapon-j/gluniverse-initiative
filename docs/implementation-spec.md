@@ -85,7 +85,7 @@ Visibility must not leak hidden actors through Delay state or round wrapping.
 Delay is a special initiative state outside the normal loop.
 
 - Delayed combatants do not count against the configured normal visible combatant limit.
-- Delayed combatants appear in a compact delayed section attached below the rail.
+- Delayed combatants appear in a compact delayed section. Its placement is configurable (`delayedPlacement`): `side` (default) anchors it as a column on the tracker's screen-edge side — opposite the condition badges, which jut toward the screen centre — and `bottom` keeps the classic section stacked beneath the rail.
 - A combatant that delays should animate/shrink from the active card area into the delayed section.
 - A combatant that re-enters initiative should slide/highlight back into the active slot.
 - The module should auto-detect known PF2e delay flags when available.
@@ -107,6 +107,8 @@ World settings:
 
 - Edge: `left` or `right`.
 - Visible combatants: number, default 5.
+- Show all combatants: boolean, default off. When on, the overlay lists every combatant in the order (one full cycle of the turn order, including ad hoc cards) instead of a fixed window, and the visible-combatants count is ignored. One-shot ad hoc entries still only surface on their scheduled round.
+- Delayed card placement: `side` (default) or `bottom` (see PF2e Delay Handling).
 - Animation intensity: `reduced`, `default`, or `cinematic`.
 - Defeated combatants: hide or show.
 - Overlay position: world-synced `{ x, y }`.

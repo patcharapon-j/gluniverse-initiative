@@ -169,6 +169,30 @@ function registerSettings() {
     onChange: rerender
   });
 
+  game.settings.register(MODULE_ID, SETTINGS.showAllCombatants, {
+    name: localize("GLUNI.Settings.ShowAllCombatants.Name"),
+    hint: localize("GLUNI.Settings.ShowAllCombatants.Hint"),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    onChange: rerender
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.delayedPlacement, {
+    name: localize("GLUNI.Settings.DelayedPlacement.Name"),
+    hint: localize("GLUNI.Settings.DelayedPlacement.Hint"),
+    scope: "world",
+    config: true,
+    type: String,
+    choices: {
+      bottom: localize("GLUNI.Settings.DelayedPlacement.Bottom"),
+      side: localize("GLUNI.Settings.DelayedPlacement.Side")
+    },
+    default: "side",
+    onChange: rerender
+  });
+
   game.settings.register(MODULE_ID, SETTINGS.showDefeated, {
     name: localize("GLUNI.Settings.ShowDefeated.Name"),
     hint: localize("GLUNI.Settings.ShowDefeated.Hint"),
@@ -1312,6 +1336,7 @@ class GLUniverseInitiativeOverlay {
       `gluni-initiative--${settings.edge}`,
       settings.isGM ? "gluni-initiative--gm" : "gluni-initiative--player",
       isCardView ? "gluni-initiative--card-mode" : "",
+      settings.delayedPlacement === "side" ? "gluni-initiative--delayed-side" : "",
       isTurnChange ? "gluni-initiative--turn-change" : "",
       isDelayReturn ? "gluni-initiative--delay-return" : ""
     ].filter(Boolean).join(" ");
@@ -1439,6 +1464,8 @@ class GLUniverseInitiativeOverlay {
     return {
       edge: game.settings.get(MODULE_ID, SETTINGS.edge) || "right",
       visibleCount,
+      showAll: Boolean(game.settings.get(MODULE_ID, SETTINGS.showAllCombatants)),
+      delayedPlacement: game.settings.get(MODULE_ID, SETTINGS.delayedPlacement) || "side",
       uiScale,
       mode: getInitiativeMode(),
       showDefeated: Boolean(game.settings.get(MODULE_ID, SETTINGS.showDefeated)),
@@ -1523,9 +1550,17 @@ class GLUniverseInitiativeOverlay {
     let added = 0;
     const insertedRoundOffsets = new Set();
     let guard = 0;
-    const maxScannedTurns = turns.length * Math.max(settings.visibleCount * 2, 4);
+    // "Show all" walks exactly one full cycle of the turn order so every combatant
+    // appears once (those who already acted wrap into the next round with a
+    // separator); one-shot ad hoc cards self-filter via shouldShowAdhocOnRound, so
+    // a one-shot that already fired this round simply drops out of the next-round
+    // wrap. Otherwise we cap at the configured visible count.
+    const targetCount = settings.showAll ? Infinity : settings.visibleCount;
+    const maxScannedTurns = settings.showAll
+      ? turns.length
+      : turns.length * Math.max(settings.visibleCount * 2, 4);
 
-    while (added < settings.visibleCount && guard < maxScannedTurns) {
+    while (added < targetCount && guard < maxScannedTurns) {
       const absoluteIndex = currentTurn + guard;
       const turnIndex = modulo(absoluteIndex, turns.length);
       const state = states[turnIndex];
@@ -1592,8 +1627,10 @@ class GLUniverseInitiativeOverlay {
     const ALERT_EXPAND_CAP = 2;
     let alertExpands = 0;
 
+    // Show all reveals the whole remaining deal instead of a fixed window.
+    const cardLimit = settings.showAll ? sequence.length : settings.visibleCount;
     let added = 0;
-    for (let index = pointer; index < sequence.length && added < settings.visibleCount; index++) {
+    for (let index = pointer; index < sequence.length && added < cardLimit; index++) {
       const slot = sequence[index];
       const combatant = combat.combatants?.get(slot.cid);
       if (!combatant) continue;
@@ -1631,7 +1668,7 @@ class GLUniverseInitiativeOverlay {
       added += 1;
     }
 
-    if (added < settings.visibleCount && normal.length) {
+    if (!settings.showAll && added < settings.visibleCount && normal.length) {
       normal.push({
         type: "separator",
         key: `separator:cardnext:${dealRound}`,
