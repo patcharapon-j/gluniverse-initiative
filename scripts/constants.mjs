@@ -492,7 +492,9 @@ export const PORTRAIT_FRAME_DEFAULTS = Object.freeze({
   expanded: Object.freeze({ x: 55, y: 12, scale: 1.2 })
 });
 export const PORTRAIT_FRAME_LIMITS = Object.freeze({
-  x: Object.freeze({ min: -100, max: 200 }),
-  y: Object.freeze({ min: -100, max: 200 }),
-  scale: Object.freeze({ min: 0.5, max: 3 })
+  // Position is intentionally free-form: the range runs well past the portrait's
+  // own edges so a frame can be pushed fully out of view in any direction.
+  x: Object.freeze({ min: -200, max: 300 }),
+  y: Object.freeze({ min: -200, max: 300 }),
+  scale: Object.freeze({ min: 0.25, max: 6 })
 });

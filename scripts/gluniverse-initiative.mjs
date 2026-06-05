@@ -1267,7 +1267,12 @@ class GLUniverseInitiativeOverlay {
     this.renderTimer = null;
 
     const combat = this.combat;
-    const hasActiveCombat = Boolean(combat?.started && combat.combatants?.size);
+    // GMs get the tracker the moment a combat has any combatants — before the
+    // encounter starts — so they can stage rail placement and per-combatant
+    // visibility (hide/mystery) privately. Players only ever see it once combat
+    // has actually started.
+    const hasCombatants = Boolean(combat?.combatants?.size);
+    const hasActiveCombat = hasCombatants && (Boolean(combat?.started) || game.user.isGM);
 
     if (!this.enabled || !hasActiveCombat) {
       this.finishCardDrag();
@@ -1493,7 +1498,12 @@ class GLUniverseInitiativeOverlay {
     if (!turns.length) return { normal, delayed, activeId: null, activeKey: null };
 
     const currentTurn = Number.isInteger(combat.turn) ? combat.turn : 0;
-    const activeId = combat.combatant?.id ?? turns[currentTurn]?.id ?? null;
+    // Before combat starts the overlay is a GM-only staging roster, so nothing is
+    // "active" yet — leaving activeId null keeps every card in its resting state
+    // (no expanded turn card, no floating turn controls).
+    const activeId = combat.started
+      ? (combat.combatant?.id ?? turns[currentTurn]?.id ?? null)
+      : null;
     const currentRound = combat.round ?? 1;
 
     for (const state of states) {
@@ -4733,10 +4743,12 @@ function openPortraitConfigDialog(actor) {
           overlay?.broadcastRefresh();
         }
       }
-    ],
-    render: (event, dlg) => activatePortraitConfigDialog(dlg ?? dialog)
+    ]
   });
-  dialog.render({ force: true });
+  // DialogV2 only honours a `render` option for its static confirm/prompt/wait
+  // helpers — a directly-constructed instance never calls it. Attach the live
+  // preview listeners once the render promise resolves and the DOM exists.
+  dialog.render({ force: true }).then(() => activatePortraitConfigDialog(dialog.element));
 }
 
 function renderPortraitConfigDialog(actor, frame, portrait) {
@@ -4837,7 +4849,8 @@ function activatePortraitConfigDialog(html) {
     }, { passive: false });
 
     preview.addEventListener("pointerdown", event => {
-      if (event.button !== 2) return;
+      // Primary-button drag pans the frame freely in any direction.
+      if (event.button !== 0) return;
       event.preventDefault();
       const mode = preview.dataset.framePreview;
       const startRect = preview.getBoundingClientRect();
@@ -4899,10 +4912,11 @@ function openAdhocInitiativeDialog({ combat, onCreate }) {
           await onCreate(data);
         }
       }
-    ],
-    render: (event, dlg) => activateAdhocInitiativeDialog(dlg ?? dialog)
+    ]
   });
-  dialog.render({ force: true });
+  // See openPortraitConfigDialog: the `render` option is ignored for a
+  // directly-constructed DialogV2, so wire listeners off the render promise.
+  dialog.render({ force: true }).then(() => activateAdhocInitiativeDialog(dialog.element));
 }
 
 function getAdhocDialogDefaults(combat) {
