@@ -2688,6 +2688,26 @@
   z-index: 8;
   pointer-events: none;
   opacity: 0;
+  overflow: hidden;
+  mix-blend-mode: screen;
+  -webkit-mask-image: radial-gradient(150% 78% at 50% 0%, #000 0%, rgba(0, 0, 0, 0.22) 46%, transparent 72%);
+  mask-image: radial-gradient(150% 78% at 50% 0%, #000 0%, rgba(0, 0, 0, 0.22) 46%, transparent 72%);
+}
+
+/* The drifting gradient lives on an oversized child strip translated on the
+   compositor. Animating background-position instead would repaint the masked,
+   screen-blended card layer every frame for the whole fight — the single biggest
+   steady-state paint cost of the overlay. Geometry matches the old background
+   exactly: the gradient tile is 240% of the card (background-size 50% of the 480%
+   strip) and one cycle slides it 3.36 card-widths (70% of the strip), the same
+   offset the old 0% -> 240% background-position sweep covered. */
+.gluni-card-holo::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 480%;
+  height: 100%;
   background:
     linear-gradient(
       115deg,
@@ -2697,19 +2717,20 @@
       color-mix(in srgb, var(--gluni-holo-c) 24%, transparent) 60%,
       color-mix(in srgb, var(--gluni-holo-a) 0%, transparent) 80%
     );
-  background-size: 240% 100%;
-  background-position: 0% 0%;
-  mix-blend-mode: screen;
-  -webkit-mask-image: radial-gradient(150% 78% at 50% 0%, #000 0%, rgba(0, 0, 0, 0.22) 46%, transparent 72%);
-  mask-image: radial-gradient(150% 78% at 50% 0%, #000 0%, rgba(0, 0, 0, 0.22) 46%, transparent 72%);
+  background-size: 50% 100%;
+  background-repeat: repeat-x;
 }
 
 .gluni-card--active .gluni-card-holo {
   opacity: 0.5;
-  animation: gluni-holo-drift 5s linear infinite;
 }
 
-.gluni-initiative--left .gluni-card--active .gluni-card-holo {
+.gluni-card--active .gluni-card-holo::before {
+  animation: gluni-holo-drift 5s linear infinite;
+  will-change: transform;
+}
+
+.gluni-initiative--left .gluni-card--active .gluni-card-holo::before {
   animation-name: gluni-holo-drift-left;
 }
 
@@ -2719,13 +2740,13 @@
 }
 
 @keyframes gluni-holo-drift {
-  0%   { background-position:   0% 0%; }
-  100% { background-position: 240% 0%; }
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-70%); }
 }
 
 @keyframes gluni-holo-drift-left {
-  0%   { background-position: 240% 0%; }
-  100% { background-position:   0% 0%; }
+  0%   { transform: translateX(-70%); }
+  100% { transform: translateX(0); }
 }
 
 /* Status overlays sit UNDER shimmer + dimmed when active so the shimmer reads. */
@@ -5415,6 +5436,7 @@
   .gluni-dying-tag,
   .gluni-card--active .gluni-card-surface::after,
   .gluni-card-holo,
+  .gluni-card-holo::before,
   .gluni-card-shockwave,
   .gluni-card--impact,
   .gluni-card--impact-settle .gluni-card-content,
