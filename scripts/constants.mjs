@@ -44,7 +44,7 @@ export const PALETTES = Object.freeze({
     }),
     disposition: Object.freeze({
       friendly: Object.freeze({ base: 0x5eeaff, hi: 0xb9f7ff }),
-      hostile:  Object.freeze({ base: 0xff335f, hi: 0xff8aa3 }),
+      hostile:  Object.freeze({ base: 0xff4a52, hi: 0xff9098 }),   // unified --gl-hazard (design-language.md §2.4/§9.2)
       neutral:  Object.freeze({ base: 0xffce6a, hi: 0xffe6b0 }),
       secret:   Object.freeze({ base: 0xb497ff, hi: 0xe0d4ff })
     }),

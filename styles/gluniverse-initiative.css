@@ -25,10 +25,63 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* ============================================================================
+ * Etched Glass — shared GL Universe design-language tokens.
+ * The canonical --gl-* palette + motion vocabulary that every GL Universe module
+ * shares (design-language.md §2, §6.1). The module-local --gluni-* tokens below
+ * ALIAS these so the Initiative rail converges on the family look (§9.2). Themed
+ * blocks (core/fantasy/chronicle) re-point the --gluni-* aliases, never --gl-*,
+ * so the shared vocabulary stays stable across skins.
+ * ==========================================================================*/
 :root {
-  --gluni-cyan:        #5eeaff;
-  --gluni-white:       #f3fbff;
-  --gluni-red:         #ff335f;
+  /* Ink ramp — surfaces (§2.1) */
+  --gl-ink-0: #02070b;   /* deepest void — page scrims, splash decks */
+  --gl-ink-1: #080b11;   /* glass body base */
+  --gl-ink-2: #0b0f17;   /* inputs, inset wells */
+  --gl-ink-3: #161d2c;   /* raised rows */
+
+  /* Text (§2.2) */
+  --gl-text:        #eef1f7;
+  --gl-text-bright: #f3fbff;
+  --gl-text-dim:    #98a2b6;
+  --gl-text-faint:  rgba(243, 251, 255, 0.38);
+
+  /* Lines & rims (§2.3) */
+  --gl-hair:        rgba(255, 255, 255, 0.08);
+  --gl-edge:        rgba(255, 255, 255, 0.13);
+  --gl-line-strong: rgba(244, 252, 255, 0.55);
+
+  /* Fixed semantic accents (§2.4) */
+  --gl-signal:     #ffd24a;   /* signal amber — system ceremony / "look here" */
+  --gl-signal-hot: #ffe070;   /* signal peak — flash sweeps, lit digits */
+  --gl-cyan:       #5eeaff;   /* system/friendly accent (Initiative primary) */
+  --gl-hazard:     #ff4a52;   /* unified danger */
+  --gl-good:       #5fdb92;   /* success / completion */
+  --gl-violet:     #b497ff;   /* mystery / hidden */
+  --gl-mission:    #37d99a;   /* mission/goal emerald */
+  --gl-holo-c:     #ff66b3;   /* holo ramp terminus (§2.6) */
+
+  /* Two typographic voices (§5) */
+  --gl-display: "Oxanium", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --gl-tech:    "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+
+  /* Motion tokens (§6.1) */
+  --gl-ease: cubic-bezier(0.16, 1, 0.3, 1);     /* premium decel */
+  --gl-snap: cubic-bezier(0.2, 1.35, 0.22, 1);  /* slight overshoot — numerals */
+  --gl-pop:  cubic-bezier(0.34, 1.56, 0.5, 1);  /* tactile pop — pips, fills */
+  --gl-exit: cubic-bezier(0.55, 0, 0.84, 0);    /* sharp accelerated exit */
+  --gl-d-quick:  180ms;
+  --gl-d-move:   420ms;
+  --gl-d-reveal: 620ms;
+  --gl-d-splash: 720ms;
+  --gl-breathe:  2.6s;
+  --gl-dread:    3.2s;
+}
+
+:root {
+  --gluni-cyan:        var(--gl-cyan);
+  --gluni-white:       var(--gl-text-bright);
+  --gluni-red:         var(--gl-hazard);   /* §9.2: --gluni-red #ff335f -> --gl-hazard */
   --gluni-delay:       #4aa3ff;
   --gluni-delay-hot:   #9ad8ff;
   --gluni-break:       #ffb12d;
@@ -37,6 +90,9 @@
   --gluni-dying:       #cf85e0;          /* orchid — kept distinct from secret violet */
   --gluni-dying-hot:   #f6d9fb;
   --gluni-neutral:     #ffce6a;          /* neutral disposition reads amber, not white */
+  /* Ceremony amber == signal (§2.4); the neutral disposition amber above stays. */
+  --gluni-signal:      var(--gl-signal);
+  --gluni-signal-hot:  var(--gl-signal-hot);
   --gluni-condition:     #54d6a6;
   --gluni-condition-hot: #c2ffe8;
   /* D&D 5e death saves — success green, failure red, calm stable teal. */
@@ -46,18 +102,20 @@
   --gluni-save-failure-hot: #ffc0c6;
   --gluni-stable:           #4ad9c0;
   --gluni-stable-hot:       #b6fff2;
-  --gluni-violet:      #b497ff;
-  --gluni-ink:         #02070b;
+  --gluni-violet:      var(--gl-violet);
+  --gluni-ink:         var(--gl-ink-0);
   --gluni-line:        rgba(244, 252, 255, 0.10);
-  --gluni-line-strong: rgba(244, 252, 255, 0.55);
+  --gluni-line-strong: var(--gl-line-strong);
   --gluni-text-dim:    rgba(243, 251, 255, 0.62);
 
-  --gluni-font-family: "Bahnschrift", "Share Tech Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  /* Technical voice (micro-labels); display voice (hero numerals) is Oxanium. */
+  --gluni-font-family: var(--gl-tech);
+  --gluni-display-font: var(--gl-display);
 
-  --gluni-ease:        cubic-bezier(0.16, 1, 0.3, 1);
+  --gluni-ease:        var(--gl-ease);
   --gluni-snap:        cubic-bezier(0.22, 1, 0.36, 1);
-  --gluni-exit:        cubic-bezier(0.55, 0, 0.84, 0);
-  --gluni-d-quick:     180ms;
+  --gluni-exit:        var(--gl-exit);
+  --gluni-d-quick:     var(--gl-d-quick);
   --gluni-d-card:      420ms;
   --gluni-d-splash-in: 720ms;
   --gluni-d-splash-out: 460ms;
@@ -313,6 +371,7 @@
 .gluni-round-chip-num {
   flex: 0 0 auto;
   color: var(--gluni-cyan);
+  font-family: var(--gluni-display-font);
   font-size: 19px;
   font-weight: 950;
   line-height: 1;
@@ -1193,6 +1252,7 @@
   color: color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 78%, var(--gluni-white));
   background: transparent;
   box-shadow: none;
+  font-family: var(--gluni-display-font);
   font-size: 22px;
   font-weight: 950;
   font-variant-numeric: tabular-nums;
@@ -3046,6 +3106,10 @@
     inset 0 0 0 1px color-mix(in srgb, var(--gluni-cyan) 22%, var(--gluni-line)),
     inset 0 0 38px color-mix(in srgb, var(--gluni-cyan) 12%, transparent),
     0 26px 70px rgba(0, 0, 0, 0.62);
+  /* True frosted-glass deck (design-language.md §3.3): blur the dimmed
+     battlefield behind the ceremony type. Panel-level only — never on chips. */
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
   mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
 }
@@ -3087,6 +3151,7 @@
   align-items: baseline;
   gap: 0.02em;
   color: var(--gluni-white);
+  font-family: var(--gluni-display-font);
   font-size: clamp(104px, 16vw, 216px);
   font-weight: 950;
   font-variant-numeric: tabular-nums;
@@ -3469,6 +3534,9 @@
     inset 0 0 0 1px color-mix(in srgb, var(--gluni-break) 26%, var(--gluni-line)),
     inset 0 0 44px color-mix(in srgb, var(--gluni-break) 15%, transparent),
     0 26px 74px rgba(0, 0, 0, 0.66);
+  /* Frosted-glass deck (design-language.md §3.3) — amber sibling of the round deck. */
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
   mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
 }
@@ -3514,6 +3582,7 @@
   align-items: baseline;
   gap: 0.04em;
   color: var(--gluni-break-hot);
+  font-family: var(--gluni-display-font);
   font-size: clamp(112px, 18vw, 232px);
   font-weight: 950;
   line-height: 0.78;
@@ -6449,10 +6518,15 @@ html.gluni-theme--core .gluni-card--active .gluni-card-surface {
 /* Drop the backdrop blur — Foundry panels are opaque. */
 html.gluni-theme--core .gluni-shell,
 html.gluni-theme--core .gluni-card-surface,
-html.gluni-theme--core .gluni-break-splash-deck,
-html.gluni-theme--core .gluni-cycle-splash-deck {
+html.gluni-theme--core .gluni-round-deck,
+html.gluni-theme--core .gluni-break-deck {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+/* Modern-Foundry numerals keep the Signika display face, not Oxanium. */
+html.gluni-theme--core {
+  --gluni-display-font: var(--gluni-font-family);
 }
 
 /* ============================================================================
@@ -6526,6 +6600,8 @@ html.gluni-theme--fantasy {
   --gluni-holo-c: #d4a84a;
 
   --gluni-font-family: "Cormorant Garamond", "EB Garamond", Georgia, "Times New Roman", serif;
+  /* Tome numerals stay in the serif display face, not Oxanium. */
+  --gluni-display-font: var(--gluni-font-family);
 }
 
 html.gluni-theme--fantasy .gluni-card-surface {
