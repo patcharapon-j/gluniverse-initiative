@@ -1525,7 +1525,14 @@
 .gluni-card--active .gluni-card-surface {
   min-height: 124px;
   overflow: visible;
-  background: linear-gradient(180deg, #0d1822 0%, #04080c 100%);
+  /* Featured glass-panel material (design-language.md §3.1/§7.3): top light
+     catch + lower inset depth over an accent-tinted ink body. The §7.3 accent
+     rim + outer bloom live in the box-shadow below. Cards stay blur-free per
+     §9.2 ("keep cards lighter") — only panel-level decks frost the backdrop. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.20)),
+    linear-gradient(98deg, color-mix(in srgb, var(--gluni-accent, var(--gluni-cyan)) 14%, #0d1822), #04080c 64%);
   box-shadow:
     inset 0 1px 0 rgba(94, 234, 255, 0.20),
     inset 0 -1px 0 rgba(0, 0, 0, 0.6),
