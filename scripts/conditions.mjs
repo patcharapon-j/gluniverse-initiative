@@ -179,11 +179,34 @@ export function getPrimaryConditionItems(combatant) {
 // the death-save display (conditions are overridden whenever dying is present).
 export const DND5E_COVERED_STATUSES = new Set(["dead"]);
 
+// Maps each active status id to the ActiveEffect that contributes it. A
+// custom/non-standard status (a module- or user-authored condition) can surface
+// in `actor.statuses` under a random document id rather than a registered
+// condition slug; the contributing effect always carries a human-readable name,
+// so we keep it on hand to label such statuses instead of rendering the raw id.
+function getDnd5eStatusEffects(actor) {
+  const map = new Map();
+  const effects = actor?.appliedEffects ?? actor?.effects?.contents ?? actor?.effects ?? [];
+  if (!effects || typeof effects[Symbol.iterator] !== "function") return map;
+  for (const effect of effects) {
+    if (!effect || effect.disabled) continue;
+    const ids = effect.statuses;
+    if (!ids || typeof ids[Symbol.iterator] !== "function") continue;
+    for (const raw of ids) {
+      const statusId = String(raw);
+      if (statusId && !map.has(statusId)) map.set(statusId, effect);
+    }
+  }
+  return map;
+}
+
 // Resolve a 5e status id to a display label. Conditions carry a localization key
 // under `name` (older builds used `label`); fall back to the matching core
-// `CONFIG.statusEffects` entry, then a title-cased id, so module-added statuses
-// and version drift both degrade gracefully rather than rendering a raw slug.
-function getDnd5eStatusName(id, condition) {
+// `CONFIG.statusEffects` entry, then to the contributing ActiveEffect's own
+// name, and only then to a title-cased id. The effect-name step keeps a
+// custom/non-standard condition (whose status id may be a random document id)
+// from rendering as a garbled string in the badge and card background.
+function getDnd5eStatusName(id, condition, effect) {
   for (const key of [condition?.name, condition?.label]) {
     if (!key) continue;
     const localized = game.i18n?.localize?.(key);
@@ -194,6 +217,15 @@ function getDnd5eStatusName(id, condition) {
   if (statusKey) {
     const localized = game.i18n?.localize?.(statusKey);
     return localized && localized !== statusKey ? localized : statusKey;
+  }
+  // Reaching here means the id is not a registered condition or status, so it
+  // may be a random document id rather than a readable slug. Prefer the
+  // contributing effect's own name (`name` is a plain string; older effects may
+  // carry a localizable `label`) and only title-case the id as a last resort.
+  const effectName = effect?.name ?? effect?.label;
+  if (effectName) {
+    const localized = game.i18n?.localize?.(effectName);
+    return localized && localized !== effectName ? localized : effectName;
   }
   return String(id).replace(/[-_]/g, " ").replace(/\b\w/g, char => char.toUpperCase());
 }
@@ -217,6 +249,8 @@ export function getDnd5eConditionItems(combatant) {
   if (!active.length) return [];
 
   const conditionTypes = CONFIG?.DND5E?.conditionTypes ?? {};
+  // Effect lookup so custom/non-standard statuses can borrow a readable name.
+  const statusEffects = getDnd5eStatusEffects(actor);
 
   // Statuses granted as a side-effect of another active condition.
   const implied = new Set();
@@ -228,7 +262,7 @@ export function getDnd5eConditionItems(combatant) {
   const tags = [];
   for (const id of active) {
     if (DND5E_COVERED_STATUSES.has(id) || implied.has(id)) continue;
-    const name = getDnd5eStatusName(id, conditionTypes[id]);
+    const name = getDnd5eStatusName(id, conditionTypes[id], statusEffects.get(id));
     if (!name) continue;
     let value = null;
     if (id === "exhaustion") {
