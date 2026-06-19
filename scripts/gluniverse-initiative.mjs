@@ -12,7 +12,7 @@ import {
 import { normalizeInitiativeNumber, getDisposition, formatRound, formatInitiative, localize, formatLocalized, modulo, clamp, wait, escapeHTML, escapeAttr, escapeCSSIdentifier } from "./util.mjs";
 import { FX_SUPERSAMPLE, FX_GLSL_NOISE, FX_FRAG_BREAK, FX_FRAG_DYING, FX_FRAG_DELAY, FX_FRAG_SCRAMBLE, FX_FRAG_TURN, FX_FRAG_TURN_BAKE, FX_FRAG_TURN_PLAY, FX_FRAG_DOWNSAMPLE, rgbFloat, FX_VERT_MESH, makeFxMesh, setFxMeshQuad, destroyFxMesh } from "./gl.mjs";
 import { TokenOverlayManager, getMarkerSheets, prewarmStatusShaders } from "./token-overlay.mjs";
-import { getPF2eDyingState, getDnd5eDeathState, getDyingState, getActorAttributeValue, getConditionValue, hasActorItem, COVERED_CONDITION_SLUGS, isPrimaryCondition, getConditionBadgeValue, getHiddenConditionKeys, getPrimaryConditionItems, getPF2eConditionTags, renderConditionRepeatText, getConditionTone, renderConditionLabels, findPF2eGuardBreakEffects, getActorItems, getItemSlug, renderDyingRepeatText, renderGuardBreakRepeatText, getGuardBreakState, getBreakGaugeState, renderBreakGaugeBar, renderDyingPips, renderDeathSavePips, renderDeathSaveRepeatText } from "./conditions.mjs";
+import { getPF2eDyingState, getDnd5eDeathState, getDyingState, getActorAttributeValue, getConditionValue, hasActorItem, COVERED_CONDITION_SLUGS, isPrimaryCondition, getConditionBadgeValue, getHiddenConditionKeys, getPrimaryConditionTags, getConditionTags, renderConditionRepeatText, getConditionTone, renderConditionLabels, findPF2eGuardBreakEffects, getActorItems, getItemSlug, renderDyingRepeatText, renderGuardBreakRepeatText, getGuardBreakState, getBreakGaugeState, renderBreakGaugeBar, renderDyingPips, renderDeathSavePips, renderDeathSaveRepeatText } from "./conditions.mjs";
 
 
 // Exported as a live binding: token-overlay.mjs reads `overlay` (enabled state,
@@ -88,6 +88,13 @@ Hooks.on("updateActor", (actor, changed) => {
 Hooks.on("createItem", item => overlay?.onActorItemChange(item?.parent));
 Hooks.on("deleteItem", item => overlay?.onActorItemChange(item?.parent));
 Hooks.on("updateItem", item => overlay?.onActorItemChange(item?.parent));
+// D&D 5e (and other systems) model conditions/statuses as ActiveEffects rather
+// than items, so the card's condition badges/background react to effect changes.
+// An effect's parent is an Actor (status applied to the token/actor) or an Item
+// whose own parent is the actor; resolve to the actor before re-rendering.
+Hooks.on("createActiveEffect", effect => overlay?.onActorItemChange(resolveEffectActor(effect)));
+Hooks.on("deleteActiveEffect", effect => overlay?.onActorItemChange(resolveEffectActor(effect)));
+Hooks.on("updateActiveEffect", effect => overlay?.onActorItemChange(resolveEffectActor(effect)));
 Hooks.on("getApplicationHeaderButtons", (app, buttons) => { addPortraitHeaderButton(app, buttons); addCardConfigHeaderButton(app, buttons); });
 Hooks.on("getApplicationV1HeaderButtons", (app, buttons) => { addPortraitHeaderButton(app, buttons); addCardConfigHeaderButton(app, buttons); });
 Hooks.on("getActorSheetHeaderButtons", (app, buttons) => { addPortraitHeaderButton(app, buttons); addCardConfigHeaderButton(app, buttons); });
@@ -858,6 +865,17 @@ function isRelevantCombatantUpdate(changed) {
   const keys = Object.keys(changed);
   if (!keys.length) return true;
   return keys.some(key => COMBATANT_RENDER_UPDATE_KEYS.has(key));
+}
+
+// Resolve the owning Actor of an ActiveEffect. The effect's parent is either the
+// Actor itself (status effects applied to the token/actor) or an owned Item
+// whose parent is the actor. Returns null for world/compendium effects.
+function resolveEffectActor(effect) {
+  const parent = effect?.parent;
+  if (!parent) return null;
+  if (parent.documentName === "Actor") return parent;
+  if (parent.parent?.documentName === "Actor") return parent.parent;
+  return parent.actor ?? null;
 }
 
 function isRelevantActorUpdate(changed) {
@@ -1702,10 +1720,10 @@ class GLUniverseInitiativeOverlay {
 
     const guardBroken = !adhoc && Boolean(getGuardBreakState(combatant));
     const dying = mystery || adhoc ? null : getDyingState(combatant);
-    // Generic PF2e conditions are completely overridden by dying/break/delay —
-    // those states own the card's background field and announce themselves.
+    // Generic conditions are completely overridden by dying/break/delay — those
+    // states own the card's background field and announce themselves.
     const conditionsOverridden = options.delayed || guardBroken || Boolean(dying);
-    const conditions = mystery || adhoc || conditionsOverridden ? null : getPF2eConditionTags(combatant);
+    const conditions = mystery || adhoc || conditionsOverridden ? null : getConditionTags(combatant);
 
     return {
       type: "combatant",
@@ -3802,11 +3820,10 @@ class GLUniverseInitiativeOverlay {
   }
 
   // Per-card condition visibility toggles. Lists every primary temporary
-  // condition (PF2e only) so the GM can suppress one on the tracker without
-  // touching the actual condition on the actor/token.
+  // condition (PF2e condition items or D&D 5e statuses) so the GM can suppress
+  // one on the tracker without touching the actual condition on the actor/token.
   renderConditionContextSection(combatant) {
-    if (game.system?.id !== "pf2e") return "";
-    const items = getPrimaryConditionItems(combatant);
+    const items = getPrimaryConditionTags(combatant);
     if (!items.length) return "";
 
     const hidden = getHiddenConditionKeys(combatant);
@@ -4117,7 +4134,7 @@ class GLUniverseInitiativeOverlay {
       // long-standing condition that gets hidden then shown is not mistaken for
       // a freshly applied one. Hidden slugs are remembered separately so the
       // announce loop can skip flashing them while still recording them.
-      const primary = getPrimaryConditionItems(combatant);
+      const primary = getPrimaryConditionTags(combatant);
       if (primary.length) {
         const keyTexts = new Map();
         for (const tag of primary) keyTexts.set(tag.key, tag.text);

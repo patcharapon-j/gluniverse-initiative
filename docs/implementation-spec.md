@@ -97,6 +97,33 @@ Delay is a special initiative state outside the normal loop.
   - mystery stays anonymized
   - visible appears normally
 
+## Conditions & Death States
+
+System-aware status surfacing. The card reuses one set of markup/classes across
+systems; only the readers differ.
+
+- **Conditions / statuses** (background running text + side badges):
+  - PF2e: every primary, active, non-linked temporary `condition` item (valued
+    conditions show their value badge, e.g. `Frightened 2`).
+  - D&D 5e: every active status on `actor.statuses` (the aggregated set of
+    condition ActiveEffects). Exhaustion is valued and shows its level from
+    `system.attributes.exhaustion`. Statuses implied by another active condition
+    (e.g. `incapacitated` granted by `paralyzed`) are suppressed so only the
+    source condition reads; `dead` is owned by the defeated treatment.
+  - Newly applied conditions announce with a one-shot horizontal flash; the GM
+    can hide individual conditions per-card via the card context menu without
+    touching the underlying actor/token.
+  - Conditions are fully overridden by dying/break/delay — those states own the
+    card background and announce themselves.
+- **Death / dying** (background text + pip readout + token-overlay chip):
+  - PF2e: the `dying` value vs max (max reduced by `doomed`, raised by Diehard),
+    with severity escalating the visuals.
+  - D&D 5e: when a `character` actor is at 0 HP, the two death-save counters
+    (`system.attributes.death.success`/`failure`, capped at 3) render as a calm
+    successes row over an escalating failures row, on both the tracker card and
+    the token overlay. Three successes reads as a calm "stable" state; three
+    failures reads critical.
+
 ## Settings
 
 Client settings:
