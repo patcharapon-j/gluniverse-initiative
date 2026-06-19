@@ -160,6 +160,17 @@ Flatfinder's flags — it never writes them.
   treatment; guard-broken coexists with the break FX taking the portrait; delayed
   reads over Apex. In Flatfinder's Card mode no extras exist, so only the prime is
   styled. Zero new settings.
+- **Guard break sweeps the whole group**: because an Apex boss takes several
+  turns a round, a guard break must move *all* of its turns — the prime plus
+  every reprise — out of the current round at once, not just the one turn that
+  was struck. `getApexGroupCombatants` (in `conditions.mjs`) resolves the group
+  through the prime's id (extras carry it on `apexExtra.primeId`), and
+  `moveGuardBrokenApexGroupBeforeActive` packs the whole block contiguously just
+  ahead of the next non-boss combatant (the anchor) in canonical order (prime
+  first, then reprises by ordinal). The round resumes on the anchor — which also
+  ends the boss's turn when it was the active one — so none of the boss's turns
+  fire again this round and the block reappears next round in its correct
+  relative order.
 
 ## Settings
 
