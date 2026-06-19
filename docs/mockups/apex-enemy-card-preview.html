@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en" data-theme="scifi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GLUniverse · Apex Enemy Card — Design Preview</title>
+<style>
+/* ===========================================================================
+   APEX ENEMY CARD — standalone design preview (NOT shipped runtime CSS).
+   Faithful re-creation of the real .gluni-card geometry (clip-path notch,
+   accent bar, scrim, kicker, Oxanium badge) + the proposed Apex ornamentation.
+   Three candidate apex palettes shown side-by-side; theme switch re-skins all.
+   The WebGL ember/corona is approximated here with a CSS shimmer.
+   ========================================================================== */
+@import url("https://fonts.googleapis.com/css2?family=Oxanium:wght@500;700;800&family=Share+Tech+Mono&display=swap");
+
+:root{
+  --gl-ink-0:#02070b; --gl-ink-1:#080b11; --gl-ink-2:#0b0f17; --gl-ink-3:#161d2c;
+  --gl-text:#eef1f7; --gl-text-bright:#f3fbff; --gl-text-dim:#98a2b6;
+  --gl-cyan:#5eeaff; --gl-hazard:#ff4a52; --gl-violet:#b497ff; --gl-signal:#ffd24a;
+  --gl-display:"Oxanium","Segoe UI",system-ui,sans-serif;
+  --gl-tech:"Share Tech Mono","Bahnschrift",Consolas,monospace;
+  --gl-ease:cubic-bezier(0.16,1,0.3,1);
+  --gluni-line:rgba(244,252,255,.10);
+  --gluni-line-strong:rgba(244,252,255,.55);
+  --gluni-white:var(--gl-text-bright);
+  --gluni-ink:var(--gl-ink-0);
+  --gluni-cyan:var(--gl-cyan);
+  --gluni-accent:var(--gl-cyan);
+  --gluni-card-bg-top:#0a1218; --gluni-card-bg-bot:#04080c;
+  --gluni-page:#05080d;
+}
+
+/* ---- THEMES: re-skin base card body + base accent (apex token re-points too) ---- */
+html[data-theme="scifi"]   { --gluni-cyan:#5eeaff; --gluni-card-bg-top:#0a1218; --gluni-card-bg-bot:#04080c; --gluni-page:#05080d; }
+html[data-theme="core"]    { --gluni-cyan:#7fb2ff; --gluni-card-bg-top:#0d141d; --gluni-card-bg-bot:#060a10; --gluni-page:#070a10; }
+html[data-theme="fantasy"] { --gluni-cyan:#69d6b0; --gluni-card-bg-top:#13110c; --gluni-card-bg-bot:#0a0805; --gluni-page:#0b0905;
+                             --gl-display:"Oxanium",serif; }
+html[data-theme="chronicle"]{--gluni-cyan:#c9a86a; --gluni-card-bg-top:#12100e; --gluni-card-bg-bot:#0a0807; --gluni-page:#0c0a08; }
+
+/* ---- CANDIDATE APEX PALETTES (the value the user picks for --gl-apex) ----
+   Each palette sets: apex (mid), apex-deep (shadow), apex-hot (highlight),
+   apex-ink (text-on-accent). Theme can tint these in the real impl. */
+.pal[data-pal="crimson"]{
+  --apex:#e2243a; --apex-deep:#7a0b18; --apex-hot:#ff6a52; --apex-ink:#180304;
+}
+.pal[data-pal="imperial"]{
+  --apex:#e7b54b; --apex-deep:#6e4708; --apex-hot:#ffe7a0; --apex-ink:#1a1102;
+}
+.pal[data-pal="eclipse"]{
+  --apex:#b14bff; --apex-deep:#3c0a6b; --apex-hot:#ff7bd6; --apex-ink:#140422;
+}
+/* theme tints of the apex family (kept in-family; demonstrates per-theme re-point) */
+html[data-theme="fantasy"]  .pal[data-pal="crimson"] { --apex:#d23a2e; --apex-hot:#ff8a4a; }
+html[data-theme="chronicle"] .pal[data-pal="crimson"]{ --apex:#c0414a; --apex-hot:#e88a6a; }
+html[data-theme="fantasy"]  .pal[data-pal="imperial"]{ --apex:#d8a23f; }
+html[data-theme="chronicle"] .pal[data-pal="eclipse"]{ --apex:#9d6bc0; --apex-hot:#d79ad6; }
+
+*{box-sizing:border-box}
+body{
+  margin:0; padding:28px 22px 60px; min-height:100vh;
+  font-family:var(--gl-tech);
+  color:var(--gl-text);
+  background:
+    radial-gradient(1200px 700px at 78% -10%, rgba(94,234,255,.05), transparent 60%),
+    radial-gradient(900px 600px at 10% 110%, rgba(180,151,255,.05), transparent 60%),
+    var(--gluni-page);
+}
+h1{font-family:var(--gl-display);font-weight:800;letter-spacing:.04em;font-size:20px;margin:0 0 4px}
+.sub{color:var(--gl-text-dim);font-size:12px;margin:0 0 20px;max-width:980px;line-height:1.5}
+.sub b{color:var(--gl-text-bright)}
+
+/* ---- control bar ---- */
+.bar{display:flex;flex-wrap:wrap;gap:18px;align-items:center;margin-bottom:26px;
+     padding:12px 14px;border:1px solid var(--gluni-line);border-radius:10px;
+     background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(0,0,0,.2));}
+.bar .grp{display:flex;gap:6px;align-items:center}
+.bar .lbl{font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--gl-text-dim);margin-right:4px}
+.bar button{font-family:var(--gl-tech);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--gl-text);background:rgba(255,255,255,.04);border:1px solid var(--gluni-line);
+  padding:6px 11px;border-radius:6px;cursor:pointer;transition:all .15s}
+.bar button:hover{border-color:var(--gluni-line-strong)}
+.bar button.on{background:color-mix(in srgb,var(--gluni-cyan) 22%,transparent);
+  border-color:var(--gluni-cyan);color:var(--gl-text-bright);box-shadow:0 0 14px color-mix(in srgb,var(--gluni-cyan) 40%,transparent)}
+
+/* ---- palette columns ---- */
+.gallery{display:grid;grid-template-columns:repeat(3,minmax(280px,1fr));gap:26px;align-items:start}
+.pal{display:flex;flex-direction:column;gap:0}
+.pal-head{font-family:var(--gl-display);font-weight:800;font-size:15px;letter-spacing:.05em;margin:0 0 2px;
+  color:var(--apex-hot)}
+.pal-tag{font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--gl-text-dim);margin:0 0 16px}
+
+.rail{display:grid;gap:22px;padding:46px 14px 14px;position:relative;
+  border:1px solid var(--gluni-line);border-radius:12px;
+  background:linear-gradient(180deg,rgba(255,255,255,.015),rgba(0,0,0,.25));}
+.rowlabel{font-size:8px;letter-spacing:.2em;text-transform:uppercase;color:var(--gl-text-dim);
+  margin:-12px 0 -14px 2px}
+
+/* =========================== BASE CARD (matches runtime) =================== */
+.card{position:relative;width:100%;display:grid;isolation:isolate}
+.surface{
+  position:relative;z-index:0;display:grid;align-items:end;width:100%;min-height:64px;
+  background:linear-gradient(180deg,var(--gluni-card-bg-top) 0%,var(--gluni-card-bg-bot) 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),inset 0 -1px 0 rgba(0,0,0,.6),
+    inset 0 0 0 1px var(--gluni-line),inset 0 0 28px rgba(0,0,0,.4);
+  clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);
+}
+.portrait{position:absolute;inset:0;z-index:1;overflow:hidden}
+.portrait svg{width:100%;height:100%;display:block}
+.scrim{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;
+  background:linear-gradient(95deg,rgba(2,5,8,.95),rgba(2,5,8,.48) 50%,rgba(2,5,8,0));}
+.accent{position:absolute;top:0;bottom:0;left:0;z-index:7;width:3px;
+  background:var(--gluni-accent,var(--gluni-cyan));box-shadow:0 0 16px var(--gluni-accent,var(--gluni-cyan));}
+.bracket{position:absolute;top:6px;left:8px;z-index:8;width:8px;height:8px;pointer-events:none;
+  border-top:1px solid var(--gluni-line-strong);border-left:1px solid var(--gluni-line-strong);}
+.content{position:relative;z-index:8;display:grid;gap:3px;align-items:end;min-width:0;padding:8px 42px 9px 12px;}
+.kicker{display:flex;align-items:center;gap:4px;min-height:12px}
+.tag{display:inline-flex;align-items:center;height:12px;padding:0 5px;color:var(--gluni-ink);
+  background:var(--gluni-accent,var(--gluni-cyan));font-size:7px;font-weight:700;letter-spacing:.22em;line-height:1;
+  clip-path:polygon(2px 0,100% 0,100% 100%,0 100%,0 2px);font-family:var(--gl-tech)}
+.name{margin:0;font-size:12px;font-weight:800;line-height:1.04;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--gluni-white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  text-shadow:0 2px 8px rgba(0,0,0,.9);font-family:var(--gl-display)}
+.badge{position:absolute;right:8px;bottom:6px;z-index:9;font-family:var(--gl-display);font-size:22px;font-weight:800;
+  line-height:.9;color:color-mix(in srgb,var(--gluni-accent,var(--gluni-cyan)) 78%,var(--gluni-white));
+  font-variant-numeric:tabular-nums;
+  text-shadow:0 0 14px color-mix(in srgb,var(--gluni-accent,var(--gluni-cyan)) 42%,transparent),0 2px 4px rgba(0,0,0,.96),0 8px 18px rgba(0,0,0,.88);}
+
+/* active (it's this combatant's turn) */
+.card.active{width:calc(100% + 12px)}
+.card.active .surface{min-height:128px;overflow:visible;
+  background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,0) 34%),
+    linear-gradient(98deg,color-mix(in srgb,var(--gluni-accent) 14%,#0d1822),#04080c 64%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 0 0 1px color-mix(in srgb,var(--gluni-accent) 70%,var(--gluni-line) 30%),
+    inset 0 0 32px rgba(0,0,0,.4),0 18px 36px rgba(0,0,0,.7),0 0 32px color-mix(in srgb,var(--gluni-accent) 34%,transparent);}
+.card.active .accent{width:4px}
+.card.active .scrim{top:auto;bottom:0;height:46px;
+  -webkit-mask-image:linear-gradient(to top,#000,transparent);mask-image:linear-gradient(to top,#000,transparent)}
+.card.active .badge{font-size:30px;right:12px;bottom:9px}
+.card.active .content{padding-right:58px}
+.normal .name{color:var(--gl-text)}
+
+/* =========================== APEX ORNAMENTATION ============================ */
+.card.apex{--gluni-accent:var(--apex)}
+.card.apex .accent{
+  width:5px;background:linear-gradient(180deg,var(--apex-hot),var(--apex) 45%,var(--apex-deep));
+  box-shadow:0 0 18px var(--apex),0 0 38px color-mix(in srgb,var(--apex-deep) 60%,transparent);
+}
+/* breathing outer bloom / aura */
+.card.apex .surface{
+  background:
+    radial-gradient(120% 80% at 0% 0%,color-mix(in srgb,var(--apex) 16%,transparent),transparent 60%),
+    linear-gradient(180deg,var(--gluni-card-bg-top),var(--gluni-card-bg-bot));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 0 0 1px color-mix(in srgb,var(--apex) 42%,var(--gluni-line)),
+    inset 0 0 30px rgba(0,0,0,.45),
+    0 0 0 1px color-mix(in srgb,var(--apex-deep) 50%,transparent),
+    0 0 26px color-mix(in srgb,var(--apex) 26%,transparent);
+  animation:apex-breathe var(--apex-breath,3.2s) ease-in-out infinite;
+}
+@keyframes apex-breathe{
+  0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 0 0 1px color-mix(in srgb,var(--apex) 42%,var(--gluni-line)),inset 0 0 30px rgba(0,0,0,.45),0 0 0 1px color-mix(in srgb,var(--apex-deep) 50%,transparent),0 0 22px color-mix(in srgb,var(--apex) 22%,transparent)}
+  50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.10),inset 0 0 0 1px color-mix(in srgb,var(--apex) 64%,var(--gluni-line)),inset 0 0 30px rgba(0,0,0,.45),0 0 0 1px color-mix(in srgb,var(--apex-deep) 70%,transparent),0 0 40px color-mix(in srgb,var(--apex) 42%,transparent)}
+}
+/* ornate corner filigree — all four corners (vs the normal single bracket) */
+.card.apex .corner{position:absolute;z-index:9;width:13px;height:13px;pointer-events:none;
+  border:0 solid color-mix(in srgb,var(--apex-hot) 80%,transparent);
+  filter:drop-shadow(0 0 4px color-mix(in srgb,var(--apex) 70%,transparent))}
+.card.apex .corner.tl{top:5px;left:6px;border-top-width:2px;border-left-width:2px}
+.card.apex .corner.tr{top:14px;right:6px;border-top-width:2px;border-right-width:2px}
+.card.apex .corner.bl{bottom:5px;left:6px;border-bottom-width:2px;border-left-width:2px}
+.card.apex .corner.br{bottom:5px;right:6px;border-bottom-width:2px;border-right-width:2px}
+.card.apex.active .corner.tr{top:5px}
+
+/* crown emblem */
+.crown{position:absolute;top:7px;left:50%;transform:translateX(-50%);z-index:10;width:34px;height:20px;
+  color:var(--apex-hot);filter:drop-shadow(0 0 6px color-mix(in srgb,var(--apex) 85%,transparent));
+  animation:apex-crown-glow var(--apex-breath,3.2s) ease-in-out infinite}
+.crown svg{width:100%;height:100%;display:block}
+@keyframes apex-crown-glow{0%,100%{opacity:.86}50%{opacity:1;filter:drop-shadow(0 0 11px var(--apex-hot))}}
+.card.apex.active .crown{top:-30px;width:42px;height:25px}
+
+/* APEX kicker tag */
+.tag.apex-tag{color:var(--apex-ink);
+  background:linear-gradient(90deg,var(--apex-deep),var(--apex-hot),var(--apex));
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,#fff 40%,transparent),0 0 16px color-mix(in srgb,var(--apex) 70%,transparent);
+  gap:3px}
+.tag.apex-tag svg{width:8px;height:8px;margin-top:-1px}
+.tag.ordinal{background:rgba(2,5,8,.6);color:var(--apex-hot);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--apex) 66%,transparent)}
+.tag.phase-tag{background:transparent;color:var(--apex-hot);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--apex-hot) 60%,transparent)}
+
+/* portrait ember/corona — CSS approximation of the WebGL layer */
+.card.apex .ember{position:absolute;inset:0;z-index:3;pointer-events:none;mix-blend-mode:screen;opacity:.55;
+  background:
+    radial-gradient(2px 3px at 20% 80%,color-mix(in srgb,var(--apex-hot) 90%,transparent),transparent 60%),
+    radial-gradient(2px 3px at 62% 88%,color-mix(in srgb,var(--apex-hot) 80%,transparent),transparent 60%),
+    radial-gradient(1.5px 2px at 40% 70%,color-mix(in srgb,var(--apex) 90%,transparent),transparent 60%),
+    radial-gradient(1.5px 2px at 80% 76%,color-mix(in srgb,var(--apex-hot) 70%,transparent),transparent 60%);
+  background-size:100% 200%;animation:apex-ember 4s linear infinite}
+@keyframes apex-ember{0%{background-position:0 100%}100%{background-position:0 -100%}}
+.card.apex .corona{position:absolute;inset:0;z-index:2;pointer-events:none;
+  background:radial-gradient(80% 60% at 50% 30%,color-mix(in srgb,var(--apex) 22%,transparent),transparent 70%);
+  mix-blend-mode:screen}
+
+/* phase 3-segment indicator */
+.phase-pips{display:flex;gap:3px;align-items:center;margin-top:2px}
+.phase-pip{width:14px;height:3px;border-radius:1px;background:color-mix(in srgb,var(--apex) 22%,#000);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--apex) 30%,transparent)}
+.phase-pip.on{background:linear-gradient(90deg,var(--apex),var(--apex-hot));
+  box-shadow:0 0 8px color-mix(in srgb,var(--apex) 80%,transparent)}
+
+/* PHASE escalation */
+.card.apex.p1{--apex-breath:3.4s}
+.card.apex.p2{--apex-breath:1.9s}
+.card.apex.p2 .name{color:color-mix(in srgb,var(--apex-hot) 30%,var(--gl-text-bright))}
+.card.apex.p2 .ember{opacity:.8}
+.card.apex.p3{--apex-breath:1.05s}
+.card.apex.p3 .surface{animation:apex-breathe var(--apex-breath) ease-in-out infinite, apex-shudder 2.4s steps(6) infinite}
+.card.apex.p3 .ember{opacity:1}
+.card.apex.p3 .corona{background:radial-gradient(85% 70% at 50% 35%,color-mix(in srgb,var(--apex) 38%,transparent),transparent 72%)}
+.card.apex.p3 .name{color:var(--apex-hot)}
+/* hairline stress fractures over frame in phase 3 */
+.card.apex.p3 .surface::after{content:"";position:absolute;inset:0;z-index:6;pointer-events:none;opacity:.5;
+  background:
+    linear-gradient(120deg,transparent 0 41%,color-mix(in srgb,var(--apex-hot) 55%,transparent) 41% 41.6%,transparent 42%),
+    linear-gradient(28deg,transparent 0 67%,color-mix(in srgb,var(--apex-hot) 45%,transparent) 67% 67.5%,transparent 68%),
+    linear-gradient(80deg,transparent 0 22%,color-mix(in srgb,var(--apex) 40%,transparent) 22% 22.4%,transparent 23%);
+  mix-blend-mode:screen}
+@keyframes apex-shudder{0%,100%{transform:translateX(0)}20%{transform:translateX(-.6px)}60%{transform:translateX(.6px)}}
+
+/* ============================ REPRISE (extra turns) ======================= */
+.card.reprise .surface{min-height:50px;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--apex) 22%,var(--gluni-line)),inset 0 0 22px rgba(0,0,0,.5);
+  animation:none}
+.card.reprise .portrait svg{filter:grayscale(.55) brightness(.6)}
+.card.reprise .accent{width:3px;background:color-mix(in srgb,var(--apex) 60%,#333);box-shadow:0 0 8px color-mix(in srgb,var(--apex) 40%,transparent)}
+.card.reprise .crown{opacity:.5;width:24px;height:14px;color:color-mix(in srgb,var(--apex) 70%,#888);
+  filter:none;animation:none}
+.card.reprise .name{font-size:10px;color:var(--gl-text-dim)}
+.card.reprise .corner{opacity:.4}
+.card.reprise .ember,.card.reprise .corona{display:none}
+.card.reprise .badge{font-size:16px;color:color-mix(in srgb,var(--apex) 60%,var(--gl-text-dim))}
+.reprise-line{position:absolute;left:-1px;top:-22px;height:22px;width:5px;z-index:2;
+  background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--apex) 50%,transparent));
+  box-shadow:0 0 8px color-mix(in srgb,var(--apex) 40%,transparent)}
+
+/* reprise but ACTIVE — lit back up to near-prime intensity */
+.card.reprise.active .surface{min-height:104px;animation:apex-breathe 2.2s ease-in-out infinite;
+  background:radial-gradient(120% 80% at 0% 0%,color-mix(in srgb,var(--apex) 14%,transparent),transparent 60%),
+    linear-gradient(180deg,var(--gluni-card-bg-top),var(--gluni-card-bg-bot));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 0 0 1px color-mix(in srgb,var(--apex) 56%,var(--gluni-line)),
+    inset 0 0 30px rgba(0,0,0,.45),0 14px 30px rgba(0,0,0,.65),0 0 28px color-mix(in srgb,var(--apex) 30%,transparent)}
+.card.reprise.active .portrait svg{filter:grayscale(.15) brightness(.85)}
+.card.reprise.active .accent{width:4px;background:linear-gradient(180deg,var(--apex-hot),var(--apex),var(--apex-deep));box-shadow:0 0 16px var(--apex)}
+.card.reprise.active .crown{opacity:.95;width:34px;height:20px;color:var(--apex-hot);filter:drop-shadow(0 0 6px var(--apex));animation:apex-crown-glow 2.2s ease-in-out infinite}
+.card.reprise.active .name{font-size:12px;color:var(--gl-text-bright)}
+.card.reprise.active .badge{font-size:26px;color:color-mix(in srgb,var(--apex) 78%,var(--gl-text-bright))}
+.card.reprise.active .corner{opacity:.9}
+
+/* reduced motion */
+html[data-rm="on"] *{animation:none !important}
+
+@media(max-width:980px){.gallery{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<h1>Apex Enemy Card — Design Preview</h1>
+<p class="sub">
+  Proposed <b>GLUniverse × PF2e-Flatfinder</b> integration. The <b>Apex</b> (solo boss) gets a distinct, more elaborate &amp; menacing card.
+  <b>Prime</b> = showpiece; <b>extra turns</b> (Flatfinder inserts them at init −10/−20) render as subordinate
+  <b>reprise</b> cards that light back up when it's their turn. The card escalates across Flatfinder's
+  <b>66% / 33% HP phases</b> (Phase I composed → II enraged → III desperate). Pick a palette below — then I implement it for real.
+  WebGL ember/corona is approximated here with CSS.
+</p>
+
+<div class="bar">
+  <div class="grp"><span class="lbl">Theme</span>
+    <button data-theme-btn="scifi" class="on">Sci-Fi</button>
+    <button data-theme-btn="core">Core</button>
+    <button data-theme-btn="fantasy">Fantasy</button>
+    <button data-theme-btn="chronicle">Chronicle</button>
+  </div>
+  <div class="grp"><span class="lbl">Motion</span>
+    <button data-rm-btn="off" class="on">Animated</button>
+    <button data-rm-btn="on">Reduced</button>
+  </div>
+</div>
+
+<div class="gallery" id="gallery"></div>
+
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="crown" viewBox="0 0 48 28">
+  <path fill="currentColor" d="M2 26 L6 8 L15 17 L24 2 L33 17 L42 8 L46 26 Z"/>
+  <circle cx="6" cy="6" r="2.4" fill="currentColor"/><circle cx="24" cy="1.6" r="2.6" fill="currentColor"/><circle cx="42" cy="6" r="2.4" fill="currentColor"/>
+</symbol>
+<symbol id="crownsm" viewBox="0 0 48 28"><path fill="currentColor" d="M2 26 L6 8 L15 17 L24 2 L33 17 L42 8 L46 26 Z"/></symbol>
+</defs></svg>
+
+<script>
+/* beast-head silhouette portrait; eyes glow in the apex hot color */
+function beast(){
+  return `<svg viewBox="0 0 200 130" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <radialGradient id="bg" cx="55%" cy="30%" r="80%">
+        <stop offset="0%" stop-color="#1a2230"/><stop offset="55%" stop-color="#0a0f17"/><stop offset="100%" stop-color="#03060a"/>
+      </radialGradient>
+    </defs>
+    <rect width="200" height="130" fill="url(#bg)"/>
+    <g fill="#05080d" stroke="#11161f" stroke-width="1">
+      <polygon points="62,38 40,2 78,30"/>
+      <polygon points="138,38 160,2 122,30"/>
+      <path d="M58 44 Q100 18 142 44 Q160 64 150 100 Q128 124 100 120 Q72 124 50 100 Q40 64 58 44 Z"/>
+      <polygon points="86,118 90,132 96,118"/><polygon points="104,118 110,132 114,118"/>
+    </g>
+    <g fill="var(--apex-hot,#ff6a52)">
+      <ellipse cx="80" cy="66" rx="9" ry="6" opacity=".95"/>
+      <ellipse cx="120" cy="66" rx="9" ry="6" opacity=".95"/>
+    </g>
+    <g fill="#fff" opacity=".85"><circle cx="80" cy="66" r="2.2"/><circle cx="120" cy="66" r="2.2"/></g>
+  </svg>`;
+}
+function goblin(){
+  return `<svg viewBox="0 0 200 130" preserveAspectRatio="xMidYMid slice">
+    <rect width="200" height="130" fill="#0a1019"/>
+    <g fill="#0d141d" stroke="#19222e" stroke-width="1">
+      <path d="M70 48 Q100 28 130 48 Q142 70 128 96 Q100 112 72 96 Q58 70 70 48Z"/>
+      <polygon points="70,52 52,44 68,62"/><polygon points="130,52 148,44 132,62"/>
+    </g>
+    <g fill="#7fb2ff" opacity=".8"><ellipse cx="86" cy="68" rx="5" ry="3"/><ellipse cx="114" cy="68" rx="5" ry="3"/></g>
+  </svg>`;
+}
+
+const crownSVG = `<span class="crown"><svg><use href="#crown"/></svg></span>`;
+const apexKicker = `<span class="tag apex-tag"><svg><use href="#crownsm"/></svg>APEX</span>`;
+
+function phasePips(n){
+  let s='<div class="phase-pips">';
+  for(let i=1;i<=3;i++) s+=`<span class="phase-pip ${i<=n?'on':''}"></span>`;
+  return s+'</div>';
+}
+
+/* card builders ----------------------------------------------------------- */
+function normalCard(name,init){
+  return `<div class="card normal"><div class="surface">
+    <div class="portrait">${goblin()}</div><div class="scrim"></div>
+    <div class="accent"></div><div class="bracket"></div>
+    <div class="content"><div class="kicker"></div><h3 class="name">${name}</h3></div>
+    <div class="badge">${init}</div></div></div>`;
+}
+function primeCard({active,phase,init}){
+  const cls=`card apex p${phase} ${active?'active':''}`;
+  return `<div class="${cls}"><div class="surface">
+    <div class="portrait">${beast()}</div>
+    <div class="corona"></div><div class="ember"></div><div class="scrim"></div>
+    <div class="accent"></div>${crownSVG}
+    <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+    <div class="content">
+      <div class="kicker">${apexKicker}<span class="tag phase-tag">PHASE ${['','I','II','III'][phase]}</span></div>
+      <h3 class="name">Tyrant Wyrm</h3>
+      ${phasePips(phase)}
+    </div>
+    <div class="badge">${init}</div></div></div>`;
+}
+function repriseCard({active,idx,total,init}){
+  const cls=`card apex reprise ${active?'active':''}`;
+  return `<div class="${cls}"><div class="reprise-line"></div><div class="surface">
+    <div class="portrait">${beast()}</div>
+    <div class="corona"></div><div class="ember"></div><div class="scrim"></div>
+    <div class="accent"></div>${crownSVG}
+    <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+    <div class="content">
+      <div class="kicker">${apexKicker}<span class="tag ordinal">${idx}/${total}</span></div>
+      <h3 class="name">Tyrant Wyrm</h3>
+    </div>
+    <div class="badge">${init}</div></div></div>`;
+}
+
+function railFor(pal,label,tag){
+  return `<div class="pal" data-pal="${pal}">
+    <h2 class="pal-head">${label}</h2><p class="pal-tag">${tag}</p>
+    <div class="rail">
+      <div class="rowlabel">normal creature (contrast)</div>
+      ${normalCard('Goblin Cutthroat',19)}
+      <div class="rowlabel">apex prime · phase I (composed) · inactive</div>
+      ${primeCard({active:false,phase:1,init:24})}
+      <div class="rowlabel">apex prime · phase I · ACTIVE turn</div>
+      ${primeCard({active:true,phase:1,init:24})}
+      <div class="rowlabel">apex prime · phase II (enraged ≤66%) · ACTIVE</div>
+      ${primeCard({active:true,phase:2,init:24})}
+      <div class="rowlabel">apex prime · phase III (desperate ≤33%) · ACTIVE</div>
+      ${primeCard({active:true,phase:3,init:24})}
+      <div class="rowlabel">apex reprise · extra turn · inactive</div>
+      ${repriseCard({active:false,idx:2,total:3,init:14})}
+      <div class="rowlabel">apex reprise · extra turn · ACTIVE</div>
+      ${repriseCard({active:true,idx:2,total:3,init:14})}
+    </div></div>`;
+}
+
+document.getElementById('gallery').innerHTML =
+  railFor('crimson','① Blood-Crimson','arterial red · classic deadly boss')+
+  railFor('imperial','② Imperial Gold','obsidian + regal gold · apex predator / king')+
+  railFor('eclipse','③ Eclipse-Violet','void + venom corona · eldritch / alien');
+
+const root=document.documentElement;
+document.querySelectorAll('[data-theme-btn]').forEach(b=>b.onclick=()=>{
+  root.dataset.theme=b.dataset.themeBtn;
+  document.querySelectorAll('[data-theme-btn]').forEach(x=>x.classList.toggle('on',x===b));
+});
+document.querySelectorAll('[data-rm-btn]').forEach(b=>b.onclick=()=>{
+  root.dataset.rm=b.dataset.rmBtn;
+  document.querySelectorAll('[data-rm-btn]').forEach(x=>x.classList.toggle('on',x===b));
+});
+</script>
+</body>
+</html>

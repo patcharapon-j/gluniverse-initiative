@@ -124,6 +124,43 @@ systems; only the readers differ.
     the token overlay. Three successes reads as a calm "stable" state; three
     failures reads critical.
 
+## Apex Enemy (PF2e-Flatfinder integration)
+
+Optional, soft, one-directional integration with the **PF2e-Flatfinder** module
+(`pf2e-flatfinder`). It self-gates: with the system not PF2e or the module not
+active, nothing changes and there is no cost. The overlay only ever **reads**
+Flatfinder's flags — it never writes them.
+
+- **Detection** (hybrid): an actor is Apex when Flatfinder's API
+  `isApexActor(actor)` says so (preferred), falling back to the actor flag
+  `pf2e-flatfinder.apex.enabled`. Per-turn role comes from the combatant flags
+  Flatfinder sets: `apexPrime` (the boss's primary turn) and
+  `apexExtra: { primeId, index, total }` (an inserted extra turn at initiative
+  −10/−20/…). Read by `getApexState` in `conditions.mjs`.
+- **Prime vs reprise**: the **prime** is the showpiece — a more elaborate,
+  menacing card (eclipse-violet `--gl-apex` accent, breathing aura, four corner
+  filigree, a crowned `APEX` kicker, and a 3-segment phase meter). Extra turns
+  render as a subordinate **reprise** echo (dimmed/desaturated portrait, muted
+  accent, an `APEX k/N` ordinal) that lifts back to near-prime intensity while it
+  is that turn's active card. Footprint stays uniform with normal cards — menace
+  comes from ornament and motion, not size.
+- **Phase escalation**: the card reads the boss's HP fraction and escalates
+  across three phases mirroring Flatfinder's beats (Phase I composed → Phase II
+  enraged at ≤66% → Phase III desperate at ≤33%): the aura tightens and
+  accelerates, the name heats up, and Phase III adds stress-fractures and a faint
+  shudder. The phase also drives the WebGL ember layer's intensity.
+- **Effects**: a bounded WebGL portrait layer (`apex` mode in `CardFXManager`,
+  shader `FX_FRAG_APEX`) draws rising embers + a corona, intensity keyed to the
+  phase. It runs only on the prime and on an *active* reprise (so the live cost
+  stays small for a solo boss), honours `prefers-reduced-motion` (the CSS frame
+  carries the look when the loop is skipped), and falls back to CSS when WebGL is
+  unavailable.
+- **Precedence**: hidden/mystery fully suppress Apex styling (never leak that a
+  hidden token is a boss, its phase, or its HP); defeated yields to the defeated
+  treatment; guard-broken coexists with the break FX taking the portrait; delayed
+  reads over Apex. In Flatfinder's Card mode no extras exist, so only the prime is
+  styled. Zero new settings.
+
 ## Settings
 
 Client settings:
