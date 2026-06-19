@@ -12,7 +12,7 @@ import {
 import { normalizeInitiativeNumber, getDisposition, formatRound, formatInitiative, localize, formatLocalized, modulo, clamp, wait, escapeHTML, escapeAttr, escapeCSSIdentifier } from "./util.mjs";
 import { FX_SUPERSAMPLE, FX_GLSL_NOISE, FX_FRAG_BREAK, FX_FRAG_DYING, FX_FRAG_DELAY, FX_FRAG_SCRAMBLE, FX_FRAG_APEX, FX_FRAG_TURN, FX_FRAG_TURN_BAKE, FX_FRAG_TURN_PLAY, FX_FRAG_DOWNSAMPLE, rgbFloat, FX_VERT_MESH, makeFxMesh, setFxMeshQuad, destroyFxMesh } from "./gl.mjs";
 import { TokenOverlayManager, getMarkerSheets, prewarmStatusShaders } from "./token-overlay.mjs";
-import { getPF2eDyingState, getDnd5eDeathState, getDyingState, getActorAttributeValue, getConditionValue, hasActorItem, COVERED_CONDITION_SLUGS, isPrimaryCondition, getConditionBadgeValue, getHiddenConditionKeys, getPrimaryConditionTags, getConditionTags, renderConditionRepeatText, getConditionTone, renderConditionLabels, findPF2eGuardBreakEffects, getActorItems, getItemSlug, renderDyingRepeatText, renderGuardBreakRepeatText, getGuardBreakState, getBreakGaugeState, renderBreakGaugeBar, renderDyingPips, renderDeathSavePips, renderDeathSaveRepeatText, getApexState } from "./conditions.mjs";
+import { getPF2eDyingState, getDnd5eDeathState, getDyingState, getActorAttributeValue, getConditionValue, hasActorItem, COVERED_CONDITION_SLUGS, isPrimaryCondition, getConditionBadgeValue, getHiddenConditionKeys, getPrimaryConditionTags, getConditionTags, renderConditionRepeatText, getConditionTone, renderConditionLabels, findPF2eGuardBreakEffects, getActorItems, getItemSlug, renderDyingRepeatText, renderGuardBreakRepeatText, getGuardBreakState, getBreakGaugeState, renderBreakGaugeBar, renderDyingPips, renderDeathSavePips, renderDeathSaveRepeatText, getApexState, getApexGroupCombatants } from "./conditions.mjs";
 
 
 // Exported as a live binding: token-overlay.mjs reads `overlay` (enabled state,
@@ -3095,11 +3095,13 @@ class GLUniverseInitiativeOverlay {
     if (syncGauge) await this.writeBreakGaugeValue(combatant, 0);   // manual break empties the gauge
     await this.clearKnownPF2eDelayFlags(combatant);
     await this.applyPF2eGuardBreakEffect(combatant);
-    await this.moveGuardBrokenCombatantBeforeActive(combatant, activeId);
+    const movedApexGroup = await this.moveGuardBrokenCombatantBeforeActive(combatant, activeId);
     this.queueGuardBreakImpact({ combatId: combat.id, combatantId: combatant.id });
     this.broadcastGuardBreakImpact(combatant.id);
 
-    if (wasActive) await this.changeTurn(1);
+    // The Apex group move already settles the turn pointer (advancing off the
+    // boss when it was active), so skip the single-turn advance in that case.
+    if (wasActive && !movedApexGroup) await this.changeTurn(1);
     else this.broadcastRefresh();
   }
 
@@ -3160,14 +3162,25 @@ class GLUniverseInitiativeOverlay {
     else this.broadcastRefresh();
   }
 
+  // Relocates a guard-broken combatant so it forfeits the rest of the current
+  // round. For an Apex boss (which acts several times a round) this sweeps the
+  // whole boss group — prime plus every reprise — out of the round at once and
+  // settles the turn pointer itself; it returns true in that case so the caller
+  // skips its own turn advance. A normal single combatant returns false.
   async moveGuardBrokenCombatantBeforeActive(combatant, activeId) {
     const combat = this.combat;
     const current = combat?.combatant;
-    if (!combat?.started || !current || !combatant) return;
+    if (!combat?.started || !current || !combatant) return false;
+
+    const group = getApexGroupCombatants(combat, combatant);
+    if (group && group.length > 1) {
+      await this.moveGuardBrokenApexGroupBeforeActive(group);
+      return true;
+    }
 
     const turns = Array.from(combat.turns ?? []);
     const currentIndex = turns.findIndex(turn => turn.id === current.id);
-    if (currentIndex < 0) return;
+    if (currentIndex < 0) return false;
 
     const before = currentIndex > 0 ? turns[currentIndex - 1] : null;
     const targetInitiative = chooseInitiativeBetween({
@@ -3178,6 +3191,62 @@ class GLUniverseInitiativeOverlay {
 
     await this.applyCombatantInitiative(combatant, targetInitiative);
     if (activeId) await this.restoreActiveTurn(activeId);
+    return false;
+  }
+
+  // Moves an entire Apex boss group ahead of the next non-boss combatant so none
+  // of the boss's turns (the prime or any reprise) fire again this round, and the
+  // whole block reappears next round in its correct relative order. The round
+  // resumes on the anchor — the first combatant at or after the active turn that
+  // is not part of the group — which also ends the boss's turn when it was active.
+  async moveGuardBrokenApexGroupBeforeActive(group) {
+    const combat = this.combat;
+    const current = combat?.combatant;
+    if (!combat?.started || !current || !group?.length) return;
+
+    const turns = Array.from(combat.turns ?? [])
+      .map(entry => Array.isArray(entry) ? entry[1] : entry)
+      .filter(Boolean);
+    const moverIds = new Set(group.map(member => member.id));
+
+    // The anchor is where the round picks back up: the first non-boss combatant
+    // at or after the active turn. If the boss closes out the round, fall back to
+    // the first non-boss combatant overall so the block still lands cleanly.
+    const currentIndex = Math.max(0, turns.findIndex(turn => turn.id === current.id));
+    let anchor = null;
+    for (let i = currentIndex; i < turns.length; i += 1) {
+      if (!moverIds.has(turns[i].id)) { anchor = turns[i]; break; }
+    }
+    if (!anchor) anchor = turns.find(turn => !moverIds.has(turn.id)) ?? null;
+    if (!anchor) return;   // boss-only combat: nothing meaningful to reorder
+
+    // Top bound of the relocated block: the nearest non-boss combatant ranked
+    // above the anchor (none when the anchor already sits at the top).
+    const anchorIndex = turns.findIndex(turn => turn.id === anchor.id);
+    let before = null;
+    for (let i = anchorIndex - 1; i >= 0; i -= 1) {
+      if (!moverIds.has(turns[i].id)) { before = turns[i]; break; }
+    }
+
+    // Pack the group contiguously between `before` and the anchor, descending in
+    // canonical order (prime first) so the boss reads in the right order when it
+    // acts next round.
+    const existing = turns
+      .filter(turn => !moverIds.has(turn.id))
+      .map(turn => Number(turn.initiative))
+      .filter(Number.isFinite);
+
+    let upper = before?.initiative;
+    for (const mover of group) {
+      const target = chooseInitiativeBetween({ before: upper, after: anchor.initiative, existing });
+      await this.applyCombatantInitiative(mover, target);
+      existing.push(target);
+      upper = target;
+    }
+
+    // Resume on the anchor; the whole boss block now sits just behind the turn
+    // pointer, so it has effectively passed for this round.
+    await this.restoreActiveTurn(anchor.id);
   }
 
   clearActiveGuardBreakSoon() {

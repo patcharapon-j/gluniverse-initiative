@@ -432,6 +432,44 @@ export function getApexState(combatant) {
   return null;
 }
 
+// Returns every Combatant that belongs to the same Apex boss as `combatant` —
+// the prime turn plus all of Flatfinder's reprise/extra turns — as an ordered
+// array (prime first, then extras by ascending ordinal), or null when the
+// combatant is not part of an Apex group. The group is resolved through the
+// prime's id (the extras carry it on their `apexExtra.primeId` flag), so a
+// guard break can sweep the whole boss out of the round rather than only the
+// single turn that was struck.
+export function getApexGroupCombatants(combat, combatant) {
+  if (!isFlatfinderActive() || !combat || !combatant) return null;
+  if (!getApexState(combatant)) return null;
+
+  // The prime's combatant id keys the group: it is the boss's own id when this
+  // is the prime turn, otherwise the primeId stamped onto the extra's flag.
+  const extra = combatant.getFlag?.(APEX.MODULE_ID, APEX.EXTRA_FLAG);
+  const primeId = (extra && typeof extra === "object" && extra.primeId) || combatant.id;
+
+  const all = Array.from(combat.combatants ?? [])
+    .map(entry => Array.isArray(entry) ? entry[1] : entry)
+    .filter(Boolean);
+
+  const ordinalOf = member => {
+    if (member.id === primeId) return 0;
+    const ex = member.getFlag?.(APEX.MODULE_ID, APEX.EXTRA_FLAG);
+    const index = Math.round(Number(ex?.index));
+    return Number.isFinite(index) && index > 0 ? index : Number.MAX_SAFE_INTEGER;
+  };
+
+  const members = all.filter(member => {
+    if (member.id === primeId) return true;
+    const ex = member.getFlag?.(APEX.MODULE_ID, APEX.EXTRA_FLAG);
+    return Boolean(ex && typeof ex === "object" && ex.primeId === primeId);
+  });
+
+  if (members.length === 0) return null;
+  members.sort((a, b) => ordinalOf(a) - ordinalOf(b));
+  return members;
+}
+
 // Normalizes the stored break-gauge flag into { max, value, mode, ratio } or
 // null when the combatant is not marked. Max is clamped to >= 1 and value to
 // the [0, max] range so render/draw code can trust the numbers.
