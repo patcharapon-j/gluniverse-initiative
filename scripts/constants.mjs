@@ -58,7 +58,9 @@ export const PALETTES = Object.freeze({
       breakAmber: Object.freeze([1.0, 0.694, 0.176]), // FX_FRAG_BREAK amber
       breakHot:   Object.freeze([1.0, 0.878, 0.439]),
       splashHot:  Object.freeze([1.0, 0.694, 0.176]), // BREAK_GL_FRAG full-screen
-      splashGlow: Object.freeze([1.0, 0.878, 0.439])
+      splashGlow: Object.freeze([1.0, 0.878, 0.439]),
+      apexBase:   Object.freeze([0.694, 0.294, 1.0]),   // FX_FRAG_APEX eclipse-violet ember
+      apexHot:    Object.freeze([1.0, 0.482, 0.839])
     })
   }),
   core: Object.freeze({
@@ -88,7 +90,9 @@ export const PALETTES = Object.freeze({
       breakAmber: Object.freeze([0.91, 0.60, 0.23]),
       breakHot:   Object.freeze([1.0, 0.82, 0.60]),
       splashHot:  Object.freeze([0.91, 0.60, 0.23]),
-      splashGlow: Object.freeze([1.0, 0.82, 0.60])
+      splashGlow: Object.freeze([1.0, 0.82, 0.60]),
+      apexBase:   Object.freeze([0.616, 0.420, 0.753]),  // muted eclipse-violet
+      apexHot:    Object.freeze([0.843, 0.604, 0.839])
     })
   }),
   fantasy: Object.freeze({
@@ -118,7 +122,9 @@ export const PALETTES = Object.freeze({
       breakAmber: Object.freeze([0.77, 0.45, 0.22]),   // ember orange
       breakHot:   Object.freeze([0.96, 0.82, 0.48]),
       splashHot:  Object.freeze([0.77, 0.45, 0.22]),
-      splashGlow: Object.freeze([0.96, 0.82, 0.48])
+      splashGlow: Object.freeze([0.96, 0.82, 0.48]),
+      apexBase:   Object.freeze([0.557, 0.310, 0.769]),  // arcane eclipse-violet
+      apexHot:    Object.freeze([0.847, 0.659, 0.910])
     })
   }),
   // Mirrors the look of the companion "GLUniverse Clocks & Tracker" module: a
@@ -151,7 +157,9 @@ export const PALETTES = Object.freeze({
       breakAmber: Object.freeze([1.0, 0.769, 0.329]),    // companion gold
       breakHot:   Object.freeze([1.0, 0.902, 0.710]),
       splashHot:  Object.freeze([1.0, 0.769, 0.329]),
-      splashGlow: Object.freeze([1.0, 0.902, 0.710])
+      splashGlow: Object.freeze([1.0, 0.902, 0.710]),
+      apexBase:   Object.freeze([0.635, 0.373, 0.878]),  // eclipse-violet on midnight HUD
+      apexHot:    Object.freeze([0.843, 0.604, 0.839])
     })
   })
 });
@@ -239,6 +247,22 @@ export const VISIBILITY = {
 // remove exactly the effect we created when the break is cleared.
 export const PF2E_GUARD_BREAK_EFFECT_SLUG = "gluni-guard-break";
 export const PF2E_GUARD_BREAK_PENALTY = 2;
+
+// PF2e-Flatfinder integration (optional, soft one-directional read). Flatfinder
+// marks a solo "Apex" boss with an actor flag and creates extra Combatant
+// documents for the boss's additional turns (at initiative -10, -20, …), tagging
+// the original as "prime" and each extra with its 1-based ordinal. We only ever
+// READ these — the overlay never writes Flatfinder flags. Key names mirror
+// Flatfinder's own constants.js; keep them in sync if that module renames them.
+// The PHASE_THRESHOLDS mirror Flatfinder's HP-phase beats so the card's menace
+// escalates in lock-step with the boss's mechanical phases.
+export const APEX = Object.freeze({
+  MODULE_ID: "pf2e-flatfinder",
+  FLAG: "apex",            // actor flag: { enabled, turns }
+  PRIME_FLAG: "apexPrime", // combatant flag on the boss's primary turn (true)
+  EXTRA_FLAG: "apexExtra", // combatant flag on an extra turn: { primeId, index, total }
+  PHASE_THRESHOLDS: Object.freeze([0.66, 0.33]) // HP fraction → Phase II / Phase III
+});
 
 export const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.A11y.OverlayLabel": "Initiative order",
@@ -342,6 +366,10 @@ export const LOCALIZATION_FALLBACKS = Object.freeze({
   "GLUNI.AdHoc.Visibility": "Visibility",
   "GLUNI.Delayed": "Delayed",
   "GLUNI.GuardBreak": "Break",
+  "GLUNI.Apex": "Apex",
+  "GLUNI.Apex.PhaseLabel": "Phase",
+  "GLUNI.Apex.Aria": "Apex solo creature, phase {phase} of 3",
+  "GLUNI.Apex.Ordinal.Aria": "Apex extra turn {index} of {total}",
   "GLUNI.Conditions.Title": "Conditions",
   "GLUNI.Conditions.Hide": "Hide on tracker",
   "GLUNI.Conditions.Show": "Show on tracker",

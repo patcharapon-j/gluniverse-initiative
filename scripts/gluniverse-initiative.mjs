@@ -10,9 +10,9 @@ import {
   PORTRAIT_FRAME_LIMITS, THEMES, DEFAULT_THEME, PALETTES, applyThemePalette
 } from "./constants.mjs";
 import { normalizeInitiativeNumber, getDisposition, formatRound, formatInitiative, localize, formatLocalized, modulo, clamp, wait, escapeHTML, escapeAttr, escapeCSSIdentifier } from "./util.mjs";
-import { FX_SUPERSAMPLE, FX_GLSL_NOISE, FX_FRAG_BREAK, FX_FRAG_DYING, FX_FRAG_DELAY, FX_FRAG_SCRAMBLE, FX_FRAG_TURN, FX_FRAG_TURN_BAKE, FX_FRAG_TURN_PLAY, FX_FRAG_DOWNSAMPLE, rgbFloat, FX_VERT_MESH, makeFxMesh, setFxMeshQuad, destroyFxMesh } from "./gl.mjs";
+import { FX_SUPERSAMPLE, FX_GLSL_NOISE, FX_FRAG_BREAK, FX_FRAG_DYING, FX_FRAG_DELAY, FX_FRAG_SCRAMBLE, FX_FRAG_APEX, FX_FRAG_TURN, FX_FRAG_TURN_BAKE, FX_FRAG_TURN_PLAY, FX_FRAG_DOWNSAMPLE, rgbFloat, FX_VERT_MESH, makeFxMesh, setFxMeshQuad, destroyFxMesh } from "./gl.mjs";
 import { TokenOverlayManager, getMarkerSheets, prewarmStatusShaders } from "./token-overlay.mjs";
-import { getPF2eDyingState, getDnd5eDeathState, getDyingState, getActorAttributeValue, getConditionValue, hasActorItem, COVERED_CONDITION_SLUGS, isPrimaryCondition, getConditionBadgeValue, getHiddenConditionKeys, getPrimaryConditionTags, getConditionTags, renderConditionRepeatText, getConditionTone, renderConditionLabels, findPF2eGuardBreakEffects, getActorItems, getItemSlug, renderDyingRepeatText, renderGuardBreakRepeatText, getGuardBreakState, getBreakGaugeState, renderBreakGaugeBar, renderDyingPips, renderDeathSavePips, renderDeathSaveRepeatText } from "./conditions.mjs";
+import { getPF2eDyingState, getDnd5eDeathState, getDyingState, getActorAttributeValue, getConditionValue, hasActorItem, COVERED_CONDITION_SLUGS, isPrimaryCondition, getConditionBadgeValue, getHiddenConditionKeys, getPrimaryConditionTags, getConditionTags, renderConditionRepeatText, getConditionTone, renderConditionLabels, findPF2eGuardBreakEffects, getActorItems, getItemSlug, renderDyingRepeatText, renderGuardBreakRepeatText, getGuardBreakState, getBreakGaugeState, renderBreakGaugeBar, renderDyingPips, renderDeathSavePips, renderDeathSaveRepeatText, getApexState } from "./conditions.mjs";
 
 
 // Exported as a live binding: token-overlay.mjs reads `overlay` (enabled state,
@@ -1720,6 +1720,10 @@ class GLUniverseInitiativeOverlay {
 
     const guardBroken = !adhoc && Boolean(getGuardBreakState(combatant));
     const dying = mystery || adhoc ? null : getDyingState(combatant);
+    // Apex (PF2e-Flatfinder solo boss). Suppressed for mystery (never leak that a
+    // hidden token is a boss / its phase) and defeated (the defeated treatment
+    // wins — menace dies with it), per the agreed precedence.
+    const apex = mystery || adhoc || combatant.defeated ? null : getApexState(combatant);
     // Generic conditions are completely overridden by dying/break/delay — those
     // states own the card's background field and announce themselves.
     const conditionsOverridden = options.delayed || guardBroken || Boolean(dying);
@@ -1740,6 +1744,7 @@ class GLUniverseInitiativeOverlay {
       guardBroken,
       breakGauge: mystery || adhoc ? null : getBreakGaugeState(combatant),
       dying,
+      apex,
       conditions,
       name: mystery ? localize("GLUNI.Unknown") : adhoc?.name ?? combatant.name,
       initiative: combatant.initiative,
@@ -1844,6 +1849,30 @@ class GLUniverseInitiativeOverlay {
     `;
   }
 
+  // Apex kicker tags: a crowned APEX label on every apex card, plus either the
+  // reprise ordinal (k/N — "the boss acts again") or, on the prime, the current
+  // HP phase. The crown lives here over the dark scrim, never on the portrait.
+  renderApexKicker(apex) {
+    const crown = `<span class="gluni-apex-tag"><i class="fa-solid fa-crown" aria-hidden="true"></i>${escapeHTML(localize("GLUNI.Apex").toUpperCase())}</span>`;
+    if (apex.role === "reprise") {
+      const aria = formatLocalized("GLUNI.Apex.Ordinal.Aria", { index: apex.index, total: apex.total });
+      return `${crown}<span class="gluni-apex-tag gluni-apex-tag--ordinal" role="img" aria-label="${escapeAttr(aria)}">${apex.index}/${apex.total}</span>`;
+    }
+    const roman = ["", "I", "II", "III"][apex.phase] ?? "I";
+    const aria = formatLocalized("GLUNI.Apex.Aria", { phase: apex.phase });
+    return `${crown}<span class="gluni-apex-tag gluni-apex-tag--phase" role="img" aria-label="${escapeAttr(aria)}">${escapeHTML(localize("GLUNI.Apex.PhaseLabel").toUpperCase())} ${roman}</span>`;
+  }
+
+  // Three-segment phase indicator on the prime card, filled to the current HP
+  // phase — the boss's life as a threat meter (composed → enraged → desperate).
+  renderApexPhasePips(apex) {
+    const aria = formatLocalized("GLUNI.Apex.Aria", { phase: apex.phase });
+    const pips = Array.from({ length: 3 }, (_unused, index) =>
+      `<span class="gluni-apex-phase-pip${index < apex.phase ? " gluni-apex-phase-pip--on" : ""}" aria-hidden="true"></span>`
+    ).join("");
+    return `<div class="gluni-apex-phase-pips" role="img" aria-label="${escapeAttr(aria)}">${pips}</div>`;
+  }
+
   renderCombatantCard(card) {
     const classes = [
       "gluni-card",
@@ -1858,6 +1887,9 @@ class GLUniverseInitiativeOverlay {
       card.dying ? `gluni-card--dying-${card.dying.severity}` : "",
       card.dying?.kind === "deathsaves" ? "gluni-card--deathsaves" : "",
       card.dying?.stable ? "gluni-card--stable" : "",
+      card.apex ? "gluni-card--apex" : "",
+      card.apex ? `gluni-card--apex-${card.apex.role}` : "",
+      card.apex ? `gluni-card--apex-phase-${card.apex.phase}` : "",
       card.mystery ? "gluni-card--mystery" : "",
       card.defeated ? "gluni-card--defeated" : "",
       card.cardMode ? "gluni-card--card-mode" : "",
@@ -1876,13 +1908,17 @@ class GLUniverseInitiativeOverlay {
     // a glitch scramble over the "?"; portrait cards get break/dying (the
     // persistent states). Falls back to the CSS background when WebGL is
     // unsupported.
+    // Apex ember runs only on the showpiece prime or an active reprise — bounding
+    // the live GPU work (inactive reprises carry the CSS treatment alone). Guard
+    // break / dying FX still take the portrait when present (break is on top).
+    const apexFx = card.apex && (card.apex.role === "prime" || card.active);
     const fxReady = !card.adhoc && cardFX?.supported;
     const fxMode = !fxReady
       ? null
       : card.mystery
         ? "scramble"
         : card.portrait
-          ? (card.guardBroken ? "break" : card.dying && !card.dying.stable ? "dying" : null)
+          ? (card.guardBroken ? "break" : card.dying && !card.dying.stable ? "dying" : apexFx ? "apex" : null)
           : null;
 
     const slotAttr = Number.isInteger(card.cardSlot) ? ` data-card-slot="${card.cardSlot}"` : "";
@@ -1939,10 +1975,15 @@ class GLUniverseInitiativeOverlay {
             </div>
           `
           : ""}
-        ${fxMode ? `<canvas class="gluni-card-portrait-fx gluni-card-portrait-fx--${fxMode}" data-fx="${fxMode}" aria-hidden="true"></canvas>` : ""}
+        ${fxMode ? `<canvas class="gluni-card-portrait-fx gluni-card-portrait-fx--${fxMode}" data-fx="${fxMode}"${fxMode === "apex" ? ` data-fx-phase="${card.apex.phase}"` : ""} aria-hidden="true"></canvas>` : ""}
+        ${card.apex
+          ? `<div class="gluni-card-apex-corona" aria-hidden="true"></div>
+             <div class="gluni-card-apex-corners" aria-hidden="true"><span></span><span></span><span></span><span></span></div>`
+          : ""}
         <div class="gluni-card-content">
           <div class="gluni-card-kicker">
             ${card.active ? `<span class="gluni-active-tag">TURN</span>` : ""}
+            ${card.apex ? this.renderApexKicker(card.apex) : ""}
             ${card.guardBroken ? `<span class="gluni-guard-break-tag">${localize("GLUNI.GuardBreak").toUpperCase()}</span>` : ""}
             ${card.dying ? (card.dying.kind === "deathsaves"
               ? `<span class="gluni-dying-tag${card.dying.stable ? " gluni-dying-tag--stable" : ""}">${(card.dying.stable ? localize("GLUNI.DeathSaves.Stable") : localize("GLUNI.DeathSaves")).toUpperCase()}</span>`
@@ -1953,6 +1994,7 @@ class GLUniverseInitiativeOverlay {
           </div>
           <h3>${escapeHTML(card.name)}</h3>
           ${card.dying ? (card.dying.kind === "deathsaves" ? renderDeathSavePips(card.dying) : renderDyingPips(card.dying)) : ""}
+          ${card.apex?.role === "prime" ? this.renderApexPhasePips(card.apex) : ""}
           ${card.breakGauge ? renderBreakGaugeBar(card.breakGauge) : ""}
         </div>
         ${card.cardMode ? this.renderCardBadge(card) : `<span class="gluni-initiative-badge">${formatInitiative(card.initiative)}</span>`}
@@ -5341,7 +5383,8 @@ class CardFXManager {
       this.filters = {
         break:    mk(FX_FRAG_BREAK,    { uBreakAmber: [...S.breakAmber], uBreakHot: [...S.breakHot] }),
         dying:    mk(FX_FRAG_DYING,    { uVeinBase:   [...S.veinBase],   uVeinHot:  [...S.veinHot]  }),
-        scramble: mk(FX_FRAG_SCRAMBLE, { uMysteryA:   [...S.mysteryA],   uMysteryB: [...S.mysteryB] })
+        scramble: mk(FX_FRAG_SCRAMBLE, { uMysteryA:   [...S.mysteryA],   uMysteryB: [...S.mysteryB] }),
+        apex:     mk(FX_FRAG_APEX,     { uPhase: 1, uApexBase: [...S.apexBase], uApexHot: [...S.apexHot] })
       };
       // Force each filter's GLSL program to compile now. Otherwise the program
       // compiles lazily on the first frame a card is broken/dying/mystery, stalling
@@ -5388,6 +5431,9 @@ class CardFXManager {
         mode,
         seed: prev?.seed ?? Math.random() * 100,
         impact: prev?.impact ?? [0.42 + Math.random() * 0.36, 0.18 + Math.random() * 0.42],
+        // Apex HP phase (1..3) read fresh from the rebuilt canvas each render, so
+        // escalation tracks HP without resetting the ember clock.
+        phase: mode === "apex" ? (Number(cv.dataset.fxPhase) || 1) : 1,
         t0: prev && prev.mode === mode ? prev.t0 : performance.now()
       });
     });
@@ -5457,6 +5503,7 @@ class CardFXManager {
         filter.uniforms.uAspect = rw / rh;
         filter.uniforms.uTexel = 1 / rh;
         if (entry.mode === "break") filter.uniforms.uImpact = entry.impact;
+        if (entry.mode === "apex") filter.uniforms.uPhase = entry.phase;
         this.sprite.width = rw;
         this.sprite.height = rh;
         this.sprite.filters = [filter];
@@ -5480,6 +5527,8 @@ class CardFXManager {
     set(this.filters.dying,    "uVeinHot",    S.veinHot);
     set(this.filters.scramble, "uMysteryA",   S.mysteryA);
     set(this.filters.scramble, "uMysteryB",   S.mysteryB);
+    set(this.filters.apex,     "uApexBase",   S.apexBase);
+    set(this.filters.apex,     "uApexHot",    S.apexHot);
   }
 
   destroy() {
