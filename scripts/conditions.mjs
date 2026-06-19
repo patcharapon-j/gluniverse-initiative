@@ -173,11 +173,90 @@ export function getPrimaryConditionItems(combatant) {
   return tags;
 }
 
+// Statuses the 5e overlay represents through other dedicated states (or that
+// read as noise on a card), so they never surface as a generic condition badge.
+// `dead` is owned by the defeated treatment; the 0-HP downed state is owned by
+// the death-save display (conditions are overridden whenever dying is present).
+export const DND5E_COVERED_STATUSES = new Set(["dead"]);
+
+// Resolve a 5e status id to a display label. Conditions carry a localization key
+// under `name` (older builds used `label`); fall back to the matching core
+// `CONFIG.statusEffects` entry, then a title-cased id, so module-added statuses
+// and version drift both degrade gracefully rather than rendering a raw slug.
+function getDnd5eStatusName(id, condition) {
+  for (const key of [condition?.name, condition?.label]) {
+    if (!key) continue;
+    const localized = game.i18n?.localize?.(key);
+    if (localized && localized !== key) return localized;
+  }
+  const status = (CONFIG?.statusEffects ?? []).find(effect => effect?.id === id);
+  const statusKey = status?.name ?? status?.label;
+  if (statusKey) {
+    const localized = game.i18n?.localize?.(statusKey);
+    return localized && localized !== statusKey ? localized : statusKey;
+  }
+  return String(id).replace(/[-_]/g, " ").replace(/\b\w/g, char => char.toUpperCase());
+}
+
+// Every active D&D 5e status/condition on a combatant, mapped to the shared tag
+// shape used by the PF2e path. 5e models conditions as ActiveEffects aggregated
+// on `actor.statuses` (a Set of status ids); exhaustion is valued and carries
+// its level in `system.attributes.exhaustion`. Statuses implied by another
+// active condition (e.g. `incapacitated` granted by `paralyzed`/`unconscious`)
+// are dropped so only the source condition shows — mirroring the PF2e
+// "skip linked children" behaviour. The status id doubles as the stable `key`
+// so the GM hide toggle and announce de-dup keep working.
+export function getDnd5eConditionItems(combatant) {
+  if (game.system?.id !== "dnd5e") return [];
+  const actor = combatant?.actor;
+  if (!actor) return [];
+
+  const statuses = actor.statuses;
+  if (!statuses || typeof statuses[Symbol.iterator] !== "function") return [];
+  const active = Array.from(statuses).map(id => String(id)).filter(Boolean);
+  if (!active.length) return [];
+
+  const conditionTypes = CONFIG?.DND5E?.conditionTypes ?? {};
+
+  // Statuses granted as a side-effect of another active condition.
+  const implied = new Set();
+  for (const id of active) {
+    const sub = conditionTypes[id]?.statuses;
+    if (Array.isArray(sub)) for (const child of sub) implied.add(String(child));
+  }
+
+  const tags = [];
+  for (const id of active) {
+    if (DND5E_COVERED_STATUSES.has(id) || implied.has(id)) continue;
+    const name = getDnd5eStatusName(id, conditionTypes[id]);
+    if (!name) continue;
+    let value = null;
+    if (id === "exhaustion") {
+      const level = Math.round(Number(actor.system?.attributes?.exhaustion) || 0);
+      value = level > 0 ? level : null;
+    }
+    const text = value === null ? name.toUpperCase() : `${name.toUpperCase()} ${value}`;
+    tags.push({ key: id, slug: id, name, value, text });
+  }
+  // Stable alphabetical order so Set iteration drift never reshuffles badges.
+  tags.sort((a, b) => a.name.localeCompare(b.name));
+  return tags;
+}
+
+// System dispatcher for the full primary condition set (ignoring the GM per-card
+// hide toggle). Each underlying reader self-gates by system id and returns the
+// shared tag shape; unsupported systems get an empty list.
+export function getPrimaryConditionTags(combatant) {
+  if (game.system?.id === "pf2e") return getPrimaryConditionItems(combatant);
+  if (game.system?.id === "dnd5e") return getDnd5eConditionItems(combatant);
+  return [];
+}
+
 // Display set — primary conditions minus any the GM hid on this card. Returns
 // null when there is nothing to show so callers can branch cheaply.
-export function getPF2eConditionTags(combatant) {
+export function getConditionTags(combatant) {
   const hidden = getHiddenConditionKeys(combatant);
-  const tags = getPrimaryConditionItems(combatant).filter(tag => !hidden.has(tag.key));
+  const tags = getPrimaryConditionTags(combatant).filter(tag => !hidden.has(tag.key));
   return tags.length ? tags : null;
 }
 
